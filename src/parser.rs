@@ -38,6 +38,23 @@ impl<T> From<OneOrMany<T>> for Vec<T> {
   }
 }
 
+/// Represents all YAML values, except floating point numbers.
+/// Can be used as key in `HashMap`.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[serde(untagged)]
+pub enum MappingKey {
+  /// Represents a YAML null value.
+  Null,
+  /// Represents a YAML boolean.
+  Bool(bool),
+  /// Represents a YAML positive integer value.
+  PosInt(u64),
+  /// Represents a YAML negative integer value (that value always negative).
+  NegInt(i64),
+  /// Represents a YAML string.
+  String(String),
+}
+
 /// Generic variant wrapper, that allow or fixed value, or describe a set
 /// of possible choices selected based on some expression.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -51,7 +68,7 @@ pub enum Variant<T> {
     /// Expression which determines what variant will be used
     switch_on: AnyScalar,
     /// Variants
-    cases: HashMap<String, T>,
+    cases: HashMap<MappingKey, T>,
   }
 }
 
@@ -459,7 +476,7 @@ pub enum Type {//TODO: use Variant<TypeRef> (https://github.com/kaitai-io/ksy_sc
     /// Expression which determines what variant will be used
     switch_on: AnyScalar,
     /// Variants
-    cases: HashMap<String, AnyScalar>,//TODO: make PR: string->string|number
+    cases: HashMap<MappingKey, AnyScalar>,//TODO: make PR: string->string|number
   },
 }
 
@@ -880,9 +897,9 @@ pub enum EnumValue {
 /// Enumeration definition
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 #[serde(transparent)]
-pub struct Enum(HashMap<String, EnumValue>);// TODO: заменить ключ на AnyScalar
+pub struct Enum(HashMap<MappingKey, EnumValue>);
 impl Deref for Enum {
-  type Target = HashMap<String, EnumValue>;
+  type Target = HashMap<MappingKey, EnumValue>;
 
   fn deref(&self) -> &Self::Target { &self.0 }
 }
@@ -1076,8 +1093,8 @@ fn type_() {
   assert_eq!(type_, Type::Choice {
     switch_on: AnyScalar::String("id".to_owned()),
     cases: HashMap::from_iter(vec![
-      ("1".to_owned(), AnyScalar::String("one".to_owned())),
-      ("2".to_owned(), AnyScalar::String("two".to_owned())),
+      (MappingKey::String("1".to_owned()), AnyScalar::String("one".to_owned())),
+      (MappingKey::String("2".to_owned()), AnyScalar::String("two".to_owned())),
     ]),
   });
 }
