@@ -53,8 +53,8 @@ peg::parser! {
       / fixed() exponent()?   // Ex.: 4.E2, .4e+2, 4.2e-0
     ;
     rule fixed()
-      = digit()* "." digit()+     // Ex.: 4.2, .42
-      / digit()+ "." !namePart()  // Ex.: 42.
+      = digit()* "." digit()+        // Ex.: 4.2, .42
+      / digit()+ "." !(_ nameStart())// Ex.: 42.
       ;
     rule exponent() = ['e' | 'E'] ['+' | '-']? digit()+;
 
@@ -361,17 +361,27 @@ mod parse {
       #[test]
       fn interpolated_strings() {
         assert_eq!(parse_single(r#""abc""def""#), Ok(()));
+        assert_eq!(parse_single(r#""abc" "def""#), Ok(()));
+        assert_eq!(parse_single("\"abc\"\n\"def\""), Ok(()));
       }
 
       #[test]
       fn non_interpolated_strings() {
-        assert_eq!(parse_single(r#"'abc''def'"#), Ok(()));
+        assert_eq!(parse_single("'abc''def'"), Ok(()));
+        assert_eq!(parse_single("'abc' 'def'"), Ok(()));
+        assert_eq!(parse_single("'abc'\n'def'"), Ok(()));
       }
 
       #[test]
       fn mixed_strings() {
         assert_eq!(parse_single(r#""abc"'def'"#), Ok(()));
         assert_eq!(parse_single(r#"'abc'"def""#), Ok(()));
+
+        assert_eq!(parse_single(r#""abc" 'def'"#), Ok(()));
+        assert_eq!(parse_single(r#"'abc' "def""#), Ok(()));
+
+        assert_eq!(parse_single("\"abc\"\n'def'"), Ok(()));
+        assert_eq!(parse_single("'abc'\n\"def\""), Ok(()));
       }
     }
   }
@@ -574,19 +584,31 @@ mod parse {
     #[test]
     fn access() {
       assert_eq!(parse_single("123.to_s"), Ok(()));
+      assert_eq!(parse_single("123. to_s"), Ok(()));
+      assert_eq!(parse_single("123.\nto_s"), Ok(()));
       assert_eq!(parse_single("foo.bar"), Ok(()));
     }
 
     #[test]
     fn int_not_float() {
       assert_eq!(parse_single("123.e"), Ok(()));
+      assert_eq!(parse_single("123. e"), Ok(()));
+      assert_eq!(parse_single("123.\ne"), Ok(()));
+
       assert_eq!(parse_single("123.E"), Ok(()));
+      assert_eq!(parse_single("123. E"), Ok(()));
+      assert_eq!(parse_single("123.\nE"), Ok(()));
+
       assert_eq!(parse_single("123._"), Ok(()));
+      assert_eq!(parse_single("123. _"), Ok(()));
+      assert_eq!(parse_single("123.\n_"), Ok(()));
     }
 
     #[test]
     fn float_and_access() {
       assert_eq!(parse_single("123.4.to_s"), Ok(()));
+      assert_eq!(parse_single("123.4. to_s"), Ok(()));
+      assert_eq!(parse_single("123.4.\nto_s"), Ok(()));
     }
   }
 }
