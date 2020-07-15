@@ -2,6 +2,24 @@
 
 //TODO: Describe the language
 
+use std::char;
+use std::iter::FromIterator;
+
+/// Helper function to convert escape codes to characters
+#[inline]
+fn to_char(number: &str, radix: u32) -> Result<char, &'static str> {
+  let code = u32::from_str_radix(&number.replace('_', ""), radix)
+                 .map_err(|_| "escape sequence must contain at least one digit");
+
+  char::from_u32(code?).ok_or("unknown character for escape sequence")
+}
+/// Helper function to convert parsed numbers from string to integer
+#[inline]
+fn to_usize(number: &str, radix: u32) -> Result<usize, &'static str> {
+  usize::from_str_radix(&number.replace('_', ""), radix)
+        .map_err(|_| "integer literal must contain at least one digit")
+}
+
 peg::parser! {
   /// Contains generated parser for Kaitai Struct expression language.
   pub grammar parser() for str {
@@ -21,26 +39,26 @@ peg::parser! {
     /// End-Of-Stream
     rule EOS() = ![_];
 
-    rule string()
-      = "'" [x if x != '\'']* "'"
-      / "\"" (ch() / escaped())* "\""
+    rule string() -> String
+      = "'" s:$([x if x != '\'']*) "'"  { s.to_owned() }
+      / "\"" v:(ch() / escaped())* "\"" { String::from_iter(v.into_iter()) }
       ;
 
     /// Single non-escaped character in string
-    rule ch() = [x if x != '\\' && x != '"'];
+    rule ch() -> char = ch:$[x if x != '\\' && x != '"'] { ch.chars().next().unwrap() };
     /// One escaped character
-    rule escaped() = "\\" (quotedChar() / quotedOct() / quotedHex());
+    rule escaped() -> char = "\\" r:(quotedChar() / quotedOct() / quotedHex()) { r };
     /// Characters that can be escaped by backslash
-    rule quotedChar() = ['a'|'b'|'t'|'n'|'v'|'f'|'r'|'e'|'\''|'"'|'\\'];
-    rule quotedOct()  = oct()+;
-    rule quotedHex()  = ['u'] hex()*<4>;
+    rule quotedChar() -> char = ch:$['a'|'b'|'t'|'n'|'v'|'f'|'r'|'e'|'\''|'"'|'\\'] { ch.chars().next().unwrap() };
+    rule quotedOct() -> char  = s:$(oct()+) {? to_char(s, 8) };
+    rule quotedHex() -> char  = ['u'] s:$(hex()*<4>) {? to_char(s, 16) };
 
-    rule integer()
-      = ['1'..='9'] ['0'..='9' | '_']*
-      / "0" ['b' | 'B'] bin()+
-      / "0" ['o' | 'O'] oct()+
-      / "0" ['x' | 'X'] hex()+
-      / "0"
+    rule integer() -> usize
+      = n:$(['1'..='9'] ['0'..='9' | '_']*) {? to_usize(n, 10) }
+      / "0" ['b' | 'B'] n:$(bin()+) {? to_usize(n,  2) }
+      / "0" ['o' | 'O'] n:$(oct()+) {? to_usize(n,  8) }
+      / "0" ['x' | 'X'] n:$(hex()+) {? to_usize(n, 16) }
+      / "0" { 0 }
       ;
     rule oct() = ['0'..='7' | '_'];
     rule bin() = ['0'..='1' | '_'];
@@ -48,10 +66,10 @@ peg::parser! {
 
     rule digit() = ['0'..='9'];
 
-    rule float()//TODO: allow '_' in floats
-      = digit()+ exponent()   // Ex.: 4E2, 4E+2, 4e-2
+    rule float() -> f64 = n:$(//TODO: allow '_' in floats
+        digit()+ exponent()   // Ex.: 4E2, 4E+2, 4e-2
       / fixed() exponent()?   // Ex.: 4.E2, .4e+2, 4.2e-0
-    ;
+    ) {? n.replace('_', "").parse().map_err(|_| "float literal must contain at least one digit") };
     rule fixed()
       = digit()* "." digit()+        // Ex.: 4.2, .42
       / digit()+ "." !(_ nameStart())// Ex.: 42.
@@ -60,7 +78,7 @@ peg::parser! {
 
     //-------------------------------------------------------------------------------------------------
 
-    rule name() = nameStart() namePart()*;
+    rule name() -> &'input str = $(nameStart() namePart()*);
     rule nameStart() = ['a'..='z' | 'A'..='Z' | '_'];
     rule namePart()  = ['a'..='z' | 'A'..='Z' | '_' | '0'..='9'];
 
@@ -353,6 +371,54 @@ mod parse {
     #[test]
     fn interpolated_with_hex_unicode_char() {
       assert_eq!(parse_single("\"abc\\u21bbdef\""), Ok(()));
+    }
+
+    mod escape_sequence {
+      use super::*;
+
+      #[test]
+      fn character() {
+        assert_eq!(parse_single(r#""\a""#), Ok(()));
+        assert_eq!(parse_single(r#""\b""#), Ok(()));
+        assert_eq!(parse_single(r#""\t""#), Ok(()));
+        assert_eq!(parse_single(r#""\n""#), Ok(()));
+        assert_eq!(parse_single(r#""\v""#), Ok(()));
+        assert_eq!(parse_single(r#""\f""#), Ok(()));
+        assert_eq!(parse_single(r#""\r""#), Ok(()));
+        assert_eq!(parse_single(r#""\e""#), Ok(()));
+        assert_eq!(parse_single(r#""\'""#), Ok(()));
+        assert_eq!(parse_single(r#""\"""#), Ok(()));
+        assert_eq!(parse_single(r#""\\""#), Ok(()));
+      }
+
+      #[test]
+      fn oct() {
+        assert_eq!(parse_single(r#""\0000""#), Ok(()));
+        assert_eq!(parse_single(r#""\123""#), Ok(()));
+      }
+
+      #[test]
+      fn hex() {
+        assert_eq!(parse_single(r#""\u0000""#), Ok(()));
+        assert_eq!(parse_single(r#""\uFFFF""#), Ok(()));
+      }
+
+      #[test]
+      fn with_underscores() {
+        assert_eq!(parse_single(r#""\_00_00""#), Ok(()));
+        assert_eq!(parse_single(r#""\__0000""#), Ok(()));
+        assert_eq!(parse_single(r#""\0000__""#), Ok(()));
+
+        assert_eq!(parse_single(r#""\u_00_00""#), Ok(()));
+        assert_eq!(parse_single(r#""\u__0000""#), Ok(()));
+        assert_eq!(parse_single(r#""\u0000__""#), Ok(()));
+      }
+
+      #[test]
+      fn with_only_underscores() {
+        assert!(parse_single(r#""\_""#).is_err());
+        assert!(parse_single(r#""\u____""#).is_err());
+      }
     }
 
     mod concat {
