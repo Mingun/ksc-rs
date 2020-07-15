@@ -6,15 +6,20 @@ peg::parser! {
   /// Contains generated parser for Kaitai Struct expression language.
   pub grammar parser() for str {
     /// Entry point for parsing expressions in `if`, `io`, `pos`, `repeat-expr`, `repeat-until`, `size`, `switch-on`, `valid.min`, `valid.max`, `valid.expr`, `value`.
-    pub rule parse_single() = expr() _ EOF();
+    pub rule parse_single() = _ expr() _ EOS();
 
     /// Entry point for parsing list of expressions in function calls and parametrized types instantiations.
-    pub rule parse_list() = expr() _ ("," _ expr() _)* EOF();
+    pub rule parse_list() = _ expr() _ ("," _ expr() _)* EOS();
 
     /// Whitespace rule
-    rule _() = quiet!{([' '|'\n']+ / "\\\n")*};
+    rule _() = quiet!{([' '|'\n']+ / "\\\n" / comment())*};
 
-    rule EOF() = ![_];
+    rule comment() = "#" (!EOL() [_])* EOL();
+
+    /// End-Of-Line
+    rule EOL() = ['\n'] / EOS();
+    /// End-Of-Stream
+    rule EOS() = ![_];
 
     rule string()
       = "'" [x if x != '\'']* "'"
@@ -70,7 +75,7 @@ peg::parser! {
     rule AND() = "and" !namePart();
     rule NOT() = "not" !namePart();
 
-    rule expr()     = or_test() (_ "?" _ expr() _ ":" _ expr())?
+    rule expr()     = or_test() (_ "?" _ expr() _ ":" _ expr())?;
     rule or_test()  = and_test() (_ OR()  _ and_test())*;
     rule and_test() = not_test() (_ AND() _ not_test())*;
 
@@ -128,7 +133,43 @@ peg::parser! {
 
 #[cfg(test)]
 mod parse {
-  use super::parser::parse_single;
+  /// Wrapper, for use with https://github.com/fasterthanlime/pegviz
+  fn parse_single(input: &str) -> Result<(), peg::error::ParseError<peg::str::LineCol>> {
+    println!("[PEG_INPUT_START]\n{}\n[PEG_TRACE_START]", input);
+    let result = super::parser::parse_single(input);
+    println!("[PEG_TRACE_STOP]");
+    result
+  }
+
+  mod comments {
+    use super::*;
+
+    #[test]
+    fn empty() {
+      assert_eq!(parse_single("#\n123"), Ok(()));
+    }
+    #[test]
+    fn following() {
+      assert_eq!(parse_single("123# comment"), Ok(()));
+      assert_eq!(parse_single("123\n# comment"), Ok(()));
+    }
+    #[test]
+    fn leading() {
+      assert_eq!(parse_single("# comment\n123"), Ok(()));
+    }
+    #[test]
+    fn multi_line() {
+      assert_eq!(parse_single(r#"
+      1
+      # multi-line
+      # comment
+      +
+      # and yet
+      # another
+      2
+      "#), Ok(()));
+    }
+  }
 
   mod dec {
     use super::*;
