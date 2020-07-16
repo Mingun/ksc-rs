@@ -5,6 +5,33 @@
 use std::char;
 use std::iter::FromIterator;
 
+/// Represents reference to type definition.
+///
+/// Reference to type consist of:
+/// - optional absolute path specifier (`::`)
+/// - zero or more types in which required type is defined, delimited by `::`
+/// - (local) name of the required type
+/// - optional array specifier (`[]`)
+///
+/// Examples:
+/// - `simple_type`
+/// - `array_type[]`
+/// - `path::to_inner::type`
+/// - `::absolute::path`
+///
+/// `'input` lifetime is bound to lifetime of parsed string. Each element in path
+/// just a slice inside original string.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TypeRef<'input> {
+  /// Names of all types in path to current type.
+  /// Last element is local name of current type.
+  pub path: Vec<&'input str>,
+  /// Path is absolute (starts from top-level type)
+  pub absolute: bool,
+  /// Path is array type
+  pub array: bool,
+}
+
 /// Helper function to convert escape codes to characters
 #[inline]
 fn to_char(number: &str, radix: u32) -> Result<char, &'static str> {
@@ -82,8 +109,16 @@ peg::parser! {
     rule nameStart() = ['a'..='z' | 'A'..='Z' | '_'];
     rule namePart()  = ['a'..='z' | 'A'..='Z' | '_' | '0'..='9'];
 
-    rule typeName() = "::"? _ name()                 (_ "::" _ name())* (_ "[" _ "]")?;// Ex.: xyz, ::abc::def, array[]
-    rule enumName() = "::"? _ name() _ "::" _ name() (_ "::" _ name())*;               // Ex.: enum::value, ::root::type::enum::value
+    /// Ex.: `xyz`, `::abc::def`, `array[]`
+    rule typeName() -> TypeRef<'input>
+      = absolute:"::"? _ first:name() tail:(_ "::" _ n:name() {n})* array:(_ "[" _ "]")? {
+        let mut path = vec![first];
+        path.extend(tail);
+
+        TypeRef { path, absolute: absolute.is_some(), array: array.is_some() }
+      };
+    /// Ex.: `enum::value`, `::root::type::enum::value`
+    rule enumName() = "::"? _ name() _ "::" _ name() (_ "::" _ name())*;
 
     //-------------------------------------------------------------------------------------------------
     // Operators
