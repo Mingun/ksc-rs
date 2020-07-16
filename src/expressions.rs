@@ -32,6 +32,62 @@ pub struct TypeRef<'input> {
   pub array: bool,
 }
 
+/// List of possible unary operations
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum UnaryOp {
+  /// `-`: The unary negation operator.
+  Neg,
+  /// `not`: The unary logical negation operator.
+  Not,
+  /// `~`: The unary bit inversion operator.
+  Inv,
+}
+
+/// List of possible operations over two arguments. All operations is left-associative
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum BinaryOp {
+  /// `+`: Addition of two numeric arguments or concatenation of two strings.
+  Add,
+  /// `-`: Subtraction of two numeric arguments.
+  Sub,
+  /// `*`: Multiplication of two numeric arguments.
+  Mul,
+  /// `/`: Division of two numeric arguments.
+  Div,
+  /// `%`: Remainder of division of two numeric arguments.
+  Rem,
+
+  /// `<<`: The left shift operator.
+  Shl,
+  /// `>>`: The right shift operator.
+  Shr,
+
+  /// `==`: Equality operator
+  Eq,
+  /// `!=`: Non-equality operator
+  Ne,
+  /// `<=`: Less or equal operator
+  Le,
+  /// `>=`: Greater or equal operator
+  Ge,
+  /// `<`: Strict less operator
+  Lt,
+  /// `>`: Strict greater operator
+  Gt,
+
+  /// `and`: Two expressions evaluates to `true` iif both of them evaluates to `true`.
+  And,
+  /// `or`: Two expressions evaluates to `true` if at least one of them evaluates to `true`.
+  Or,
+
+  /// `&`: Performs bitwise AND operation
+  BitAnd,
+  /// `&`: Performs bitwise OR operation
+  BitOr,
+  /// `^`: Performs bitwise XOR (exclusive-or) operation
+  BitXor,
+}
+
 /// Helper function to convert escape codes to characters
 #[inline]
 fn to_char(number: &str, radix: u32) -> Result<char, &'static str> {
@@ -69,6 +125,8 @@ fn to_escaped(ch: &str) -> char {
 peg::parser! {
   /// Contains generated parser for Kaitai Struct expression language.
   pub grammar parser() for str {
+    use BinaryOp::*;
+
     /// Entry point for parsing expressions in `if`, `io`, `pos`, `repeat-expr`, `repeat-until`, `size`, `switch-on`, `valid.min`, `valid.max`, `valid.expr`, `value`.
     pub rule parse_single() = _ expr() _ EOS();
 
@@ -156,21 +214,34 @@ peg::parser! {
       / or_expr() (_ comp_op() _ or_expr())?
       ;
 
-    rule comp_op()
-      = "=="
-      / "!="
-      / "<="
-      / ">="
-      / "<"
-      / ">"
+    rule comp_op() -> BinaryOp
+      = "==" { Eq }
+      / "!=" { Ne }
+      / "<=" { Le }
+      / ">=" { Ge }
+      / "<"  { Lt }
+      / ">"  { Gt }
+      ;
+    rule shift_op() -> BinaryOp
+      = "<<" { Shl }
+      / ">>" { Shr }
+      ;
+    rule add_op() -> BinaryOp
+      = "+" { Add }
+      / "-" { Sub }
+      ;
+    rule mul_op() -> BinaryOp
+      = "*" { Mul }
+      / "/" { Div }
+      / "%" { Rem }
       ;
 
     rule or_expr()    = xor_expr()   (_ "|"           _ xor_expr()  )*;
     rule xor_expr()   = and_expr()   (_ "^"           _ and_expr()  )*;
     rule and_expr()   = shift_expr() (_ "&"           _ shift_expr())*;
-    rule shift_expr() = arith_expr() (_ ("<<" / ">>") _ arith_expr())*;
-    rule arith_expr() = term()       (_ ['+'|'-']     _ term()      )*;
-    rule term()       = factor()     (_ ['*'|'/'|'%'] _ factor()    )*;
+    rule shift_expr() = arith_expr() (_ shift_op()    _ arith_expr())*;
+    rule arith_expr() = term()       (_ add_op()      _ term()      )*;
+    rule term()       = factor()     (_ mul_op()      _ factor()    )*;
 
     rule factor()
       = "+" _ factor()
