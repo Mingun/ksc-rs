@@ -130,6 +130,8 @@ peg::parser! {
       / "[" _ list()? _ "]"
       / "sizeof" _ "<" _ typeName() _ ">"
       / "bitsizeof" _ "<" _ typeName() _ ">"
+      / "true"  !namePart()
+      / "false" !namePart()
       / (string() _)+
       / enumName()
       / name()
