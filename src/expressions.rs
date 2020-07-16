@@ -46,7 +46,26 @@ fn to_usize(number: &str, radix: u32) -> Result<usize, &'static str> {
   usize::from_str_radix(&number.replace('_', ""), radix)
         .map_err(|_| "integer literal must contain at least one digit")
 }
+/// Helper function to convert parsed escape characters mnemonics to characters itself
+#[inline]
+fn to_escaped(ch: &str) -> char {
+  match ch.chars().next().unwrap() {
+    'a' => '\x07',// bell
+    'b' => '\x08',// backspace
+    't' => '\t',
+    'n' => '\n',
+    'v' => '\x0B',// vertical tab
+    'f' => '\x0C',// formfeed page break
+    'r' => '\r',
+    'e' => '\x1B',// escape
+    '\''=> '\'',
+    '"' => '"',
+    '\\'=> '\\',
 
+    // this function called only with above list of characters
+    _ => unreachable!(),
+  }
+}
 peg::parser! {
   /// Contains generated parser for Kaitai Struct expression language.
   pub grammar parser() for str {
@@ -76,7 +95,7 @@ peg::parser! {
     /// One escaped character
     rule escaped() -> char = "\\" r:(quotedChar() / quotedOct() / quotedHex()) { r };
     /// Characters that can be escaped by backslash
-    rule quotedChar() -> char = ch:$['a'|'b'|'t'|'n'|'v'|'f'|'r'|'e'|'\''|'"'|'\\'] { ch.chars().next().unwrap() };
+    rule quotedChar() -> char = ch:$['a'|'b'|'t'|'n'|'v'|'f'|'r'|'e'|'\''|'"'|'\\'] { to_escaped(ch) };
     rule quotedOct() -> char  = s:$(oct()+) {? to_char(s, 8) };
     rule quotedHex() -> char  = ['u'] s:$(hex()*<4>) {? to_char(s, 16) };
 
