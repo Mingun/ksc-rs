@@ -460,25 +460,12 @@ pub enum TypeRef {
   /// Reference to user-defined type. If path contains only one element, then
   /// type definition is searched in this level and above, otherwise in this
   /// level and below.
-  User(Path),
+  ///
+  /// Pattern: `^([a-z][a-z0-9_]*::)*[a-z][a-z0-9_]*(\(.+\))?$`
+  User(String),
 }
 /// Definition of attribute type.
-#[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(untagged)]
-pub enum Type {//TODO: use Variant<TypeRef> (https://github.com/kaitai-io/ksy_schema/pull/14)
-  /// Reference to built-in type
-  Builtin(Builtin),
-  /// Reference to user-defined type
-  User(String),
-  /// Dynamically calculated value based on some expression.
-  #[serde(rename_all = "kebab-case")]
-  Choice {
-    /// Expression which determines what variant will be used
-    switch_on: AnyScalar,
-    /// Variants
-    cases: HashMap<MappingKey, AnyScalar>,//TODO: make PR: string->string|number
-  },
-}
+pub type Type = Variant<TypeRef>;
 
 /// Attribute repetition variants
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -1079,10 +1066,10 @@ fn type_() {
   use std::iter::FromIterator;
 
   let type_: Type = serde_yaml::from_str("str").unwrap();
-  assert_eq!(type_, Type::Builtin(Builtin::str));
+  assert_eq!(type_, Type::Fixed(TypeRef::Builtin(Builtin::str)));
 
   let type_: Type = serde_yaml::from_str("custom").unwrap();
-  assert_eq!(type_, Type::User("custom".to_owned()));
+  assert_eq!(type_, Type::Fixed(TypeRef::User("custom".to_owned())));
 
   let type_: Type = serde_yaml::from_str("
     switch-on: id
@@ -1093,8 +1080,8 @@ fn type_() {
   assert_eq!(type_, Type::Choice {
     switch_on: AnyScalar::String("id".to_owned()),
     cases: HashMap::from_iter(vec![
-      (MappingKey::String("1".to_owned()), AnyScalar::String("one".to_owned())),
-      (MappingKey::String("2".to_owned()), AnyScalar::String("two".to_owned())),
+      (MappingKey::String("1".to_owned()), TypeRef::User("one".to_owned())),
+      (MappingKey::String("2".to_owned()), TypeRef::User("two".to_owned())),
     ]),
   });
 }
