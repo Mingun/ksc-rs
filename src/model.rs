@@ -101,3 +101,80 @@ impl TryFrom<(Option<p::Repeat>, Option<p::Count>, Option<p::Condition>)> for Re
     }
   }
 }
+
+/// Defines "working" sub-stream, as beginning part of full stream.
+/// All data after terminator byte is ignored and not available for parsing.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Terminator {
+  /// Byte at which stop reading stream.
+  pub value: u8,
+  /// Specify if terminator byte should be "consumed" when reading.
+  ///
+  /// If `true`: the stream pointer will point to the byte after the terminator byte
+  /// If `false`: the stream pointer will point to the terminator byte itself
+  pub consume: bool,
+  /// Specifies if terminator byte should be included in the final value.
+  pub include: bool,
+  /// If `true`, terminator must be present in the input stream, otherwise
+  /// reaching end of stream before encountering terminator also possible.
+  ///
+  /// Corresponds to `eos-error` key.
+  pub mandatory: bool,
+}
+
+/// Defines the way of determining size of stream for reading user type.
+/// This is size, that attribute is occupied in the stream, but not all
+/// bytes can be used for parsing. Some bytes can stay unused.
+/// See [`Stream`](./struct.Stream.html).
+#[derive(Clone, Debug, PartialEq)]
+pub enum Size {
+  /// Read all remaining bytes in a stream. Optionally terminator
+  /// can define actually available slice for parsing. In that case
+  /// only bytes in range `[0; terminator]` will be used to parse data.
+  /// All remaining bytes will be unavailable.
+  ///
+  /// Corresponds to `size-eos: true`.
+  Eos(Option<Terminator>),
+  /// Read all bytes in a stream until terminator byte is reached.
+  ///
+  /// Corresponds to `terminator: x`.
+  Until(Terminator),
+  /// Read exactly specified count of bytes (can be fixed or variable).
+  Exact {
+    /// Number of bytes which sub-stream occupies in the parent stream.
+    ///
+    /// Corresponds to `size: count-expr`.
+    count: Count,
+    /// Defines readable region of stream. If specified, field will take
+    /// `size` bytes, but only bytes in range `[0; terminator]` will be
+    /// used to parse data. All remaining bytes will be unavailable.
+    until: Option<Terminator>,
+  },
+}
+impl TryFrom<p::Attribute> for Size {
+  type Error = ModelError;
+
+  fn try_from(data: p::Attribute) -> Result<Self, Self::Error> {
+    use ModelError::*;
+
+    let terminator = match (data.terminator, data.consume, data.include, data.eos_error) {
+      (None, None, None, None) => None,
+      (Some(value), consume, include, mandatory) => Some(Terminator {
+        value,
+        consume: consume.unwrap_or(true),
+        include: include.unwrap_or(false),
+        mandatory: mandatory.unwrap_or(true),
+      }),
+      //TODO: Emit warning instead of error
+      (None, ..) => return Err(Validation("`consume`, `include` or `eos-error` has no effect without `terminator`")),
+    };
+
+    match (data.size, data.size_eos.unwrap_or(false), terminator) {
+      (None,        true,   until) => Ok(Self::Eos(until)),
+      (None,       false, Some(t)) => Ok(Self::Until(t)),
+      (Some(size), false,   until) => Ok(Self::Exact { count: size.try_into()?, until }),
+      (Some(_),     true,       _) => Err(Validation("only one of `size` or `size-eos: true` must be specified")),
+      (None,       false,    None) => Err(Validation("`size`, `size-eos: true` or `terminator` must be specified")),
+    }
+  }
+}
