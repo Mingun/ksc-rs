@@ -715,8 +715,7 @@ pub struct Attribute {
   /// If `true`, reads all the bytes till the end of the stream.
   ///
   /// Default is `false`.
-  #[serde(default)]
-  pub size_eos: bool,
+  pub size_eos: Option<bool>,
 
   /// Processes the byte buffer before access.
   pub process: Option<ProcessAlgo>,
@@ -752,13 +751,11 @@ pub struct Attribute {
   /// If `false`: the stream pointer will point to the terminator byte itself
   ///
   /// Default is `true`
-  #[serde(default = "true_helper")]
-  pub consume: bool,// TODO: add default to meta.consume
+  pub consume: Option<bool>,// TODO: add default to meta.consume
   /// Specifies if terminator byte should be considered part of the string read and thus be appended to it
   ///
   /// Default is `false`
-  #[serde(default)]
-  pub include: bool,// TODO: add default to meta.include
+  pub include: Option<bool>,// TODO: add default to meta.include
   /// Allows the compiler to ignore the lack of a terminator if `eos-error` is disabled,
   /// string reading will stop at either:
   ///
@@ -766,8 +763,7 @@ pub struct Attribute {
   ///   2. end of stream is reached
   ///
   /// Default is `true`.
-  #[serde(default = "true_helper")]
-  pub eos_error: bool,// TODO: add default to meta.eos_error
+  pub eos_error: Option<bool>,// TODO: add default to meta.eos_error
 
   /// Additional arbitrary values.
   #[serde(flatten)]
@@ -960,10 +956,6 @@ pub struct Ksy {
   pub root: TypeSpec,
 }
 
-/// Helper function for use in `serde(default = ...)`
-#[inline]
-fn true_helper() -> bool { true }
-
 #[test]
 fn doc_ref() {
   let one: Attribute = serde_yaml::from_str("
@@ -974,8 +966,6 @@ fn doc_ref() {
       doc: None,
       doc_ref: Some(DocRef::One("one element".to_owned())),
     },
-    consume: true,
-    eos_error: true,
     ..Default::default()
   });
 
@@ -992,8 +982,6 @@ fn doc_ref() {
         "2nd element".to_owned(),
       ])),
     },
-    consume: true,
-    eos_error: true,
     ..Default::default()
   });
 }
@@ -1041,8 +1029,6 @@ fn contents() {
   ").unwrap();
   assert_eq!(string, Attribute {
     contents: Some(Contents::Str("one".to_owned())),
-    consume: true,
-    eos_error: true,
     ..Default::default()
   });
 
@@ -1055,8 +1041,6 @@ fn contents() {
       StringOrByte::String("two".to_owned()),
       StringOrByte::Byte(3),
     ])),
-    consume: true,
-    eos_error: true,
     ..Default::default()
   });
 }
@@ -1099,8 +1083,6 @@ mod repeat {
       repeat: Some(Repeat::Eos),
       repeat_expr: None,
       repeat_until: None,
-      consume: true,
-      eos_error: true,
       ..Default::default()
     });
   }
@@ -1113,8 +1095,6 @@ mod repeat {
     assert_eq!(repeat, Attribute {
       repeat: Some(Repeat::Expr),
       repeat_expr: Some(Count::Expr("1 + 1".to_owned())),
-      consume: true,
-      eos_error: true,
       ..Default::default()
     });
 
@@ -1125,8 +1105,6 @@ mod repeat {
       repeat: None,
       repeat_expr: Some(Count::Value(42)),
       repeat_until: None,
-      consume: true,
-      eos_error: true,
       ..Default::default()
     });
   }
@@ -1140,8 +1118,6 @@ mod repeat {
       repeat: Some(Repeat::Until),
       repeat_expr: None,
       repeat_until: Some(Condition::Expr("1 + 1".to_owned())),
-      consume: true,
-      eos_error: true,
       ..Default::default()
     });
 
@@ -1152,8 +1128,6 @@ mod repeat {
       repeat: None,
       repeat_expr: None,
       repeat_until: Some(Condition::Value(false)),
-      consume: true,
-      eos_error: true,
       ..Default::default()
     });
   }
