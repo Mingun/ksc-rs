@@ -5,6 +5,180 @@
 use std::char;
 use std::iter::FromIterator;
 
+/// Owning counterpart of AST [`Node`].
+///
+/// [`Node`]: ./enum.Node.html
+#[derive(Clone, Debug, PartialEq)]
+pub enum OwningNode {
+  /// String constant
+  Str(String),
+  /// Integral constant
+  Int(usize),
+  /// Floating-point constant
+  Float(f64),
+  /// Boolean constant
+  Bool(bool),
+
+  /// Name of attribute or variable
+  Name(String),
+  /// Reference to type
+  Type(OwningTypeRef),
+  /// Reference to enum value
+  EnumValue {
+    /// Reference to enum value.
+    ///
+    /// Contains names of all types in path to current value.
+    /// Last element is local name of enum value, and element before last is
+    /// enum local name.
+    path: Vec<String>,
+    /// Path is absolute (starts from top-level type)
+    absolute: bool,
+  },
+
+  /// Array constructor
+  List(Vec<OwningNode>),
+
+  /// Calculation of size of type
+  SizeOf {
+    /// Reference to type for which size must be calculated
+    type_: OwningTypeRef,
+    /// if `true`, calculate size in bits, otherwise in bytes
+    bit: bool,
+  },
+
+  /// Calling function or method: `${expr}(${args})`.
+  Call {
+    /// Expression which is called
+    callee: Box<OwningNode>,
+    /// Arguments of method call
+    args: Vec<OwningNode>,
+  },
+  /// Conversion to type: `${expr}.as<${to_type}>`.
+  Cast {
+    /// Expression for conversion
+    expr: Box<OwningNode>,
+    /// Reference to type for conversion
+    to_type: OwningTypeRef,
+  },
+  /// Access to expression by some index
+  Index {
+    /// Expression for indexing
+    expr: Box<OwningNode>,
+    /// Index expression
+    index: Box<OwningNode>,
+  },
+  /// Access to some attribute of expression
+  Access {
+    /// Expression which attribute must be evaluated
+    expr: Box<OwningNode>,
+    /// Retrieved attribute
+    attr: String,
+  },
+
+  /// The unary prefix operator, such as unary `-` or logical `not`.
+  Unary {
+    /// Operation to apply
+    op: UnaryOp,
+    /// Expression for applying operator
+    expr: Box<OwningNode>
+  },
+  /// The binary infix operator, such as `+` or `==`.
+  Binary {
+    /// Operation between left and right parts of expression
+    op: BinaryOp,
+    /// Left part of operator
+    left: Box<OwningNode>,
+    /// Right part of operator
+    right: Box<OwningNode>,
+  },
+  /// Conditional expression, written as ternary operator
+  Branch {
+    /// Expression to check. Should evaluate to boolean value
+    condition: Box<OwningNode>,
+    /// Expression that should be calculated in case of `true` `condition`.
+    if_true:   Box<OwningNode>,
+    /// Expression that should be calculated in case of `false` `condition`.
+    if_false:  Box<OwningNode>,
+  },
+}
+impl<'input> From<Node<'input>> for OwningNode {
+  fn from(reference: Node<'input>) -> Self {
+    use Node::*;
+
+    match reference {
+      Str(val)  => Self::Str(val),
+      Int(val)  => Self::Int(val),
+      Float(val)=> Self::Float(val),
+      Bool(val) => Self::Bool(val),
+
+      Name(val) => Self::Name(val.into()),
+      Type(val) => Self::Type(val.into()),
+      EnumValue { path, absolute } => Self::EnumValue {
+        path: path.into_iter().map(Into::into).collect(),
+        absolute
+      },
+
+      List(val) => Self::List(val.into_iter().map(Into::into).collect()),
+
+      SizeOf { type_, bit } => Self::SizeOf { type_: type_.into(), bit },
+
+      Call { callee, args } => Self::Call {
+        callee: Box::new((*callee).into()),
+        args: args.into_iter().map(Into::into).collect(),
+      },
+      Cast { expr, to_type } => Self::Cast {
+        expr: Box::new((*expr).into()),
+        to_type: to_type.into(),
+      },
+      Index { expr, index } => Self::Index {
+        expr:  Box::new((*expr).into()),
+        index: Box::new((*index).into()),
+      },
+      Access { expr, attr } => Self::Access {
+        expr: Box::new((*expr).into()),
+        attr: attr.into(),
+      },
+
+      Unary { op, expr } => Self::Unary {
+        op,
+        expr: Box::new((*expr).into()),
+      },
+      Binary { op, left, right } => Self::Binary {
+        op,
+        left:  Box::new((*left).into()),
+        right: Box::new((*right).into()),
+      },
+      Branch { condition, if_true, if_false } => Self::Branch {
+        condition: Box::new((*condition).into()),
+        if_true:   Box::new((*if_true).into()),
+        if_false:  Box::new((*if_false).into()),
+      },
+    }
+  }
+}
+/// Owning counterpart of AST [`TypeRef`].
+///
+/// [`Node`]: ./struct.TypeRef.html
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OwningTypeRef {
+  /// Names of all types in path to current type.
+  /// Last element is local name of current type.
+  pub path: Vec<String>,
+  /// Path is absolute (starts from top-level type)
+  pub absolute: bool,
+  /// Path is array type
+  pub array: bool,
+}
+impl<'input> From<TypeRef<'input>> for OwningTypeRef {
+  fn from(reference: TypeRef<'input>) -> Self {
+    Self {
+      path:     reference.path.into_iter().map(ToOwned::to_owned).collect(),
+      absolute: reference.absolute,
+      array:    reference.array,
+    }
+  }
+}
+
 /// AST Node, that represent some syntax construct
 #[derive(Clone, Debug, PartialEq)]
 pub enum Node<'input> {
@@ -80,7 +254,7 @@ pub enum Node<'input> {
     /// Expression for applying operator
     expr: Box<Node<'input>>
   },
-  /// the binary infix operator, such as `+` or `==`.
+  /// The binary infix operator, such as `+` or `==`.
   Binary {
     /// Operation between left and right parts of expression
     op: BinaryOp,
