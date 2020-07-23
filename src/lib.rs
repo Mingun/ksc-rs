@@ -39,3 +39,60 @@ mod formats {
     }
   }*/
 }
+
+#[test]
+fn count() {
+  use std::fs::File;
+  use std::path::PathBuf;
+  use parser::{Attribute, Ksy, TypeSpec};
+
+  #[derive(Debug, Default, PartialEq)]
+  #[allow(non_snake_case)]
+  struct Counts {
+    consume_true__include_true: usize,
+    consume_true__include_false: usize,
+    consume_false__include_true: usize,
+    consume_false__include_false: usize,
+  }
+  impl Counts {
+    fn inc_attr(&mut self, a: &Attribute) {
+      match (a.consume, a.include) {
+        ( true,  true) => self.consume_true__include_true +=1,
+        ( true, false) => self.consume_true__include_false +=1,
+        (false,  true) => self.consume_false__include_true +=1,
+        (false, false) => self.consume_false__include_false +=1,
+      }
+    }
+    fn inc_type(&mut self, t: &TypeSpec) {
+      if let Some(seq) = &t.seq {
+        for a in seq {
+          self.inc_attr(&a);
+        }
+      }
+      if let Some(seq) = &t.instances {
+        for (_, i) in seq {
+          self.inc_attr(&i.common);
+        }
+      }
+    }
+    fn inc(&mut self, t: &TypeSpec) {
+      self.inc_type(&t);
+      if let Some(types) = &t.types {
+        for (_, t) in types {
+          self.inc(&t);
+        }
+      }
+    }
+    fn count_file(&mut self, resource: PathBuf) {
+      let file = File::open(resource).unwrap();
+      let ksy: Ksy = serde_yaml::from_reader(file).unwrap();
+
+      self.inc(&ksy.root);
+    }
+  }
+  let mut counts = Counts::default();
+  for file in glob::glob("formats/**/*.ksy").unwrap() {
+    counts.count_file(file.unwrap());
+  }
+  assert_eq!(Counts::default(), counts);
+}
