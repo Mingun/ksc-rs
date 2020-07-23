@@ -11,6 +11,9 @@ use peg::str::LineCol;
 pub enum ModelError {
   /// Parser error of incorrect expression in field
   Expression(ParseError<LineCol>),//TODO: Add information about field
+  /// Error of validating schema rules, such as absence of mandatory fields or
+  /// excess fields.
+  Validation(&'static str),
 }
 impl From<ParseError<LineCol>> for ModelError {
   fn from(error: ParseError<LineCol>) -> Self { Self::Expression(error) }
@@ -22,6 +25,7 @@ impl Display for ModelError {
 
     match self {
       Expression(err) => write!(f, "incorrect expression: {}", err),
+      Validation(err) => write!(f, "invalid schema: {}", err),
     }
   }
 }
@@ -32,6 +36,7 @@ impl Error for ModelError {
 
     match self {
       Expression(err) => Some(err),
+      Validation(_) => None,
     }
   }
 }
