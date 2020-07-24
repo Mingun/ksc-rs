@@ -7,6 +7,9 @@
 use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 
+use lazy_static::lazy_static;
+use regex::Regex;
+
 use crate::error::ModelError;
 use crate::expressions::OwningNode;
 use crate::expressions::parser::{parse_single, parse_name, parse_type_ref, parse_process};
@@ -21,6 +24,35 @@ use crate::parser as p;
 mod helpers {
   use crate::parser as p;
 
+  /// Wrapper for inheritable values
+  #[derive(Clone)]
+  pub enum Inheritable<T> {
+    /// Value nor defined in attribute nor inherited
+    Undefined,
+    /// Value is defined in attribute
+    Defined(T),
+    /// Value is inherited
+    Default(T),
+  }
+  impl<T> Inheritable<T> {
+    /// Constructs three-state from value and its default
+    pub fn from(own: Option<T>, def: Option<T>) -> Self {
+      match (own, def) {
+        (Some(enc), _) => Inheritable::Defined(enc),
+        (_, Some(enc)) => Inheritable::Default(enc),
+        (None, None)   => Inheritable::Undefined,
+      }
+    }
+    /// Return `Some` for defined value and `None` for undefined or default value
+    pub fn own_value(&self) -> Option<&T> {
+      match self {
+        Inheritable::Undefined |
+        Inheritable::Default(_)   => None,
+        Inheritable::Defined(val) => Some(val),
+      }
+    }
+  }
+
   /// Transitional structure, that contains all data, affecting size of field.
   /// That structure will be cloned for each case in switch-on types.
   #[derive(Clone)]
@@ -34,6 +66,16 @@ mod helpers {
     pub eos_error: Option<bool>,
 
     pub pad_right: Option<u8>,
+  }
+
+  /// Transitional structure, that contains all data from parser structure,
+  /// used to determine type for model.
+  #[derive(Clone)]
+  pub struct TypeProps {
+    pub enum_:    Option<p::Path>,
+    pub contents: Option<p::Contents>,
+    pub encoding: Inheritable<String>,
+    pub endian:   Option<p::Variant<p::Endian>>,
   }
 }
 
@@ -337,6 +379,221 @@ pub enum NaturalSize {
   /// and for local user types until compiler will be smart enough to
   /// calculate their sizes.
   Unknown,
+}
+
+/// Byte order, used for reading built-in numeric types
+pub type ByteOrder = Variant<p::Endian>;
+
+/// Types that can be used as base for enumerations.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Enumerable {
+  /// 1-byte unsigned integer.
+  U8,
+  /// 1-byte signed integer.
+  I8,
+
+  /// 2-byte unsigned integer in specified byte order.
+  U16(ByteOrder),
+  /// 4-byte unsigned integer in specified byte order.
+  U32(ByteOrder),
+  /// 8-byte unsigned integer in specified byte order.
+  U64(ByteOrder),
+
+  /// 2-byte signed integer in specified byte order.
+  I16(ByteOrder),
+  /// 4-byte signed integer in specified byte order.
+  I32(ByteOrder),
+  /// 8-byte signed integer in specified byte order.
+  I64(ByteOrder),
+
+  /// Number with specified number of bits.
+  Bits(usize),
+}
+impl Enumerable {
+  /// Return natural size of type in bytes, or `None`, if type is unsized
+  /// (byte arrays and strings) or size is unknown (user types).
+  pub fn natural_size(&self) -> NaturalSize {
+    use Enumerable::*;
+    use NaturalSize::*;
+
+    match self {
+      U8 | I8 => Sized(1),
+      U16(_) | I16(_) => Sized(2),
+      U32(_) | I32(_) => Sized(4),
+      U64(_) | I64(_) => Sized(8),
+
+      Bits(size) => Sized(size.saturating_add(7) >> 3),// convert bit count to byte count
+    }
+  }
+}
+
+/// Reference to type definition - built-in or user-defined.
+#[derive(Clone, Debug, PartialEq)]
+pub enum TypeRef {
+  /// Possible enumerable types
+  Enum {
+    /// Type on which enumeration is based
+    base: Enumerable,
+    /// Path to enumeration definition. If specified, type should be represented
+    /// as enumeration
+    enum_: Option<Path>,
+  },
+
+  /// 4-byte floating point format that follows [IEEE 754] standard in specified byte order.
+  ///
+  /// [IEEE 754]: https://en.wikipedia.org/wiki/IEEE_754
+  F32(ByteOrder),
+  /// 8-byte floating point format that follows [IEEE 754] standard in specified byte order.
+  ///
+  /// [IEEE 754]: https://en.wikipedia.org/wiki/IEEE_754
+  F64(ByteOrder),
+
+  /// Byte array from input sequence
+  Bytes,
+
+  /// String in specified encoding
+  String(String),
+
+  /// Reference to user-defined type
+  User(UserTypeRef),
+
+  /// Attribute has type of byte array which content must be equal this value
+  Fixed(Vec<u8>),
+}
+impl TypeRef {
+  /// Return natural size of type in bytes, or `None`, if type is unsized
+  /// (byte arrays and strings) or size is unknown (user types).
+  pub fn natural_size(&self) -> NaturalSize {
+    use TypeRef::*;
+    use NaturalSize::*;
+
+    match self {
+      Enum { base, .. } => base.natural_size(),
+
+      F32(_) => Sized(4),
+      F64(_) => Sized(8),
+
+      Fixed(contents) => Sized(contents.len()),
+
+      Bytes | String(_) => Unsized,
+      User(_) => Unknown,// TODO: Get size of user type
+    }
+  }
+
+  fn validate(type_ref: Option<p::TypeRef>, props: helpers::TypeProps) -> Result<Self, ModelError> {
+    lazy_static! {
+      static ref BITS: Regex = Regex::new("^b([0-9]+)$").expect("incorrect BITS regexp");
+    }
+
+    use ModelError::*;
+    use Enumerable::*;
+    use TypeRef::{Enum, F32, F64};
+    use p::Builtin::*;
+    use p::TypeRef::*;
+    use p::Endian::*;
+    use helpers::Inheritable::*;
+
+    let endian = props.endian;
+    let endian = |t| match endian {
+      Some(e) => Ok(ByteOrder::try_from(e)?),
+      None => Err(Validation(format!("unable to use type `{:?}` without default endianness", t).into())),
+    };
+    // Extract encoding of string
+    let encoding = |e: helpers::Inheritable<String>| match e {
+      Undefined    => Err(Validation("string requires encoding".into())),
+      Default(enc) => Ok(enc),
+      Defined(enc) => Ok(enc),
+    };
+    // Produces error of illegal use of enum
+    let enum_err = || Err(Validation("`enum` can be used only with integral (`u*`, `s*` and `b*`) types".into()));
+
+    let enum_ = props.enum_.map(Path::validate);
+    match (type_ref, props.encoding.own_value(), props.contents, enum_) {
+      (Some(Builtin(s1)),   None, None, e) => Ok(Enum { base: I8, enum_: e.transpose()? }),
+      (Some(Builtin(u1)),   None, None, e) => Ok(Enum { base: U8, enum_: e.transpose()? }),
+
+      (Some(Builtin(u2)),   None, None, e) => Ok(Enum { base: U16(endian(u2)?),          enum_: e.transpose()? }),
+      (Some(Builtin(u2be)), None, None, e) => Ok(Enum { base: U16(ByteOrder::Fixed(Be)), enum_: e.transpose()? }),
+      (Some(Builtin(u2le)), None, None, e) => Ok(Enum { base: U16(ByteOrder::Fixed(Le)), enum_: e.transpose()? }),
+
+      (Some(Builtin(s2)),   None, None, e) => Ok(Enum { base: I16(endian(s2)?),          enum_: e.transpose()? }),
+      (Some(Builtin(s2be)), None, None, e) => Ok(Enum { base: I16(ByteOrder::Fixed(Be)), enum_: e.transpose()? }),
+      (Some(Builtin(s2le)), None, None, e) => Ok(Enum { base: I16(ByteOrder::Fixed(Le)), enum_: e.transpose()? }),
+
+      (Some(Builtin(u4)),   None, None, e) => Ok(Enum { base: U32(endian(u4)?),          enum_: e.transpose()? }),
+      (Some(Builtin(u4be)), None, None, e) => Ok(Enum { base: U32(ByteOrder::Fixed(Be)), enum_: e.transpose()? }),
+      (Some(Builtin(u4le)), None, None, e) => Ok(Enum { base: U32(ByteOrder::Fixed(Le)), enum_: e.transpose()? }),
+
+      (Some(Builtin(s4)),   None, None, e) => Ok(Enum { base: I32(endian(s4)?),          enum_: e.transpose()? }),
+      (Some(Builtin(s4be)), None, None, e) => Ok(Enum { base: I32(ByteOrder::Fixed(Be)), enum_: e.transpose()? }),
+      (Some(Builtin(s4le)), None, None, e) => Ok(Enum { base: I32(ByteOrder::Fixed(Le)), enum_: e.transpose()? }),
+
+      (Some(Builtin(u8)),   None, None, e) => Ok(Enum { base: U64(endian(u8)?),          enum_: e.transpose()? }),
+      (Some(Builtin(u8be)), None, None, e) => Ok(Enum { base: U64(ByteOrder::Fixed(Be)), enum_: e.transpose()? }),
+      (Some(Builtin(u8le)), None, None, e) => Ok(Enum { base: U64(ByteOrder::Fixed(Le)), enum_: e.transpose()? }),
+
+      (Some(Builtin(s8)),   None, None, e) => Ok(Enum { base: I64(endian(s8)?),          enum_: e.transpose()? }),
+      (Some(Builtin(s8be)), None, None, e) => Ok(Enum { base: I64(ByteOrder::Fixed(Be)), enum_: e.transpose()? }),
+      (Some(Builtin(s8le)), None, None, e) => Ok(Enum { base: I64(ByteOrder::Fixed(Le)), enum_: e.transpose()? }),
+
+      (Some(Builtin(f4)),   None, None, None) => Ok(F32(endian(f4)?)),
+      (Some(Builtin(f4be)), None, None, None) => Ok(F32(ByteOrder::Fixed(Be))),
+      (Some(Builtin(f4le)), None, None, None) => Ok(F32(ByteOrder::Fixed(Le))),
+
+      (Some(Builtin(f8)),   None, None, None) => Ok(F64(endian(f8)?)),
+      (Some(Builtin(f8be)), None, None, None) => Ok(F64(ByteOrder::Fixed(Be))),
+      (Some(Builtin(f8le)), None, None, None) => Ok(F64(ByteOrder::Fixed(Le))),
+
+      (Some(Builtin(str)),     _, None, None) => Ok(TypeRef::String(encoding(props.encoding)?)),
+      (Some(Builtin(strz)),    _, None, None) => Ok(TypeRef::String(encoding(props.encoding)?)),
+
+      (Some(User(name)), None, None, e) => if let Some(caps) = BITS.captures(&name) {
+        Ok(Enum { base: Bits(caps[1].parse().unwrap()), enum_: e.transpose()? })
+      } else
+      if let None = e {
+        Ok(TypeRef::User(UserTypeRef::validate(name)?))
+      } else {
+        enum_err()
+      },
+
+      (None, None, Some(content), None) => Ok(TypeRef::Fixed(content.into())),
+      (None, None, None, None)          => Ok(TypeRef::Bytes),
+
+      (_, Some(_), _, _) => Err(Validation("`encoding` can be specified only for `type: str` or `type: strz`".into())),
+      (_, _, Some(_), _) => Err(Validation("`contents` don't require type, its always byte array".into())),
+      (_, _, _, Some(_)) => enum_err(),
+    }
+  }
+}
+
+/// A pack of reference to type and size of occupied space in stream
+#[derive(Clone, Debug, PartialEq)]
+pub struct Chunk {
+  /// Reference to type of this attribute. Type can be fixed or calculated
+  pub type_ref: TypeRef,//TODO: resolve references, check, that all types exist
+
+  /// Size of stream from which this attribute will be readed. That size of one element,
+  /// so if attribute repeated many times, that field determines size of each element,
+  /// not the size of sequence.
+  pub size: Size,
+}
+impl Chunk {
+  fn validate(type_ref: Option<p::TypeRef>,
+              props: helpers::TypeProps,
+              mut size: helpers::Size,
+  ) -> Result<Self, ModelError> {
+    use p::Builtin::strz;
+    use p::TypeRef::Builtin;
+
+    // Special case for strz - define default terminator
+    if let Some(Builtin(strz)) = type_ref {
+      size.terminator = size.terminator.or(Some(0));
+    }
+
+    let type_ref = TypeRef::validate(type_ref, props)?;
+    let size = Size::validate(type_ref.natural_size(), size)?;
+    Ok(Self { type_ref, size })
+  }
 }
 
 #[cfg(test)]

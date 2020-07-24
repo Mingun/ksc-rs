@@ -1,6 +1,7 @@
 //! Contains errors that can occurs when creating kaitai struct model
 
 use std::borrow::Cow;
+use std::convert::Infallible;
 use std::fmt::{Display, Formatter, Result};
 use std::error::Error;
 
@@ -18,6 +19,10 @@ pub enum ModelError {
 }
 impl From<ParseError<LineCol>> for ModelError {
   fn from(error: ParseError<LineCol>) -> Self { Self::Expression(error) }
+}
+/// Allow to use any `Into` conversions in contexts where required `TryInto<Error=ModelError>`
+impl From<Infallible> for ModelError {
+  fn from(_error: Infallible) -> Self { unreachable!() }
 }
 
 impl Display for ModelError {
