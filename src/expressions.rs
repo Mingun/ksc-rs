@@ -442,10 +442,13 @@ peg::parser! {
     use UnaryOp::*;
     use BinaryOp::*;
 
-    /// Entry point for parsing expressions in `if`, `io`, `pos`, `repeat-expr`, `repeat-until`, `size`, `switch-on`, `valid.min`, `valid.max`, `valid.expr`, `value`.
+    /// Entry point for parsing expressions in `if`, `io`, `pos`, `repeat-expr`,
+    /// `repeat-until`, `size`, `switch-on`, `valid.min`, `valid.max`, `valid.expr`,
+    /// `value`.
     pub rule parse_single() -> Node<'input> = _ e:expr() _ EOS() {e};
 
-    /// Entry point for parsing list of expressions in function calls and parametrized types instantiations.
+    /// Entry point for parsing list of expressions in function calls and parametrized
+    /// types instantiations.
     pub rule parse_list() -> Vec<Node<'input>> = _ h:expr() _ t:("," _ e:expr() _ {e})* EOS() {
       let mut result = vec![h];
       result.extend(t);
