@@ -480,10 +480,10 @@ pub enum Repeat {
 }
 
 /// Expression used to represent repetition count.
-pub type Count = Expression<usize>;
+pub type Count = Expression<u64>;
 
 /// Expression used to represent instance position
-pub type Position = Expression<usize>;
+pub type Position = Expression<u64>;
 
 /// Expression, that used in boolean contexts
 pub type Condition = Expression<bool>;

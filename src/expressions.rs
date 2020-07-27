@@ -13,7 +13,7 @@ pub enum OwningNode {
   /// String constant
   Str(String),
   /// Integral constant
-  Int(usize),
+  Int(u64),
   /// Floating-point constant
   Float(f64),
   /// Boolean constant
@@ -185,7 +185,7 @@ pub enum Node<'input> {
   /// String constant
   Str(String),
   /// Integral constant
-  Int(usize),
+  Int(u64),
   /// Floating-point constant
   Float(f64),
   /// Boolean constant
@@ -388,9 +388,9 @@ fn to_char(number: &str, radix: u32) -> Result<char, &'static str> {
 }
 /// Helper function to convert parsed numbers from string to integer
 #[inline]
-fn to_usize(number: &str, radix: u32) -> Result<usize, &'static str> {
-  usize::from_str_radix(&number.replace('_', ""), radix)
-        .map_err(|_| "integer literal must contain at least one digit")
+fn to_u64(number: &str, radix: u32) -> Result<u64, &'static str> {
+  u64::from_str_radix(&number.replace('_', ""), radix)
+      .map_err(|_| "integer literal must contain at least one digit")
 }
 /// Helper function to convert parsed escape characters mnemonics to characters itself
 #[inline]
@@ -479,11 +479,11 @@ peg::parser! {
     rule quotedOct() -> char  = s:$(oct()+) {? to_char(s, 8) };
     rule quotedHex() -> char  = ['u'] s:$(hex()*<4>) {? to_char(s, 16) };
 
-    rule integer() -> usize
-      = n:$(['1'..='9'] ['0'..='9' | '_']*) {? to_usize(n, 10) }
-      / "0" ['b' | 'B'] n:$(bin()+) {? to_usize(n,  2) }
-      / "0" ['o' | 'O'] n:$(oct()+) {? to_usize(n,  8) }
-      / "0" ['x' | 'X'] n:$(hex()+) {? to_usize(n, 16) }
+    rule integer() -> u64
+      = n:$(['1'..='9'] ['0'..='9' | '_']*) {? to_u64(n, 10) }
+      / "0" ['b' | 'B'] n:$(bin()+) {? to_u64(n,  2) }
+      / "0" ['o' | 'O'] n:$(oct()+) {? to_u64(n,  8) }
+      / "0" ['x' | 'X'] n:$(hex()+) {? to_u64(n, 16) }
       / "0" { 0 }
       ;
     rule oct() = ['0'..='7' | '_'];
