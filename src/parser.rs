@@ -66,7 +66,7 @@ pub enum Variant<T> {
   #[serde(rename_all = "kebab-case")]
   Choice {
     /// Expression which determines what variant will be used
-    switch_on: AnyScalar,
+    switch_on: Scalar,
     /// Variants
     cases: HashMap<MappingKey, T>,
   }
@@ -163,7 +163,7 @@ pub enum Identifier {
 /// Represents any valid scalar YAML value.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case", untagged)]
-pub enum AnyScalar {
+pub enum Scalar {
   /// Represents a YAML null value.
   Null,
   /// Represents a YAML boolean.
@@ -196,7 +196,7 @@ pub struct Doc {
 /// List of references to original documentation.
 pub type DocRef = OneOrMany<String>;//TODO: enum { Url, Text, UrlAndText }
 /// List of references to arbitrary documentation in various knowledge bases.
-pub type XRef = OneOrMany<AnyScalar>;
+pub type XRef = OneOrMany<Scalar>;
 
 /// Collections of references in various knowledge bases.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
@@ -1062,7 +1062,7 @@ fn type_() {
       '2': two
   ").unwrap();
   assert_eq!(type_, Type::Choice {
-    switch_on: AnyScalar::String("id".to_owned()),
+    switch_on: Scalar::String("id".to_owned()),
     cases: HashMap::from_iter(vec![
       (MappingKey::String("1".to_owned()), TypeRef::User("one".to_owned())),
       (MappingKey::String("2".to_owned()), TypeRef::User("two".to_owned())),
