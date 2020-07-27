@@ -2,8 +2,14 @@
 
 //TODO: Describe the language
 
+use std::convert::TryFrom;
 use std::char;
 use std::iter::FromIterator;
+
+use serde_yaml::Number;
+
+use crate::error::ModelError;
+use crate::parser::Scalar;
 
 /// Owning counterpart of AST [`Node`].
 ///
@@ -156,6 +162,30 @@ impl<'input> From<Node<'input>> for OwningNode {
     }
   }
 }
+impl From<Number> for OwningNode {
+  #[inline]
+  fn from(number: Number) -> Self {
+    Node::from(number).into()
+  }
+}
+impl TryFrom<Scalar> for OwningNode {
+  type Error = ModelError;
+
+  fn try_from(scalar: Scalar) -> Result<Self, Self::Error> {
+    use ModelError::*;
+    use Scalar::*;
+
+    match scalar {
+      Null        => Err(Validation(
+        "Expected expression, but null found (note that `null` literal in YAML is \
+         equivalent of absence of any value, use 'null' if you want to refer to name `null`)".into())),
+      Bool(val)   => Ok(Self::Bool(val)),
+      Number(n)   => Ok(n.into()),
+      String(val) => Ok(parser::parse_single(&val)?.into()),
+    }
+  }
+}
+
 /// Owning counterpart of AST [`TypeRef`].
 ///
 /// [`Node`]: ./struct.TypeRef.html
@@ -272,6 +302,24 @@ pub enum Node<'input> {
     /// Expression that should be calculated in case of `false` `condition`.
     if_false:  Box<Node<'input>>,
   },
+}
+impl<'input> From<Number> for Node<'input> {
+  fn from(number: Number) -> Self {
+    if let Some(n) = number.as_u64() {
+      return Node::Int(n);
+    }
+    if let Some(n) = number.as_i64() {
+      // Can return only negative integers, because positive is handled above
+      return Node::Unary {
+        op: UnaryOp::Neg,
+        expr: Box::new(Node::Int((-n) as u64)),
+      };
+    }
+    if let Some(n) = number.as_f64() {
+      return Node::Float(n);
+    }
+    unreachable!("internal error: YAML number is not u64/i64/f64")
+  }
 }
 
 /// Represents reference to type definition.
@@ -1347,5 +1395,76 @@ mod parse {
       assert_eq!(parse_single("123.4. to_s" ), Ok(Access { expr: Box::new(Float(123.4)), attr: "to_s" }));
       assert_eq!(parse_single("123.4.\nto_s"), Ok(Access { expr: Box::new(Float(123.4)), attr: "to_s" }));
     }
+  }
+}
+
+#[cfg(test)]
+mod convert {
+  use super::*;
+
+  #[test]
+  fn from_null() {
+    assert!(OwningNode::try_from(Scalar::Null).is_err());
+  }
+
+  #[test]
+  fn from_true() {
+    assert_eq!(OwningNode::try_from(Scalar::Bool(true)), Ok(OwningNode::Bool(true)));
+  }
+
+  #[test]
+  fn from_false() {
+    assert_eq!(OwningNode::try_from(Scalar::Bool(false)), Ok(OwningNode::Bool(false)));
+  }
+
+  mod integer {
+    use super::*;
+
+    #[test]
+    fn from_zero() {
+      assert_eq!(OwningNode::try_from(Scalar::Number(0u64.into())), Ok(OwningNode::Int(0)));
+    }
+
+    #[test]
+    fn from_positive() {
+      assert_eq!(OwningNode::try_from(Scalar::Number(42u64.into())), Ok(OwningNode::Int(42)));
+    }
+
+    #[test]
+    fn from_negative() {
+      assert_eq!(OwningNode::try_from(Scalar::Number((-42i64).into())), Ok(OwningNode::Unary {
+        op: UnaryOp::Neg,
+        expr: Box::new(OwningNode::Int(42))
+      }));
+    }
+  }
+
+  mod float {
+    use super::*;
+
+    #[test]
+    fn from_zero() {
+      assert_eq!(OwningNode::try_from(Scalar::Number(0.0.into())), Ok(OwningNode::Float(0.0)));
+    }
+
+    #[test]
+    fn from_positive() {
+      assert_eq!(OwningNode::try_from(Scalar::Number(4.2.into())), Ok(OwningNode::Float(4.2)));
+    }
+
+    #[test]
+    fn from_negative() {
+      assert_eq!(OwningNode::try_from(Scalar::Number((-4.2).into())), Ok(OwningNode::Float(-4.2)));
+    }
+  }
+
+  #[test]
+  fn from_string() {
+    assert_eq!(OwningNode::try_from(Scalar::String("_".into())), Ok(OwningNode::Name("_".into())));
+    assert_eq!(OwningNode::try_from(Scalar::String("1 + 2".into())), Ok(OwningNode::Binary {
+      op: BinaryOp::Add,
+      left:  Box::new(OwningNode::Int(1)),
+      right: Box::new(OwningNode::Int(2)),
+    }));
   }
 }
