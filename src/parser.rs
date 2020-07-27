@@ -5,6 +5,7 @@
 //!
 //! [`model`]: ../model/index.html
 
+use std::hash::{Hash, Hasher};
 use std::ops::{Deref, DerefMut};
 use std::collections::HashMap;
 use serde::Deserialize;
@@ -38,23 +39,6 @@ impl<T> From<OneOrMany<T>> for Vec<T> {
   }
 }
 
-/// Represents all YAML values, except floating point numbers.
-/// Can be used as key in `HashMap`.
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[serde(untagged)]
-pub enum MappingKey {
-  /// Represents a YAML null value.
-  Null,
-  /// Represents a YAML boolean.
-  Bool(bool),
-  /// Represents a YAML positive integer value.
-  PosInt(u64),
-  /// Represents a YAML negative integer value (that value always negative).
-  NegInt(i64),
-  /// Represents a YAML string.
-  String(String),
-}
-
 /// Generic variant wrapper, that allow or fixed value, or describe a set
 /// of possible choices selected based on some expression.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -68,7 +52,7 @@ pub enum Variant<T> {
     /// Expression which determines what variant will be used
     switch_on: Scalar,
     /// Variants
-    cases: HashMap<MappingKey, T>,
+    cases: HashMap<Scalar, T>,
   }
 }
 
@@ -161,7 +145,7 @@ pub enum Identifier {
 }
 
 /// Represents any valid scalar YAML value.
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, PartialEq, PartialOrd)]
 #[serde(rename_all = "kebab-case", untagged)]
 pub enum Scalar {
   /// Represents a YAML null value.
@@ -172,6 +156,28 @@ pub enum Scalar {
   Number(Number),
   /// Represents a YAML string.
   String(String),
+}
+impl Eq for Scalar {}
+impl From<Scalar> for Value {
+  fn from(scalar: Scalar) -> Self {
+    match scalar {
+      Scalar::Null      => Self::Null,
+      Scalar::Bool(b)   => Self::Bool(b),
+      Scalar::Number(i) => Self::Number(i),
+      Scalar::String(s) => Self::String(s),
+    }
+  }
+}
+/// Implementation of hash is the same as for `serde_yaml::Value`.
+impl Hash for Scalar {
+  fn hash<H: Hasher>(&self, state: &mut H) {
+    match self {
+      Self::Null      => 0.hash(state),
+      Self::Bool(b)   => (1, b).hash(state),
+      Self::Number(i) => (2, i).hash(state),
+      Self::String(s) => (3, s).hash(state),
+    }
+  }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -880,9 +886,9 @@ pub enum EnumValue {
 /// Enumeration definition
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 #[serde(transparent)]
-pub struct Enum(HashMap<MappingKey, EnumValue>);
+pub struct Enum(HashMap<Scalar, EnumValue>);
 impl Deref for Enum {
-  type Target = HashMap<MappingKey, EnumValue>;
+  type Target = HashMap<Scalar, EnumValue>;
 
   fn deref(&self) -> &Self::Target { &self.0 }
 }
@@ -1064,8 +1070,8 @@ fn type_() {
   assert_eq!(type_, Type::Choice {
     switch_on: Scalar::String("id".to_owned()),
     cases: HashMap::from_iter(vec![
-      (MappingKey::String("1".to_owned()), TypeRef::User("one".to_owned())),
-      (MappingKey::String("2".to_owned()), TypeRef::User("two".to_owned())),
+      (Scalar::String("1".to_owned()), TypeRef::User("one".to_owned())),
+      (Scalar::String("2".to_owned()), TypeRef::User("two".to_owned())),
     ]),
   });
 }
