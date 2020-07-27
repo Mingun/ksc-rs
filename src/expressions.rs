@@ -6,6 +6,7 @@ use std::convert::TryFrom;
 use std::char;
 use std::iter::FromIterator;
 
+use ordered_float::OrderedFloat;
 use serde_yaml::Number;
 
 use crate::error::ModelError;
@@ -14,14 +15,14 @@ use crate::parser::Scalar;
 /// Owning counterpart of AST [`Node`].
 ///
 /// [`Node`]: ./enum.Node.html
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum OwningNode {
   /// String constant
   Str(String),
   /// Integral constant
   Int(u64),
   /// Floating-point constant
-  Float(f64),
+  Float(OrderedFloat<f64>),
   /// Boolean constant
   Bool(bool),
 
@@ -189,7 +190,7 @@ impl TryFrom<Scalar> for OwningNode {
 /// Owning counterpart of AST [`TypeRef`].
 ///
 /// [`Node`]: ./struct.TypeRef.html
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct OwningTypeRef {
   /// Names of all types in path to current type.
   /// Last element is local name of current type.
@@ -210,14 +211,14 @@ impl<'input> From<TypeRef<'input>> for OwningTypeRef {
 }
 
 /// AST Node, that represent some syntax construct
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Node<'input> {
   /// String constant
   Str(String),
   /// Integral constant
   Int(u64),
   /// Floating-point constant
-  Float(f64),
+  Float(OrderedFloat<f64>),
   /// Boolean constant
   Bool(bool),
 
@@ -316,7 +317,7 @@ impl<'input> From<Number> for Node<'input> {
       };
     }
     if let Some(n) = number.as_f64() {
-      return Node::Float(n);
+      return Node::Float(n.into());
     }
     unreachable!("internal error: YAML number is not u64/i64/f64")
   }
@@ -338,7 +339,7 @@ impl<'input> From<Number> for Node<'input> {
 ///
 /// `'input` lifetime is bound to lifetime of parsed string. Each element in path
 /// just a slice inside original string.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TypeRef<'input> {
   /// Names of all types in path to current type.
   /// Last element is local name of current type.
@@ -350,7 +351,7 @@ pub struct TypeRef<'input> {
 }
 
 /// List of possible unary operations
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum UnaryOp {
   /// `-`: The unary negation operator.
   Neg,
@@ -361,7 +362,7 @@ pub enum UnaryOp {
 }
 
 /// List of possible operations over two arguments. All operations is left-associative
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum BinaryOp {
   /// `+`: Addition of two numeric arguments or concatenation of two strings.
   Add,
@@ -648,7 +649,7 @@ peg::parser! {
       / "false" !namePart()                    { Node::Bool(false) }
       / e:enumName()                           { e }
       / n:name()                               { Node::Name(n) }
-      / f:float()                              { Node::Float(f) }
+      / f:float()                              { Node::Float(f.into()) }
       / i:integer()                            { Node::Int(i) }
       ;
 
@@ -819,43 +820,43 @@ mod parse {
 
     #[test]
     fn simple() {
-      assert_eq!(parse_single("1.2345"), Ok(Float(1.2345)));
+      assert_eq!(parse_single("1.2345"), Ok(Float(1.2345.into())));
     }
 
     #[test]
     fn with_signless_exponent() {
-      assert_eq!(parse_single("123e4"), Ok(Float(123e+4)));
-      assert_eq!(parse_single("123E4"), Ok(Float(123e+4)));
+      assert_eq!(parse_single("123e4"), Ok(Float(123e+4.into())));
+      assert_eq!(parse_single("123E4"), Ok(Float(123e+4.into())));
     }
 
     #[test]
     fn with_positive_exponent() {
-      assert_eq!(parse_single("123e+4"), Ok(Float(123e+4)));
-      assert_eq!(parse_single("123E+4"), Ok(Float(123e+4)));
+      assert_eq!(parse_single("123e+4"), Ok(Float(123e+4.into())));
+      assert_eq!(parse_single("123E+4"), Ok(Float(123e+4.into())));
     }
 
     #[test]
     fn with_negative_exponent() {
-      assert_eq!(parse_single("123e-7"), Ok(Float(123e-7)));
-      assert_eq!(parse_single("123E-7"), Ok(Float(123e-7)));
+      assert_eq!(parse_single("123e-7"), Ok(Float(123e-7.into())));
+      assert_eq!(parse_single("123E-7"), Ok(Float(123e-7.into())));
     }
 
     #[test]
     fn non_integral_part_with_signless_exponent() {
-      assert_eq!(parse_single("1.2345e7"), Ok(Float(1.2345e+7)));
-      assert_eq!(parse_single("1.2345E7"), Ok(Float(1.2345e+7)));
+      assert_eq!(parse_single("1.2345e7"), Ok(Float(1.2345e+7.into())));
+      assert_eq!(parse_single("1.2345E7"), Ok(Float(1.2345e+7.into())));
     }
 
     #[test]
     fn non_integral_part_with_positive_exponent() {
-      assert_eq!(parse_single("123.45e+7"), Ok(Float(123.45e+7)));
-      assert_eq!(parse_single("123.45E+7"), Ok(Float(123.45e+7)));
+      assert_eq!(parse_single("123.45e+7"), Ok(Float(123.45e+7.into())));
+      assert_eq!(parse_single("123.45E+7"), Ok(Float(123.45e+7.into())));
     }
 
     #[test]
     fn non_integral_part_with_negative_exponent() {
-      assert_eq!(parse_single("123.45e-7"), Ok(Float(123.45e-7)));
-      assert_eq!(parse_single("123.45E-7"), Ok(Float(123.45e-7)));
+      assert_eq!(parse_single("123.45e-7"), Ok(Float(123.45e-7.into())));
+      assert_eq!(parse_single("123.45E-7"), Ok(Float(123.45e-7.into())));
     }
   }
 
@@ -1391,9 +1392,9 @@ mod parse {
 
     #[test]
     fn float_and_access() {
-      assert_eq!(parse_single("123.4.to_s"  ), Ok(Access { expr: Box::new(Float(123.4)), attr: "to_s" }));
-      assert_eq!(parse_single("123.4. to_s" ), Ok(Access { expr: Box::new(Float(123.4)), attr: "to_s" }));
-      assert_eq!(parse_single("123.4.\nto_s"), Ok(Access { expr: Box::new(Float(123.4)), attr: "to_s" }));
+      assert_eq!(parse_single("123.4.to_s"  ), Ok(Access { expr: Box::new(Float(123.4.into())), attr: "to_s" }));
+      assert_eq!(parse_single("123.4. to_s" ), Ok(Access { expr: Box::new(Float(123.4.into())), attr: "to_s" }));
+      assert_eq!(parse_single("123.4.\nto_s"), Ok(Access { expr: Box::new(Float(123.4.into())), attr: "to_s" }));
     }
   }
 }
@@ -1444,17 +1445,17 @@ mod convert {
 
     #[test]
     fn from_zero() {
-      assert_eq!(OwningNode::try_from(Scalar::Number(0.0.into())), Ok(OwningNode::Float(0.0)));
+      assert_eq!(OwningNode::try_from(Scalar::Number(0.0.into())), Ok(OwningNode::Float(0.0.into())));
     }
 
     #[test]
     fn from_positive() {
-      assert_eq!(OwningNode::try_from(Scalar::Number(4.2.into())), Ok(OwningNode::Float(4.2)));
+      assert_eq!(OwningNode::try_from(Scalar::Number(4.2.into())), Ok(OwningNode::Float(4.2.into())));
     }
 
     #[test]
     fn from_negative() {
-      assert_eq!(OwningNode::try_from(Scalar::Number((-4.2).into())), Ok(OwningNode::Float(-4.2)));
+      assert_eq!(OwningNode::try_from(Scalar::Number((-4.2).into())), Ok(OwningNode::Float((-4.2).into())));
     }
   }
 
