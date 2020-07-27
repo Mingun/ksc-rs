@@ -4,6 +4,7 @@
 //!
 //! [`parser`]: ./parser/index.html
 
+use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 
 use crate::error::ModelError;
@@ -58,6 +59,44 @@ usize_expr!(
   /// Contains AST of expression language, that evaluated to integer expression.
   p::Position => Position
 );
+
+/// Generic variant wrapper, that allow or fixed value, or describe a set
+/// of possible choices selected based on some expression.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Variant<T> {
+  /// Statically specified value.
+  Fixed(T),
+  /// Dynamically calculated value based on some expression.
+  Choice {
+    /// Expression which determines what variant will be used
+    switch_on: OwningNode,
+    /// Variants
+    cases: HashMap<OwningNode, T>,
+  }
+}
+impl<T, U: TryInto<T>> TryFrom<p::Variant<U>> for Variant<T>
+  where U::Error: Into<ModelError>,
+{
+  type Error = ModelError;
+
+  fn try_from(data: p::Variant<U>) -> Result<Self, Self::Error> {
+    use p::Variant::*;
+
+    match data {
+      Fixed(val) => Ok(Variant::Fixed(val.try_into().map_err(Into::into)?)),
+      Choice { switch_on, cases } => {
+        let mut new_cases = HashMap::with_capacity(cases.len());
+        for (k, v) in cases.into_iter() {
+          new_cases.insert(k.try_into()?, v.try_into().map_err(Into::into)?);
+        }
+        Ok(Variant::Choice {
+          switch_on: switch_on.try_into()?,
+          cases: new_cases
+        })
+      },
+    }
+  }
+}
 
 /// Defines way of reading attribute in a structure.
 #[derive(Clone, Debug, PartialEq)]
