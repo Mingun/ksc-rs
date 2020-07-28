@@ -125,7 +125,6 @@ pub struct Terminator {
 /// Defines the way of determining size of stream for reading user type.
 /// This is size, that attribute is occupied in the stream, but not all
 /// bytes can be used for parsing. Some bytes can stay unused.
-/// See [`Stream`](./struct.Stream.html).
 #[derive(Clone, Debug, PartialEq)]
 pub enum Size {
   /// Read all remaining bytes in a stream. Optionally terminator
