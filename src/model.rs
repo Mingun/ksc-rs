@@ -51,6 +51,13 @@ mod helpers {
         Inheritable::Defined(val) => Some(val),
       }
     }
+    /// If that value if defined, make it inherited. Otherwise returns the same value
+    pub fn to_inherited(self) -> Self {
+      match self {
+        Inheritable::Defined(val) => Inheritable::Default(val),
+        x => x,
+      }
+    }
   }
 
   /// Transitional structure, that contains all data, affecting size of field.
@@ -150,10 +157,8 @@ impl ProcessAlgo {
 /// Contains AST of expression language, that evaluated to boolean expression.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Condition(OwningNode);
-impl TryFrom<p::Condition> for Condition {
-  type Error = ModelError;
-
-  fn try_from(data: p::Condition) -> Result<Self, Self::Error> {
+impl Condition {
+  fn validate(data: p::Condition) -> Result<Self, ModelError> {
     Ok(match data {
       p::Condition::Expr(expr)   => Self(parse_single(&expr)?.into()),
       p::Condition::Value(value) => Self(OwningNode::Bool(value)),
@@ -166,10 +171,8 @@ macro_rules! usize_expr {
     $(#[$meta])*
     #[derive(Clone, Debug, PartialEq)]
     pub struct $to(OwningNode);
-    impl TryFrom<$from> for $to {
-      type Error = ModelError;
-
-      fn try_from(data: $from) -> Result<Self, Self::Error> {
+    impl $to {
+      fn validate(data: $from) -> Result<Self, ModelError> {
         Ok(match data {
           p::Expression::Expr(expr)   => Self(parse_single(&expr)?.into()),
           p::Expression::Value(value) => Self(OwningNode::Int(value)),
@@ -256,11 +259,11 @@ impl Repeat {
     match (repeat, repeat_expr, repeat_until) {
       (None,        None,        None) => Ok(Self::None),
       (Some(Eos),   None,        None) => Ok(Self::Eos),
-      (Some(Expr),  Some(count), None) => Ok(Self::Count(count.try_into()?)),
-      (Some(Until), None, Some(until)) => Ok(Self::Until(until.try_into()?)),
+      (Some(Expr),  Some(count), None) => Ok(Self::Count(Count::validate(count)?)),
+      (Some(Until), None, Some(until)) => Ok(Self::Until(Condition::validate(until)?)),
 
-      // (None, Some(count), None) => Ok(Self::Count(count.try_into()?)),//TODO https://github.com/kaitai-io/kaitai_struct/issues/776
-      // (None, None, Some(until)) => Ok(Self::Until(until.try_into()?)),//TODO https://github.com/kaitai-io/kaitai_struct/issues/776
+      // (None, Some(count), None) => Ok(Self::Count(Count::validate(count)?)),//TODO https://github.com/kaitai-io/kaitai_struct/issues/776
+      // (None, None, Some(until)) => Ok(Self::Until(Condition::validate(until)?)),//TODO https://github.com/kaitai-io/kaitai_struct/issues/776
 
       (None, Some(_), None) => Err(Validation("missed `repeat: expr`".into())),
       (None, None, Some(_)) => Err(Validation("missed `repeat: until`".into())),
@@ -354,7 +357,7 @@ impl Size {
       (None,        true,   until) => Ok(Self::Eos(until)),
       (None,       false, Some(t)) => Ok(Self::Until(t)),
       // TODO: Warning or even error, if natural type size is less that size
-      (Some(size), false,   until) => Ok(Self::Exact { count: size.try_into()?, until }),
+      (Some(size), false,   until) => Ok(Self::Exact { count: Count::validate(size)?, until }),
       (Some(_),     true,       _) => Err(Validation("only one of `size` or `size-eos: true` must be specified".into())),
       (None,       false,    None) => match type_size {
         // For unknown sized types use all remaining input
@@ -593,6 +596,72 @@ impl Chunk {
     let type_ref = TypeRef::validate(type_ref, props)?;
     let size = Size::validate(type_ref.natural_size(), size)?;
     Ok(Self { type_ref, size })
+  }
+}
+
+/// Defines, how to read and interpret data
+#[derive(Clone, Debug, PartialEq)]
+pub struct Attribute {
+  /// Optional name of attribute. If not defined, then current attribute won't be
+  /// accessible in generated code
+  pub id: Option<Name>,
+  /// Reference to type and size of this attribute. Type can be fixed or calculated
+  pub chunk: Variant<Chunk>,
+
+  /// Specify how many times a given attribute should occur in a stream.
+  pub repeat: Repeat,
+  /// If specified, attribute will be readed only if condition evaluated to `true`.
+  pub condition: Option<Condition>,
+
+  /// Algorithm that run on raw byte array before parsing data.
+  /// Example of algorithms: encryption, base64/hex encoding etc.
+  pub process: Option<ProcessAlgo>,
+}
+impl Attribute {
+  fn validate(attr: p::Attribute, defaults: p::Defaults) -> Result<Self, ModelError> {
+    use p::Variant::*;
+
+    let mut props = helpers::TypeProps {
+      enum_:    attr.enum_,
+      contents: attr.contents,
+      encoding: helpers::Inheritable::from(attr.encoding, defaults.encoding),
+      endian:   defaults.endian,
+    };
+    let size = helpers::Size {
+      size:       attr.size,
+      size_eos:   attr.size_eos,
+
+      terminator: attr.terminator,
+      consume:    attr.consume,
+      include:    attr.include,
+      eos_error:  attr.eos_error,
+
+      pad_right:  attr.pad_right,
+    };
+    Ok(Self {
+      id:        attr.id.map(Name::validate).transpose()?,
+      chunk:     match attr.type_ {
+        None             => Variant::Fixed(Chunk::validate(None,      props, size)?),
+        Some(Fixed(val)) => Variant::Fixed(Chunk::validate(Some(val), props, size)?),
+        Some(Choice { switch_on, cases }) => {
+          // Because in switch-on expression encoding defined not at the same level, as type
+          // (not in `case:` clause), we make it inherited
+          props.encoding = props.encoding.to_inherited();
+          let mut new_cases = HashMap::with_capacity(cases.len());
+          for (k, val) in cases.into_iter() {
+            let chunk = Chunk::validate(Some(val), props.clone(), size.clone())?;
+            new_cases.insert(k.try_into()?, chunk);
+          }
+          Variant::Choice {
+            switch_on: switch_on.try_into()?,
+            cases: new_cases
+          }
+        },
+      },
+      repeat:    Repeat::validate(attr.repeat, attr.repeat_expr, attr.repeat_until)?,
+      condition: attr.condition.map(Condition::validate).transpose()?,
+      process:   attr.process.map(ProcessAlgo::validate).transpose()?,
+    })
   }
 }
 
