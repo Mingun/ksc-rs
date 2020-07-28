@@ -12,6 +12,31 @@ use crate::expressions::OwningNode;
 use crate::expressions::parser::parse_single;
 use crate::parser as p;
 
+/// Contains helper structures for implementing `TryFrom`.
+///
+/// `TryFrom` takes ownership of large parser structures, but not all fields
+/// of that structure used in every single `TryFrom` implementation. This module
+/// contains helper structures, that contains only necessary subset of fields.
+/// Advantages over just unnamed tuples is names of fields.
+mod helpers {
+  use crate::parser as p;
+
+  /// Transitional structure, that contains all data, affecting size of field.
+  /// That structure will be cloned for each case in switch-on types.
+  #[derive(Clone)]
+  pub struct Size {
+    pub size: Option<p::Count>,
+    pub size_eos: Option<bool>,
+
+    pub terminator: Option<u8>,
+    pub consume: Option<bool>,
+    pub include: Option<bool>,
+    pub eos_error: Option<bool>,
+
+    pub pad_right: Option<u8>,
+  }
+}
+
 /// Expression, that used in boolean contexts.
 ///
 /// Contains AST of expression language, that evaluated to boolean expression.
@@ -112,14 +137,15 @@ pub enum Repeat {
   /// while the expression is `false`.
   Until(Condition),
 }
-impl TryFrom<(Option<p::Repeat>, Option<p::Count>, Option<p::Condition>)> for Repeat {
-  type Error = ModelError;
-
-  fn try_from(data: (Option<p::Repeat>, Option<p::Count>, Option<p::Condition>)) -> Result<Self, Self::Error> {
+impl Repeat {
+  fn validate(repeat: Option<p::Repeat>,
+              repeat_expr: Option<p::Count>,
+              repeat_until: Option<p::Condition>,
+  ) -> Result<Self, ModelError> {
     use p::Repeat::*;
     use ModelError::*;
 
-    match (data.0, data.1, data.2) {
+    match (repeat, repeat_expr, repeat_until) {
       (None,        None,        None) => Ok(Self::None),
       (Some(Eos),   None,        None) => Ok(Self::Eos),
       (Some(Expr),  Some(count), None) => Ok(Self::Count(count.try_into()?)),
@@ -189,13 +215,21 @@ pub enum Size {
     until: Option<Terminator>,
   },
 }
-impl TryFrom<p::Attribute> for Size {
-  type Error = ModelError;
-
-  fn try_from(data: p::Attribute) -> Result<Self, Self::Error> {
+impl Size {
+  /// Performs validation of parsed parameters and create structure, that
+  /// describe size of field.
+  ///
+  /// # Parameters
+  /// - `type_size`:
+  ///   If not `Unsized`, field type has natural size and any size attribute
+  ///   is not required; compiler won't complain about that
+  /// - `size`:
+  ///   Size parameters from parser
+  fn validate(type_size: NaturalSize, size: helpers::Size) -> Result<Self, ModelError> {
     use ModelError::*;
+    use NaturalSize::*;
 
-    let terminator = match (data.terminator, data.consume, data.include, data.eos_error) {
+    let terminator = match (size.terminator, size.consume, size.include, size.eos_error) {
       (None, None, None, None) => None,
       (Some(value), consume, include, mandatory) => Some(Terminator {
         value,
@@ -203,16 +237,38 @@ impl TryFrom<p::Attribute> for Size {
         include: include.unwrap_or(false),
         mandatory: mandatory.unwrap_or(true),
       }),
-      //TODO: Emit warning instead of error
-      (None, ..) => return Err(Validation("`consume`, `include` or `eos-error` has no effect without `terminator`")),
+      // TODO: Emit warning instead here, but error also an option until warnings is not implemented
+      //(None, ..) => return Err(Validation("`consume`, `include` or `eos-error` has no effect without `terminator`")),
+      (None, ..) => None,
     };
 
-    match (data.size, data.size_eos.unwrap_or(false), terminator) {
+    match (size.size, size.size_eos.unwrap_or(false), terminator) {
       (None,        true,   until) => Ok(Self::Eos(until)),
       (None,       false, Some(t)) => Ok(Self::Until(t)),
+      // TODO: Warning or even error, if natural type size is less that size
       (Some(size), false,   until) => Ok(Self::Exact { count: size.try_into()?, until }),
       (Some(_),     true,       _) => Err(Validation("only one of `size` or `size-eos: true` must be specified")),
-      (None,       false,    None) => Err(Validation("`size`, `size-eos: true` or `terminator` must be specified")),
+      (None,       false,    None) => match type_size {
+        // For unknown sized types use all remaining input
+        Unknown => Ok(Self::Eos(None)),
+        Unsized => Err(Validation("`size`, `size-eos: true` or `terminator` must be specified")),
+        Sized(size) => Ok(Self::Exact { count: Count(OwningNode::Int(size as u64)), until: None }),
+      },
     }
   }
+}
+
+/// Natural size of the type.
+pub enum NaturalSize {
+  /// Type has specific size. That includes all built-in sized types
+  /// (all types, except byte arrays and strings).
+  Sized(usize),
+  /// Type has no natural size. it occupies all the space provided.
+  /// Some explicit size definition (as `size`, `size-eos` or `terminator`)
+  /// is required.
+  Unsized,
+  /// Size of type is unknown. That variant is used for external types
+  /// and for local user types until compiler will be smart enough to
+  /// calculate their sizes.
+  Unknown,
 }
