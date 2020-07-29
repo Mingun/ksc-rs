@@ -665,6 +665,67 @@ impl Attribute {
   }
 }
 
+/// Defines used-defined type
+#[derive(Clone, Debug, PartialEq)]
+pub struct Type {
+  /// Unique identifier of this type
+  pub id: String,
+  /// The list of fields that this type consists of. The fields in the data stream
+  /// are in the same order as they are declared here.
+  pub fields: Vec<Attribute>,
+  // pub getters: Vec<Instance>,//TODO: instances
+  /// List of used-defined types, defined inside this type.
+  pub types: Vec<Type>,
+  // pub enums: Vec<Enum>,//TODO: Enums
+  // pub params: Vec<Param>,//TODO: Parameters
+}
+impl Type {
+  fn map<I, U, F>(seq: Option<I>, mut f: F) -> Result<Vec<U>, ModelError>
+    where I: IntoIterator,
+          F: FnMut(I::Item) -> Result<U, ModelError>
+  {
+    Ok(match seq {
+      None => vec![],
+      Some(seq) => {
+        let iter = seq.into_iter();
+        let mut result = Vec::with_capacity(iter.size_hint().1.unwrap_or(0));
+        for elem in iter {
+          result.push(f(elem)?);
+        }
+        result
+      }
+    })
+  }
+  fn validate(name: p::Name, spec: p::TypeSpec, mut defaults: p::Defaults) -> Result<Self, ModelError> {
+    // Merge type defaults with inherited defaults
+    if let Some(def) = spec.default {
+      defaults.endian   = def.endian.or(defaults.endian);
+      defaults.encoding = def.encoding.or(defaults.encoding);
+    }
+
+    Ok(Self {
+      id: name.0,
+      fields: Self::map(spec.seq,   |spec| Attribute::validate(spec, defaults.clone()))?,
+      types:  Self::map(spec.types, |(name, spec)| Type::validate(name, spec, defaults.clone()))?,
+    })
+  }
+}
+impl TryFrom<p::Ksy> for Type {
+  type Error = ModelError;
+
+  fn try_from(data: p::Ksy) -> Result<Self, Self::Error> {
+    use p::Identifier::*;
+
+    let name = match data.meta.id {
+      None              => p::Name("root".to_owned()),
+      Some(Bool(true))  => p::Name("r#true".to_owned()),
+      Some(Bool(false)) => p::Name("r#false".to_owned()),
+      Some(Name(name))  => name,
+    };
+    Self::validate(name, data.root, data.meta.defaults.into())
+  }
+}
+
 #[cfg(test)]
 mod name {
   use super::*;
@@ -697,3 +758,317 @@ mod name {
   }
 }
 
+#[cfg(test)]
+mod size {
+  use super::*;
+
+  #[test]
+  fn size() {
+    let ksy: p::Ksy = serde_yaml::from_str(r#"
+    meta:
+      id: test
+    seq:
+      - id: field
+        size: 5
+    "#).unwrap();
+    let _ = Type::try_from(ksy).expect("`size` defines size");
+  }
+  #[test]
+  fn size_eos() {
+    let ksy: p::Ksy = serde_yaml::from_str(r#"
+    meta:
+      id: test
+    seq:
+      - id: field
+        size-eos: true
+    "#).unwrap();
+    let _ = Type::try_from(ksy).expect("`size-eos` defines size");
+  }
+  #[test]
+  fn terminator() {
+    let ksy: p::Ksy = serde_yaml::from_str(r#"
+    meta:
+      id: test
+    seq:
+      - id: field
+        terminator: 5
+    "#).unwrap();
+    let _ = Type::try_from(ksy).expect("`terminator` defines size");
+  }
+  #[test]
+  fn strz() {
+    let ksy: p::Ksy = serde_yaml::from_str(r#"
+    meta:
+      id: test
+    seq:
+      - id: field
+        type: strz
+        encoding: UTF-8
+    "#).unwrap();
+    let _ = Type::try_from(ksy).expect("`strz` defines size (because of implicit `terminator=0`)");
+  }
+  #[test]
+  fn builtin_types() {
+    macro_rules! test {
+      ($builtin:ident) => {
+        let ksy: p::Ksy = serde_yaml::from_str(&format!(r#"
+        meta:
+          id: test
+          endian: be
+        seq:
+          - id: field
+            type: {}
+        "#, stringify!($builtin))).unwrap();
+        let _ = Type::try_from(ksy).expect(&format!("`{}` has natural size", stringify!($builtin)));
+      };
+    }
+    test!(u1);
+    test!(u2);
+    test!(u4);
+    test!(u8);
+
+    test!(s1);
+    test!(s2);
+    test!(s4);
+    test!(s8);
+
+    test!(f4);
+    test!(f8);
+    //----------------------
+    test!(u2be);
+    test!(u4be);
+    test!(u8be);
+
+    test!(s2be);
+    test!(s4be);
+    test!(s8be);
+
+    test!(f4be);
+    test!(f8be);
+    //----------------------
+    test!(u2le);
+    test!(u4le);
+    test!(u8le);
+
+    test!(s2le);
+    test!(s4le);
+    test!(s8le);
+
+    test!(f4le);
+    test!(f8le);
+  }
+}
+
+#[cfg(test)]
+mod strz {
+  use super::*;
+
+  #[test]
+  fn fixed() {
+    let ksy: p::Ksy = serde_yaml::from_str(r#"
+    meta:
+      id: strz_without_size
+    seq:
+      - id: field
+        type: strz
+        encoding: UTF-8
+    "#).unwrap();
+    let _ = Type::try_from(ksy).expect("`strz` not requires explicit size");
+  }
+
+  #[test]
+  fn choice() {
+    let ksy: p::Ksy = serde_yaml::from_str(r#"
+    meta:
+      id: strz_without_size
+    seq:
+      - id: field
+        type:
+          switch-on: 1
+          cases:
+            1: strz
+            2: u4be
+        encoding: UTF-8
+    "#).unwrap();
+    let _ = Type::try_from(ksy).expect("`strz` not requires explicit size");
+  }
+}
+
+mod encoding {
+  macro_rules! tests {
+    ($type_name:ident) => {
+      mod $type_name {
+        #[test]
+        fn simple() {
+          use std::convert::TryFrom;
+          let ksy: crate::parser::Ksy = serde_yaml::from_str(&format!(r#"
+          meta:
+            id: missing_encoding
+          seq:
+            - id: field
+              type: {}
+              size: 1
+          "#, stringify!($type_name))).unwrap();
+          let _ = crate::model::Type::try_from(ksy).expect_err(&format!("`{}` requires `encoding`", stringify!($type_name)));
+        }
+
+        #[test]
+        fn choice() {
+          use std::convert::TryFrom;
+          let ksy: crate::parser::Ksy = serde_yaml::from_str(&format!(r#"
+          meta:
+            id: missing_encoding
+          seq:
+            - id: field
+              type:
+                switch-on: 1
+                cases:
+                  1: {}
+                  2: u1
+              size: 1
+          "#, stringify!($type_name))).unwrap();
+          let _ = crate::model::Type::try_from(ksy).expect_err(&format!("`{}` requires `encoding`", stringify!($type_name)));
+        }
+      }
+    };
+  }
+
+  tests!(str);
+  tests!(strz);
+}
+
+#[cfg(test)]
+mod inheritance {
+  use super::*;
+
+  macro_rules! test_encoding_and_endian {
+    ($name:ident, $template:expr) => {
+      #[test]
+      fn $name() {
+        macro_rules! test {
+          ($builtin:expr) => {
+            let s = stringify!($builtin);
+            let t = &format!($template, s);
+            let ksy: p::Ksy = serde_yaml::from_str(t).unwrap();
+            let _ = Type::try_from(ksy).expect(&format!("inherited `encoding` and `endian` for `{}`\n{}", s, t));
+          };
+        }
+        test!(u1);
+        test!(u2);
+        test!(u4);
+        test!(u8);
+
+        test!(s1);
+        test!(s2);
+        test!(s4);
+        test!(s8);
+
+        test!(f4);
+        test!(f8);
+        //----------------------
+        test!(u2be);
+        test!(u4be);
+        test!(u8be);
+
+        test!(s2be);
+        test!(s4be);
+        test!(s8be);
+
+        test!(f4be);
+        test!(f8be);
+        //----------------------
+        test!(u2le);
+        test!(u4le);
+        test!(u8le);
+
+        test!(s2le);
+        test!(s4le);
+        test!(s8le);
+
+        test!(f4le);
+        test!(f8le);
+
+        test!(user_type);
+      }
+    };
+  }
+
+  test_encoding_and_endian!(simple, r#"
+    meta:
+      id: simple
+      encoding: UTF-8
+      endian: be
+    seq:
+      - id: field
+        type: {}
+  "#);
+
+  test_encoding_and_endian!(sub_type, r#"
+    meta:
+      id: sub_type
+      encoding: UTF-8
+      endian: be
+    types:
+      type:
+        seq:
+          - id: field
+            type: {}
+  "#);
+
+  test_encoding_and_endian!(meta_in_sub_type, r#"
+    meta:
+      id: meta_in_sub_type
+    types:
+      type:
+        meta:
+          encoding: UTF-8
+          endian: be
+        seq:
+          - id: field
+            type: {}
+  "#);
+
+  mod switch_on_type {
+    use super::*;
+
+    test_encoding_and_endian!(with_sized, r#"
+      meta:
+        id: switch_on_type
+        encoding: UTF-8
+        endian: be
+      seq:
+        - id: field
+          type:
+            switch-on: 1
+            cases:
+              1: {}
+              2: u1 # sized type
+    "#);
+    test_encoding_and_endian!(with_unsized, r#"
+      meta:
+        id: switch_on_type
+        encoding: UTF-8
+        endian: be
+      seq:
+        - id: field
+          type:
+            switch-on: 1
+            cases:
+              1: {}
+              2: strz # unsized type
+    "#);
+    test_encoding_and_endian!(with_unknown_sized, r#"
+      meta:
+        id: switch_on_type
+        encoding: UTF-8
+        endian: be
+      seq:
+        - id: field
+          type:
+            switch-on: 1
+            cases:
+              1: {}
+              2: unknown_sized
+    "#);
+  }
+}
