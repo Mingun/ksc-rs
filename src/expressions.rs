@@ -28,6 +28,8 @@ pub enum OwningNode {
 
   /// Name of attribute or variable
   Name(String),
+  /// Built-in variable
+  SpecialName(SpecialName),
   /// Reference to an enum value.
   EnumValue {
     /// A type that defines this enum.
@@ -115,6 +117,7 @@ impl<'input> From<Node<'input>> for OwningNode {
       Bool(val) => Self::Bool(val),
 
       Name(val) => Self::Name(val.into()),
+      SpecialName(val) => Self::SpecialName(val),
       EnumValue { scope, name, value } => Self::EnumValue {
         scope: scope.into(),
         name:  name.into(),
@@ -256,6 +259,8 @@ pub enum Node<'input> {
 
   /// Name of attribute or variable
   Name(&'input str),
+  /// Built-in variable
+  SpecialName(SpecialName),
   /// Reference to an enum value.
   EnumValue {
     /// A type that defines this enum.
@@ -399,6 +404,53 @@ pub struct TypeRef<'input> {
   pub name: TypeName<'input>,
   /// If `true` then reference represents an array of the specified type.
   pub array: bool,
+}
+
+/// Names with a special meaning
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum SpecialName {
+  /// `_io`: stream associated with this object of user-defined type.
+  Stream,
+  /// `_root`: top-level user-defined structure in the current file.
+  Root,
+  /// `_parent`: structure that produced this particular instance of the
+  /// user-defined type.
+  Parent,
+  /// `_index`: current repetition index in repeated attribute. Valid only
+  /// in attributes with [`repeat`] keys.
+  ///
+  /// [`repeat`]: ../parser/struct.Attribute.html#structfield.repeat
+  Index,
+  /// `_`: current attribute value. Usually used in the [`repeat-until`]
+  /// expression to refer to the last parsed object, but also can be used
+  /// as a value of the [`case`] in `switch-on` (because `case` labels in
+  /// that construction is expressions).
+  ///
+  /// [`repeat-until`]: ../parser/struct.Attribute.html#structfield.repeat_until
+  /// [`case`]: ../parser/enum.Variant.html#variant.Choice.field.cases
+  Value,
+  /// `_buf`: current unparsed attribute value, available only in the [`repeat-until`]
+  /// expression.
+  ///
+  /// [`repeat-until`]: ../parser/struct.Attribute.html#structfield.repeat_until
+  RawValue,
+  /// `_sizeof`: used as an attribute of the struct to get a compile-time size
+  /// of the structure:
+  ///
+  /// ```yaml
+  /// seq:
+  /// - id: file_hdr
+  ///   type: file_header
+  /// - id: dib_info
+  ///   size: file_hdr.ofs_bitmap - file_hdr._sizeof
+  /// ```
+  SizeOf,
+  /// `_on`: result of the [`switch-on`] expression.
+  ///
+  /// [`switch-on`]: ../parser/enum.Variant.html#variant.Choice.field.switch_on
+  SwitchOn,//TODO: probably not available in the expression language - no examples of usage
+  /// `_is_le`.
+  IsLe,//TODO: what's this?
 }
 
 /// List of possible unary operations
@@ -735,14 +787,25 @@ peg::parser! {
       / "sizeof" _ "<" _ t:type_ref() _ ">"    { Node::SizeOf { type_: t, bit: false } }
       / "bitsizeof" _ "<" _ t:type_ref() _ ">" { Node::SizeOf { type_: t, bit: true  } }
       / v:(s:string() _ {s})+                  { Node::Str(String::from_iter(v.into_iter())) }
-      / "true"  !name_part()                   { Node::Bool(true) }
-      / "false" !name_part()                   { Node::Bool(false) }
+      / n:special_name() !name_part()          { n }
       / e:enum_name()                          { e }
       / n:name()                               { Node::Name(n) }
       / f:float()                              { Node::Float(f.into()) }
       / i:integer()                            { Node::Int(i) }
       ;
 
+    rule special_name() -> Node<'input>
+      = "true"    { Node::Bool(true) }
+      / "false"   { Node::Bool(false) }
+      / "_io"     { Node::SpecialName(SpecialName::Stream) }
+      / "_on"     { Node::SpecialName(SpecialName::SwitchOn) }
+      / "_root"   { Node::SpecialName(SpecialName::Root) }
+      / "_parent" { Node::SpecialName(SpecialName::Parent) }
+      / "_index"  { Node::SpecialName(SpecialName::Index) }
+      / "_is_le"  { Node::SpecialName(SpecialName::IsLe) }
+      / "_sizeof" { Node::SpecialName(SpecialName::SizeOf) }
+      / "_"       { Node::SpecialName(SpecialName::Value) }
+      ;
     rule postfix() -> Postfix<'input>
       = "(" _ a:args() _ ")"                  { Postfix::Args(a)   }// call
       / "[" _ e:expr() _ "]"                  { Postfix::Index(e)  }// indexing
@@ -1289,6 +1352,18 @@ mod parse {
     }
 
     #[test]
+    fn special() {
+      assert_eq!(parse_single("_io"),     Ok(SpecialName(crate::expressions::SpecialName::Stream)));
+      assert_eq!(parse_single("_root"),   Ok(SpecialName(crate::expressions::SpecialName::Root)));
+      assert_eq!(parse_single("_parent"), Ok(SpecialName(crate::expressions::SpecialName::Parent)));
+      assert_eq!(parse_single("_index"),  Ok(SpecialName(crate::expressions::SpecialName::Index)));
+      assert_eq!(parse_single("_"),       Ok(SpecialName(crate::expressions::SpecialName::Value)));
+      assert_eq!(parse_single("_on"),     Ok(SpecialName(crate::expressions::SpecialName::SwitchOn)));
+      assert_eq!(parse_single("_sizeof"), Ok(SpecialName(crate::expressions::SpecialName::SizeOf)));
+      assert_eq!(parse_single("_is_le"),  Ok(SpecialName(crate::expressions::SpecialName::IsLe)));
+    }
+
+    #[test]
     fn identifiers() {
       assert_eq!(parse_single("truex"), Ok(Name("truex")));
       assert_eq!(parse_single("true1"), Ok(Name("true1")));
@@ -1304,6 +1379,30 @@ mod parse {
 
       assert_eq!(parse_single("orx"), Ok(Name("orx")));
       assert_eq!(parse_single("or1"), Ok(Name("or1")));
+
+      assert_eq!(parse_single("_iox"), Ok(Name("_iox")));
+      assert_eq!(parse_single("_io1"), Ok(Name("_io1")));
+
+      assert_eq!(parse_single("_rootx"), Ok(Name("_rootx")));
+      assert_eq!(parse_single("_root1"), Ok(Name("_root1")));
+
+      assert_eq!(parse_single("_parentx"), Ok(Name("_parentx")));
+      assert_eq!(parse_single("_parent1"), Ok(Name("_parent1")));
+
+      assert_eq!(parse_single("_indexx"), Ok(Name("_indexx")));
+      assert_eq!(parse_single("_index1"), Ok(Name("_index1")));
+
+      assert_eq!(parse_single("_x"), Ok(Name("_x")));
+      assert_eq!(parse_single("_1"), Ok(Name("_1")));
+
+      assert_eq!(parse_single("_onx"), Ok(Name("_onx")));
+      assert_eq!(parse_single("_on1"), Ok(Name("_on1")));
+
+      assert_eq!(parse_single("_sizeofx"), Ok(Name("_sizeofx")));
+      assert_eq!(parse_single("_sizeof1"), Ok(Name("_sizeof1")));
+
+      assert_eq!(parse_single("_is_lex"), Ok(Name("_is_lex")));
+      assert_eq!(parse_single("_is_le1"), Ok(Name("_is_le1")));
     }
   }
 
@@ -1856,7 +1955,7 @@ mod convert {
 
   #[test]
   fn from_string() {
-    assert_eq!(OwningNode::try_from(Scalar::String("_".into())), Ok(OwningNode::Name("_".into())));
+    assert_eq!(OwningNode::try_from(Scalar::String("id".into())), Ok(OwningNode::Name("id".into())));
     assert_eq!(OwningNode::try_from(Scalar::String("1 + 2".into())), Ok(OwningNode::Binary {
       op: BinaryOp::Add,
       left:  Box::new(OwningNode::Int(1)),
