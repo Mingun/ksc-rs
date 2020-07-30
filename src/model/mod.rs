@@ -1394,6 +1394,21 @@ mod size {
     test!(f4le, 4usize, TypeRef::F32(Fixed(Le)));
     test!(f8le, 8usize, TypeRef::F64(Fixed(Le)));
   }
+  #[test]
+  fn unknown() {
+    let ksy: p::Ksy = serde_yml::from_str(r#"
+    meta:
+      id: test
+    seq:
+      - id: user_type
+        type: user_type
+    types:
+      user_type:
+        seq:
+          - size: 4
+    "#).unwrap();
+    let _ = Root::try_from(ksy).expect("unknown size is allowed");
+  }
 }
 
 #[cfg(test)]
