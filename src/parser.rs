@@ -1158,18 +1158,3 @@ mod repeat {
     });
   }
 }
-
-/// Expected, that https://github.com/kaitai-io/kaitai_struct_formats was checkout to
-/// crate root directory, next to `src`.
-#[cfg(test)]
-mod formats {
-  use std::fs::File;
-  use test_generator::test_resources;
-  use super::Ksy;
-
-  #[test_resources("formats/**/*.ksy")]
-  fn parse(resource: &str) {
-    let file = File::open(resource).expect(&format!("can't read file {}", resource));
-    let _: Ksy = serde_yaml::from_reader(file).expect(&format!("invalid file {}", resource));
-  }
-}
