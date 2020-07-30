@@ -8,7 +8,7 @@ use bigdecimal::num_bigint::BigInt;
 use bigdecimal::BigDecimal;
 use serde_yml::Number;
 
-use crate::error::ModelError;
+use crate::error::{ModelError, YamlPath};
 use crate::model::{EnumName, EnumValueName, FieldName, TypeName as TName};
 use crate::parser::expressions::{
   parse_single, BinaryOp, Node, Scope, SpecialName, TypeName, TypeRef, UnaryOp,
@@ -218,15 +218,15 @@ impl From<Number> for OwningNode {
     Self::validate(Node::from(number))
   }
 }
-impl TryFrom<Scalar> for OwningNode {
+impl TryFrom<(YamlPath, Scalar)> for OwningNode {
   type Error = ModelError;
 
-  fn try_from(scalar: Scalar) -> Result<Self, Self::Error> {
+  fn try_from(scalar: (YamlPath, Scalar)) -> Result<Self, Self::Error> {
     use ModelError::*;
     use Scalar::*;
 
-    match scalar {
-      Null        => Err(Validation(
+    match scalar.1 {
+      Null        => Err(Validation(scalar.0,
         "Expected expression, but null found (note that `null` literal in YAML is \
          equivalent of absence of any value, use 'null' if you want to refer to name `null`)".into())),
       Bool(val)   => Ok(Self::Bool(val)),

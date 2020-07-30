@@ -9,7 +9,7 @@ use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 use std::ops::Deref;
 
-use crate::error::ModelError;
+use crate::error::{ModelError, ValidationError};
 use crate::parser as p;
 use crate::parser::expressions::parse_name;
 
@@ -52,7 +52,7 @@ impl<Tag> Name<Tag> {
   /// Checks that the name contains only valid characters and creates a new one.
   ///
   /// Valid names matches the following regexp: `$[a-zA-Z][a-zA-Z0-9_]*^`.
-  pub fn validate(name: p::Name) -> Result<Self, ModelError> {
+  pub fn validate(name: p::Name) -> Result<Self, ValidationError> {
     Ok(Self::valid(parse_name(&name.0)?))
   }
 }

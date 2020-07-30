@@ -19,7 +19,7 @@ use indexmap::{indexmap, IndexMap};
 use lazy_static::lazy_static;
 use regex::Regex;
 
-use crate::error::ModelError;
+use crate::error::{ModelError, ValidationError, YamlPath};
 use crate::model::expressions::OwningNode;
 use crate::parser as p;
 use crate::parser::expressions::{parse_process, parse_type_ref, AttrType};
@@ -35,6 +35,7 @@ pub use name::*;
 /// contains helper structures, that contains only necessary subset of fields.
 /// Advantages over just unnamed tuples is names of fields.
 mod helpers {
+  use crate::error::YamlPath;
   use crate::parser as p;
 
   /// Wrapper for inheritable values
@@ -86,6 +87,8 @@ mod helpers {
     pub eos_error: Option<bool>,
 
     pub pad_right: Option<u8>,
+
+    pub path: YamlPath,
   }
 
   /// Transitional structure, that contains all data from parser structure,
@@ -97,6 +100,7 @@ mod helpers {
     pub encoding:   Inheritable<String>,
     pub endian:     Option<p::Variant<p::ByteOrder>>,
     pub bit_endian: Option<p::BitOrder>,
+    pub path:     YamlPath,
   }
 }
 
@@ -203,23 +207,24 @@ pub enum Variant<T> {
     cases: IndexMap<OwningNode, T>,
   },
 }
-impl<T, U: TryInto<T>> TryFrom<p::Variant<U>> for Variant<T>
+impl<T, U: TryInto<T>> TryFrom<(YamlPath, p::Variant<U>)> for Variant<T>
   where U::Error: Into<ModelError>,
 {
   type Error = ModelError;
 
-  fn try_from(data: p::Variant<U>) -> Result<Self, Self::Error> {
+  fn try_from(data: (YamlPath, p::Variant<U>)) -> Result<Self, Self::Error> {
     use p::Variant::*;
 
-    match data {
+    match data.1 {
       Fixed(val) => Ok(Variant::Fixed(val.try_into().map_err(Into::into)?)),
       Choice { switch_on, cases } => {
         let mut new_cases = IndexMap::with_capacity(cases.len());
         for (k, v) in cases.into_iter() {
-          new_cases.insert(k.try_into()?, v.try_into().map_err(Into::into)?);
+          let path = data.0.extend(vec!["cases"]);//TODO: path to case
+          new_cases.insert((path, k).try_into()?, v.try_into().map_err(Into::into)?);
         }
         Ok(Variant::Choice {
-          switch_on: switch_on.try_into()?,
+          switch_on: (data.0.extend(vec!["switch_on"]), switch_on).try_into()?,
           cases: new_cases,
         })
       }
@@ -304,16 +309,16 @@ impl Repeat {
       },
 
       #[cfg(feature = "compatible")]
-      (None, Some(_), None) => Err(Validation("missed `repeat: expr`".into())),
+      (None, Some(_), None) => Err(Validation(data.path, "missed `repeat: expr`".into())),
       #[cfg(feature = "compatible")]
-      (None, None, Some(_)) => Err(Validation("missed `repeat: until`".into())),
+      (None, None, Some(_)) => Err(Validation(data.path, "missed `repeat: until`".into())),
 
-      (Some(Expr), None,  _) => Err(Validation("missed `repeat-expr`".into())),
-      (Some(Until), _, None) => Err(Validation("missed `repeat-until`".into())),
+      (Some(Expr), None,  _) => Err(Validation(data.path, "missed `repeat-expr`".into())),
+      (Some(Until), _, None) => Err(Validation(data.path, "missed `repeat-until`".into())),
 
-      (_, Some(_), Some(_)) => Err(Validation("either `repeat-expr` or `repeat-until` must be specified".into())),
-      (Some(_), _, Some(_)) => Err(Validation("`repeat-until` requires `repeat: until`".into())),
-      (Some(_), Some(_), _) => Err(Validation("`repeat-expr` requires `repeat: expr`".into())),
+      (_, Some(_), Some(_)) => Err(Validation(data.path, "either `repeat-expr` or `repeat-until` must be specified".into())),
+      (Some(_), _, Some(_)) => Err(Validation(data.path, "`repeat-until` requires `repeat: until`".into())),
+      (Some(_), Some(_), _) => Err(Validation(data.path, "`repeat-expr` requires `repeat: expr`".into())),
     }
   }
 }
@@ -462,7 +467,7 @@ impl Size {
         mandatory: mandatory.unwrap_or(true),
       }),
       // TODO: Emit warning instead here, but error also an option until warnings is not implemented
-      //(None, ..) => return Err(Validation("`consume`, `include` or `eos-error` has no effect without `terminator`".into())),
+      //(None, ..) => return Err(Validation(data.path, "`consume`, `include` or `eos-error` has no effect without `terminator`".into())),
       (None, ..) => None,
     };
 
@@ -501,11 +506,11 @@ impl Size {
       (None,       false, Some(t)) => Ok(Self::Until(t)),
       // TODO: Warning or even error, if natural type size is less that size
       (Some(size), false,   until) => Ok(Self::Exact { count: Count::validate(size)?, until }),
-      (Some(_),     true,       _) => Err(Validation("only one of `size` or `size-eos: true` must be specified".into())),
+      (Some(_),     true,       _) => Err(Validation(data.path, "only one of `size` or `size-eos: true` must be specified".into())),
       (None,       false,    None) => match type_ref.sizeof() {
         // For unknown sized types use all remaining input
         Unknown => Ok(Self::Eos(None)),
-        Unsized(_, _) => Err(Validation("`size`, `size-eos: true` or `terminator` must be specified".into())),
+        Unsized => Err(Validation(data.path, "`size`, `size-eos: true` or `terminator` must be specified".into())),
         Sized(_) => Ok(Self::Natural),
       },
     }
@@ -704,14 +709,15 @@ impl TypeRef {
     use ModelError::*;
     use TypeRef::{Enum, F32, F64};
 
+    let path = props.path;
     let endian = props.endian;
     let endian = |t| match endian {
-      Some(e) => Ok(ByteOrder::try_from(e)?),
-      None => Err(Validation(format!("unable to use type `{:?}` without default endianness", t).into())),
+      Some(e) => Ok(ByteOrder::try_from((path.extend(vec!["endian"]), e))?),
+      None => Err(Validation(data.path, format!("unable to use type `{:?}` without default endianness", t).into())),
     };
     // Extract encoding of string
     let encoding = |e: helpers::Inheritable<String>| match e {
-      Undefined    => Err(Validation("string requires encoding".into())),
+      Undefined    => Err(Validation(path, "string requires encoding".into())),
       Default(enc) => Ok(enc),
       Defined(enc) => Ok(enc),
     };
@@ -780,8 +786,8 @@ impl TypeRef {
       (None, None, Some(content), None) => Ok(TypeRef::Fixed(content.into())),
       (None, None, None, None)          => Ok(TypeRef::Bytes),
 
-      (_, Some(_), _, _) => Err(Validation("`encoding` can be specified only for `type: str` or `type: strz`".into())),
-      (_, _, Some(_), _) => Err(Validation("`contents` don't require type, its always byte array".into())),
+      (_, Some(_), _, _) => Err(Validation(data.path, "`encoding` can be specified only for `type: str` or `type: strz`".into())),
+      (_, _, Some(_), _) => Err(Validation(data.path, "`contents` don't require type, its always byte array".into())),
       (_, _, _, Some(_)) => enum_err(),
     }
   }
@@ -936,6 +942,7 @@ impl Attribute {
       eos_error:  attr.eos_error,
 
       pad_right:  attr.pad_right,
+      path:       data.path,
     };
     Ok(Self {
       chunk:     match attr.type_ {
@@ -1076,7 +1083,7 @@ impl TryFrom<p::Ksy> for Root {
       Some(Bool(false)) => TypeName::valid("r#false"),
       Some(Name(name))  => TypeName::validate(name)?,
     };
-    let type_ = UserType::validate(data.root, data.meta.defaults.into())?;
+    let type_ = UserType::validate(data.root, data.meta.defaults.into(), YamlPath::default())?;
 
     Ok(Self { name, type_ })
   }
