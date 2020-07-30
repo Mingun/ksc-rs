@@ -1,5 +1,6 @@
 //! Contains errors that can occurs when creating kaitai struct model
 
+use std::borrow::Cow;
 use std::fmt::{Display, Formatter, Result};
 use std::error::Error;
 
@@ -13,7 +14,7 @@ pub enum ModelError {
   Expression(ParseError<LineCol>),//TODO: Add information about field
   /// Error of validating schema rules, such as absence of mandatory fields or
   /// excess fields.
-  Validation(&'static str),
+  Validation(Cow<'static, str>),
 }
 impl From<ParseError<LineCol>> for ModelError {
   fn from(error: ParseError<LineCol>) -> Self { Self::Expression(error) }

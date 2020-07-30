@@ -9,7 +9,7 @@ use std::convert::{TryFrom, TryInto};
 
 use crate::error::ModelError;
 use crate::expressions::OwningNode;
-use crate::expressions::parser::parse_single;
+use crate::expressions::parser::{parse_single, parse_name, parse_type_ref, parse_process};
 use crate::parser as p;
 
 /// Contains helper structures for implementing `TryFrom`.
@@ -34,6 +34,72 @@ mod helpers {
     pub eos_error: Option<bool>,
 
     pub pad_right: Option<u8>,
+  }
+}
+
+/// Type for representing names of:
+///
+/// - [enumerations](./struct.Enum.html)
+/// - [enumeration values](./enum.EnumValue.html)
+/// - [types](./struct.TypeSpec.html)
+/// - [instances](./struct.Instance.html)
+/// - [attributes](./struct.Attribute.html)
+/// - [parameters](./struct.Param.html)
+/// - [KSY file](./struct.Ksy.html)
+#[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Name(String);
+impl Name {
+  fn validate(data: p::Name) -> Result<Self, ModelError> {
+    Ok(Self(parse_name(&data.0)?.into()))
+  }
+}
+
+/// Path to enum name, used to describe `type` in attributes and parameters.
+#[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Path(Vec<Name>);
+impl Path {
+  fn validate(data: p::Path) -> Result<Self, ModelError> {
+    let mut path = Vec::with_capacity(data.0.len());
+    for name in data.0.into_iter() {
+      path.push(Name::validate(name)?);
+    }
+    Ok(Self(path))
+  }
+}
+
+/// Reference to user-defined type name with optional parameters.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct UserTypeRef {
+  /// Absolute path to type definition
+  pub path: Path,
+  /// Optional arguments for type
+  pub args: Vec<OwningNode>,
+}
+impl UserTypeRef {
+  fn validate(path: String) -> Result<Self, ModelError> {
+    let r = parse_type_ref(&path)?;
+    Ok(Self {
+      path: Path(r.path.into_iter().map(|n| Name(n.to_owned())).collect()),
+      args: r.args.into_iter().map(Into::into).collect(),
+    })
+  }
+}
+
+/// Name and parameters of process routine.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ProcessAlgo {
+  /// Name of process routine
+  pub name: String,
+  /// Optional arguments for type
+  pub args: Vec<OwningNode>,
+}
+impl ProcessAlgo {
+  fn validate(algo: p::ProcessAlgo) -> Result<Self, ModelError> {
+    let r = parse_process(&algo.0)?;
+    Ok(Self {
+      name: r.name.into(),
+      args: r.args.into_iter().map(Into::into).collect(),
+    })
   }
 }
 
@@ -154,15 +220,15 @@ impl Repeat {
       // (None, Some(count), None) => Ok(Self::Count(count.try_into()?)),//TODO https://github.com/kaitai-io/kaitai_struct/issues/776
       // (None, None, Some(until)) => Ok(Self::Until(until.try_into()?)),//TODO https://github.com/kaitai-io/kaitai_struct/issues/776
 
-      (None, Some(_), None) => Err(Validation("missed `repeat: expr`")),
-      (None, None, Some(_)) => Err(Validation("missed `repeat: until`")),
+      (None, Some(_), None) => Err(Validation("missed `repeat: expr`".into())),
+      (None, None, Some(_)) => Err(Validation("missed `repeat: until`".into())),
 
-      (Some(Expr), None,  _) => Err(Validation("missed `repeat-expr`")),
-      (Some(Until), _, None) => Err(Validation("missed `repeat-until`")),
+      (Some(Expr), None,  _) => Err(Validation("missed `repeat-expr`".into())),
+      (Some(Until), _, None) => Err(Validation("missed `repeat-until`".into())),
 
-      (_, Some(_), Some(_)) => Err(Validation("either `repeat-expr` or `repeat-until` must be specified")),
-      (Some(_), _, Some(_)) => Err(Validation("`repeat-until` requires `repeat: until`")),
-      (Some(_), Some(_), _) => Err(Validation("`repeat-expr` requires `repeat: expr`")),
+      (_, Some(_), Some(_)) => Err(Validation("either `repeat-expr` or `repeat-until` must be specified".into())),
+      (Some(_), _, Some(_)) => Err(Validation("`repeat-until` requires `repeat: until`".into())),
+      (Some(_), Some(_), _) => Err(Validation("`repeat-expr` requires `repeat: expr`".into())),
     }
   }
 }
@@ -238,7 +304,7 @@ impl Size {
         mandatory: mandatory.unwrap_or(true),
       }),
       // TODO: Emit warning instead here, but error also an option until warnings is not implemented
-      //(None, ..) => return Err(Validation("`consume`, `include` or `eos-error` has no effect without `terminator`")),
+      //(None, ..) => return Err(Validation("`consume`, `include` or `eos-error` has no effect without `terminator`".into())),
       (None, ..) => None,
     };
 
@@ -247,11 +313,11 @@ impl Size {
       (None,       false, Some(t)) => Ok(Self::Until(t)),
       // TODO: Warning or even error, if natural type size is less that size
       (Some(size), false,   until) => Ok(Self::Exact { count: size.try_into()?, until }),
-      (Some(_),     true,       _) => Err(Validation("only one of `size` or `size-eos: true` must be specified")),
+      (Some(_),     true,       _) => Err(Validation("only one of `size` or `size-eos: true` must be specified".into())),
       (None,       false,    None) => match type_size {
         // For unknown sized types use all remaining input
         Unknown => Ok(Self::Eos(None)),
-        Unsized => Err(Validation("`size`, `size-eos: true` or `terminator` must be specified")),
+        Unsized => Err(Validation("`size`, `size-eos: true` or `terminator` must be specified".into())),
         Sized(size) => Ok(Self::Exact { count: Count(OwningNode::Int(size as u64)), until: None }),
       },
     }
@@ -272,3 +338,36 @@ pub enum NaturalSize {
   /// calculate their sizes.
   Unknown,
 }
+
+#[cfg(test)]
+mod name {
+  use super::*;
+
+  #[test]
+  fn ascii() {
+    assert_eq!(Name::validate(p::Name("valid".into())), Ok(Name("valid".into())));
+    assert_eq!(Name::validate(p::Name("also_valid_".into())), Ok(Name("also_valid_".into())));
+  }
+
+  #[test]
+  fn with_numbers() {
+    assert_eq!(Name::validate(p::Name("val1d".into())), Ok(Name("val1d".into())));
+    assert_eq!(Name::validate(p::Name("als0_val1d_".into())), Ok(Name("als0_val1d_".into())));
+  }
+
+  #[test]
+  fn start_with_number() {
+    Name::validate(p::Name("1-not-a-name".into())).unwrap_err();
+  }
+
+  #[test]
+  fn start_with_underscore() {
+    Name::validate(p::Name("_not_valid".into())).unwrap_err();
+  }
+
+  #[test]
+  fn empty() {
+    Name::validate(p::Name("".into())).unwrap_err();
+  }
+}
+

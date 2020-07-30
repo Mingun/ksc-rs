@@ -82,14 +82,14 @@ pub enum Expression<T> {
 /// Pattern: `^[a-z][a-z0-9_]*$`.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[serde(transparent)]
-pub struct Name(String);
+pub struct Name(pub(crate) String);
 
 /// Path to enum name, used to describe `type` in attributes and parameters.
 ///
 /// Pattern: `^([a-z][a-z0-9_]*::)*[a-z][a-z0-9_]*$`.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[serde(from = "String")]
-pub struct Path(Vec<Name>);
+pub struct Path(pub(crate) Vec<Name>);
 impl From<String> for Path {
   fn from(path: String) -> Self {
     Self(path.split("::").map(|s| Name(s.to_owned())).collect())
@@ -115,7 +115,7 @@ pub struct UserName(String);
 /// Pattern: `^zlib|(xor|rol|ror)\(.*\)$`.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[serde(transparent)]
-pub struct ProcessAlgo(String);//TODO: enum
+pub struct ProcessAlgo(pub(crate) String);
 
 /// Relative or absolute path to another `.ksy` file to import
 /// (**without** the `.ksy` extension).

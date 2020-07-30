@@ -412,6 +412,24 @@ impl BinaryOp {
   }
 }
 
+/// Reference to user-defined type name with optional parameters.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct UserTypeRef<'input> {
+  /// Absolute path to type definition
+  pub path: Vec<&'input str>,
+  /// Optional arguments for type
+  pub args: Vec<Node<'input>>,
+}
+
+/// Name and parameters of process routine.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct ProcessAlgo<'input> {
+  /// Name of process routine
+  pub name: &'input str,
+  /// Optional arguments for routine
+  pub args: Vec<Node<'input>>,
+}
+
 /// Represents postfix operators.
 ///
 /// Temporary hold operators until all postfix operators is parsed,
@@ -491,14 +509,34 @@ peg::parser! {
     use UnaryOp::*;
     use BinaryOp::*;
 
+    /// Entry point for parsing names of attributes, types, enumerations etc.
+    pub rule parse_name() -> &'input str = $(['a'..='z' | 'A'..='Z'] name_part()*);
+
     /// Entry point for parsing expressions in `if`, `io`, `pos`, `repeat-expr`,
     /// `repeat-until`, `size`, `switch-on`, `valid.min`, `valid.max`, `valid.expr`,
     /// `value`.
     pub rule parse_single() -> Node<'input> = _ e:expr() _ EOS() {e};
 
-    /// Entry point for parsing list of expressions in function calls and parametrized
-    /// types instantiations.
-    pub rule parse_list() -> Vec<Node<'input>> = _ args:args() _ EOS() { args };
+    /// Entry point for parsing [`type`] field value.
+    ///
+    /// [`type`]: ../../parser/struct.Attribute.html#structfield.type_
+    pub rule parse_type_ref() -> UserTypeRef<'input>
+        //TODO: Original KSC do not allow spaces between "::" in type reference,
+        // before and after "(" and after ")"
+        // https://github.com/kaitai-io/kaitai_struct/issues/792
+      = path:(name() ** "::") args:("(" args:args() _ ")" { args })? EOS() {
+        UserTypeRef { path, args: args.unwrap_or_default() }
+      };
+
+    /// Entry point for parsing [`process`] field value.
+    ///
+    /// [`process`]: ../../parser/struct.Attribute.html#structfield.process
+    pub rule parse_process() -> ProcessAlgo<'input>
+        //TODO: Original KSC do not allow spaces before "(" and after ")"
+        // https://github.com/kaitai-io/kaitai_struct/issues/792
+      = name:name() args:("(" _ args:args() _ ")" { args })? EOS() {
+        ProcessAlgo { name, args: args.unwrap_or_default() }
+      };
 
     /// Whitespace rule
     rule _() = quiet!{([' '|'\n']+ / "\\\n" / comment())*};
@@ -664,7 +702,7 @@ peg::parser! {
 
 #[cfg(test)]
 mod parse {
-  use super::{Node, TypeRef};
+  use super::{Node, TypeRef, UserTypeRef};
   use super::Node::*;
   use super::UnaryOp::*;
   use super::BinaryOp::*;
@@ -1388,6 +1426,120 @@ mod parse {
       assert_eq!(parse_single("123.4.to_s"  ), Ok(Access { expr: Box::new(Float(123.4.into())), attr: "to_s" }));
       assert_eq!(parse_single("123.4. to_s" ), Ok(Access { expr: Box::new(Float(123.4.into())), attr: "to_s" }));
       assert_eq!(parse_single("123.4.\nto_s"), Ok(Access { expr: Box::new(Float(123.4.into())), attr: "to_s" }));
+    }
+  }
+
+  #[cfg(test)]
+  mod type_ref {
+    use super::*;
+
+    /// Wrapper, for use with https://github.com/fasterthanlime/pegviz
+    fn parse(input: &str) -> Result<UserTypeRef, peg::error::ParseError<peg::str::LineCol>> {
+      println!("[PEG_INPUT_START]\n{}\n[PEG_TRACE_START]", input);
+      let result = super::super::parser::parse_type_ref(input);
+      println!("[PEG_TRACE_STOP]");
+      result
+    }
+
+    mod local {
+      use super::*;
+
+      #[test]
+      fn simple() {
+        assert_eq!(parse("some_type"), Ok(UserTypeRef {
+          path: vec!["some_type"],
+          args: vec![],
+        }));
+      }
+      #[test]
+      #[should_panic]//TODO: https://github.com/kaitai-io/kaitai_struct/issues/792
+      fn with_spaces() {
+        assert_eq!(parse("  some_type  "), Ok(UserTypeRef {
+          path: vec!["some_type"],
+          args: vec![],
+        }));
+      }
+      #[test]
+      fn with_args() {
+        assert_eq!(parse("some_type(1+2,data)"), Ok(UserTypeRef {
+          path: vec!["some_type"],
+          args: vec![
+            Binary {
+              op:    Add,
+              left:  Box::new(Int(1)),
+              right: Box::new(Int(2)),
+            },
+            Name("data"),
+          ],
+        }));
+      }
+      #[test]
+      #[should_panic]//TODO: https://github.com/kaitai-io/kaitai_struct/issues/792
+      fn with_args_and_spaces() {
+        assert_eq!(parse(" some_type ( 1 + 2 , data ) "), Ok(UserTypeRef {
+          path: vec!["some_type"],
+          args: vec![
+            Binary {
+              op:    Add,
+              left:  Box::new(Int(1)),
+              right: Box::new(Int(2)),
+            },
+            Name("data"),
+          ],
+        }));
+      }
+    }
+
+    mod path {
+      use super::*;
+
+      #[test]
+      fn simple() {
+        assert_eq!(parse("some::type"), Ok(UserTypeRef {
+          path: vec!["some", "type"],
+          args: vec![],
+        }));
+      }
+
+      #[test]
+      #[should_panic]//TODO: https://github.com/kaitai-io/kaitai_struct/issues/792
+      fn with_spaces() {
+        assert_eq!(parse("  some  ::  type  "), Ok(UserTypeRef {
+          path: vec!["some", "type"],
+          args: vec![],
+        }));
+      }
+
+      #[test]
+      fn with_args() {
+        assert_eq!(parse("some::type(1+2,data)"), Ok(UserTypeRef {
+          path: vec!["some", "type"],
+          args: vec![
+            Binary {
+              op:    Add,
+              left:  Box::new(Int(1)),
+              right: Box::new(Int(2)),
+            },
+            Name("data"),
+          ],
+        }));
+      }
+
+      #[test]
+      #[should_panic]//TODO: https://github.com/kaitai-io/kaitai_struct/issues/792
+      fn with_args_and_spaces() {
+        assert_eq!(parse(" some :: type ( 1 + 2 , data ) "), Ok(UserTypeRef {
+          path: vec!["some", "type"],
+          args: vec![
+            Binary {
+              op:    Add,
+              left:  Box::new(Int(1)),
+              right: Box::new(Int(2)),
+            },
+            Name("data"),
+          ],
+        }));
+      }
     }
   }
 }
