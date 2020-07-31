@@ -498,11 +498,7 @@ peg::parser! {
 
     /// Entry point for parsing list of expressions in function calls and parametrized
     /// types instantiations.
-    pub rule parse_list() -> Vec<Node<'input>> = _ h:expr() _ t:("," _ e:expr() _ {e})* EOS() {
-      let mut result = vec![h];
-      result.extend(t);
-      result
-    };
+    pub rule parse_list() -> Vec<Node<'input>> = _ args:args() _ EOS() { args };
 
     /// Whitespace rule
     rule _() = quiet!{([' '|'\n']+ / "\\\n" / comment())*};
@@ -559,10 +555,7 @@ peg::parser! {
 
     /// Ex.: `xyz`, `::abc::def`, `array[]`
     rule type_name() -> TypeRef<'input>
-      = absolute:"::"? _ first:name() tail:(_ "::" _ n:name() {n})* array:(_ "[" _ "]")? {
-        let mut path = vec![first];
-        path.extend(tail);
-
+      = absolute:"::"? _ path:path() array:(_ "[" _ "]")? {
         TypeRef { path, absolute: absolute.is_some(), array: array.is_some() }
       };
     /// Ex.: `enum::value`, `::root::type::enum::value`
@@ -660,12 +653,12 @@ peg::parser! {
       / "." _ n:name()                         { Postfix::Field(n)  }// attribute access
       ;
 
-    rule list() -> Vec<Node<'input>> = h:expr() t:(_ "," _ e:expr() {e})* _ ","? {
-      let mut result = vec![h];
-      result.extend(t);
-      result
-    };
-    rule args() -> Vec<Node<'input>> = a:expr() ** (_ ",") {a};
+    /// List of names, delimited by `::`
+    rule path() -> Vec<&'input str> = path:name() ** (_ "::" _) { path };
+    /// List of expressions, delimited by comma, allowing dangling comma
+    rule list() -> Vec<Node<'input>> = list:args() _ ","? { list };
+    /// List of expressions, delimited by comma
+    rule args() -> Vec<Node<'input>> = args:expr() ** (_ "," _) { args };
   }
 }
 
