@@ -50,20 +50,7 @@ impl<T> From<OneOrMany<T>> for Vec<T> {
 
 /// Generic variant wrapper, that allow or fixed value, or describe a set
 /// of possible choices selected based on some expression.
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
-#[serde(untagged)]
-pub enum Variant<T> {
-  /// Statically specified value.
-  Fixed(T),
-  /// Dynamically calculated value based on some expression.
-  #[serde(rename_all = "kebab-case")]
-  Choice {
-    /// Expression which determines what variant will be used
-    switch_on: Scalar,
-    /// Variants
-    cases: IndexMap<Scalar, T>,
-  },
-}
+pub type Variant<T> = crate::common::Variant<Scalar, Scalar, T>;
 
 /// Generic expression, that used in `T` type contexts.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]

@@ -209,7 +209,7 @@ impl<T, U: TryInto<T>> TryFrom<p::Variant<U>> for Variant<T>
   type Error = ModelError;
 
   fn try_from(data: p::Variant<U>) -> Result<Self, Self::Error> {
-    use p::Variant::*;
+    use crate::common::Variant::*;
 
     match data {
       Fixed(val) => Ok(Variant::Fixed(val.try_into().map_err(Into::into)?)),
@@ -917,7 +917,7 @@ impl Attribute {
     }
   }
   fn validate(attr: p::Attribute, defaults: p::Defaults) -> Result<Self, ModelError> {
-    use p::Variant::*;
+    use crate::common::Variant::*;
 
     let mut props = helpers::TypeProps {
       enum_:      attr.enum_,

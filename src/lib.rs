@@ -1,6 +1,7 @@
 //! Kaitai struct definition compiler for rust in pure rust.
 #![deny(missing_docs)]
 
+pub mod common;
 pub mod error;
 pub mod identifiers;
 pub mod model;
