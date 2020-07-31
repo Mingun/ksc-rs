@@ -522,11 +522,11 @@ peg::parser! {
     /// Single non-escaped character in string
     rule ch() -> char = ch:$[x if x != '\\' && x != '"'] { ch.chars().next().unwrap() };
     /// One escaped character
-    rule escaped() -> char = "\\" r:(quotedChar() / quotedOct() / quotedHex()) { r };
+    rule escaped() -> char = "\\" r:(quoted_char() / quoted_oct() / quoted_hex()) { r };
     /// Characters that can be escaped by backslash
-    rule quotedChar() -> char = ch:$['a'|'b'|'t'|'n'|'v'|'f'|'r'|'e'|'\''|'"'|'\\'] { to_escaped(ch) };
-    rule quotedOct() -> char  = s:$(oct()+) {? to_char(s, 8) };
-    rule quotedHex() -> char  = ['u'] s:$(hex()*<4>) {? to_char(s, 16) };
+    rule quoted_char() -> char = ch:$['a'|'b'|'t'|'n'|'v'|'f'|'r'|'e'|'\''|'"'|'\\'] { to_escaped(ch) };
+    rule quoted_oct() -> char  = s:$(oct()+) {? to_char(s, 8) };
+    rule quoted_hex() -> char  = ['u'] s:$(hex()*<4>) {? to_char(s, 16) };
 
     rule integer() -> u64
       = n:$(['1'..='9'] ['0'..='9' | '_']*) {? to_u64(n, 10) }
@@ -547,18 +547,18 @@ peg::parser! {
     ) {? n.replace('_', "").parse().map_err(|_| "float literal must contain at least one digit") };
     rule fixed()
       = digit()* "." digit()+        // Ex.: 4.2, .42
-      / digit()+ "." !(_ nameStart())// Ex.: 42.
+      / digit()+ "." !(_ name_start())// Ex.: 42.
       ;
     rule exponent() = ['e' | 'E'] ['+' | '-']? digit()+;
 
     //-------------------------------------------------------------------------------------------------
 
-    rule name() -> &'input str = $(nameStart() namePart()*);
-    rule nameStart() = ['a'..='z' | 'A'..='Z' | '_'];
-    rule namePart()  = ['a'..='z' | 'A'..='Z' | '_' | '0'..='9'];
+    rule name() -> &'input str = $(name_start() name_part()*);
+    rule name_start() = ['a'..='z' | 'A'..='Z' | '_'];
+    rule name_part()  = ['a'..='z' | 'A'..='Z' | '_' | '0'..='9'];
 
     /// Ex.: `xyz`, `::abc::def`, `array[]`
-    rule typeName() -> TypeRef<'input>
+    rule type_name() -> TypeRef<'input>
       = absolute:"::"? _ first:name() tail:(_ "::" _ n:name() {n})* array:(_ "[" _ "]")? {
         let mut path = vec![first];
         path.extend(tail);
@@ -566,7 +566,7 @@ peg::parser! {
         TypeRef { path, absolute: absolute.is_some(), array: array.is_some() }
       };
     /// Ex.: `enum::value`, `::root::type::enum::value`
-    rule enumName() -> Node<'input>
+    rule enum_name() -> Node<'input>
       = absolute:"::"? _ n1:name() _ "::" _ n2:name() tail:(_ "::" _ n:name() {n})* {
         let mut path = vec![n1, n2];
         path.extend(tail);
@@ -578,9 +578,9 @@ peg::parser! {
     // Operators
     //-------------------------------------------------------------------------------------------------
 
-    rule OR()  -> Node<'input> = _ "or"  !namePart() _ e:and_test() {e};
-    rule AND() -> Node<'input> = _ "and" !namePart() _ e:and_test() {e};
-    rule NOT() -> Node<'input> = _ "not" !namePart() _ e:and_test() {e};
+    rule OR()  -> Node<'input> = _ "or"  !name_part() _ e:and_test() {e};
+    rule AND() -> Node<'input> = _ "and" !name_part() _ e:and_test() {e};
+    rule NOT() -> Node<'input> = _ "not" !name_part() _ e:and_test() {e};
 
     rule expr() -> Node<'input>
       = condition:or_test() branch:(_ "?" _ t:expr() _ ":" _ f:expr() {(t, f)})? {
@@ -640,24 +640,24 @@ peg::parser! {
       ;
 
     rule atom() -> Node<'input>
-      = "(" _ e:expr() _ ")"                   { e }
-      / "[" _ l:list()? _ "]"                  { Node::List(l.unwrap_or_default()) }
-      / "sizeof" _ "<" _ t:typeName() _ ">"    { Node::SizeOf { type_: t, bit: false } }
-      / "bitsizeof" _ "<" _ t:typeName() _ ">" { Node::SizeOf { type_: t, bit: true  } }
-      / v:(s:string() _ {s})+                  { Node::Str(String::from_iter(v.into_iter())) }
-      / "true"  !namePart()                    { Node::Bool(true) }
-      / "false" !namePart()                    { Node::Bool(false) }
-      / e:enumName()                           { e }
-      / n:name()                               { Node::Name(n) }
-      / f:float()                              { Node::Float(f.into()) }
-      / i:integer()                            { Node::Int(i) }
+      = "(" _ e:expr() _ ")"                    { e }
+      / "[" _ l:list()? _ "]"                   { Node::List(l.unwrap_or_default()) }
+      / "sizeof" _ "<" _ t:type_name() _ ">"    { Node::SizeOf { type_: t, bit: false } }
+      / "bitsizeof" _ "<" _ t:type_name() _ ">" { Node::SizeOf { type_: t, bit: true  } }
+      / v:(s:string() _ {s})+                   { Node::Str(String::from_iter(v.into_iter())) }
+      / "true"  !name_part()                    { Node::Bool(true) }
+      / "false" !name_part()                    { Node::Bool(false) }
+      / e:enum_name()                           { e }
+      / n:name()                                { Node::Name(n) }
+      / f:float()                               { Node::Float(f.into()) }
+      / i:integer()                             { Node::Int(i) }
       ;
 
     rule postfix() -> Postfix<'input>
-      = "(" _ a:args() _ ")"                  { Postfix::Args(a)   }// call
-      / "[" _ e:expr() _ "]"                  { Postfix::Index(e)  }// indexing
-      / "." _ "as" _ "<" _ t:typeName() _ ">" { Postfix::CastTo(t) }// type cast
-      / "." _ n:name()                        { Postfix::Field(n)  }// attribute access
+      = "(" _ a:args() _ ")"                   { Postfix::Args(a)   }// call
+      / "[" _ e:expr() _ "]"                   { Postfix::Index(e)  }// indexing
+      / "." _ "as" _ "<" _ t:type_name() _ ">" { Postfix::CastTo(t) }// type cast
+      / "." _ n:name()                         { Postfix::Field(n)  }// attribute access
       ;
 
     rule list() -> Vec<Node<'input>> = h:expr() t:(_ "," _ e:expr() {e})* _ ","? {
