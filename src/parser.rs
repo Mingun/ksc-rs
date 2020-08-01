@@ -921,7 +921,7 @@ impl DerefMut for Enum {
 #[serde(rename_all = "kebab-case")]
 pub struct TypeSpec {
   /// Defaults for attributes' parameters
-  #[serde(flatten, rename = "meta")]
+  #[serde(rename = "meta")]
   pub default: Option<Defaults>,
   /// Documentation for type.
   #[serde(flatten)]
