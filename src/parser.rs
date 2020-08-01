@@ -5,6 +5,7 @@
 //!
 //! [`model`]: ../model/index.html
 
+use std::fmt::{Display, Formatter, Result};
 use std::hash::{Hash, Hasher};
 use std::ops::{Deref, DerefMut};
 use std::collections::HashMap;
@@ -176,6 +177,16 @@ impl Hash for Scalar {
       Self::Bool(b)   => (1, b).hash(state),
       Self::Number(i) => (2, i).hash(state),
       Self::String(s) => (3, s).hash(state),
+    }
+  }
+}
+impl Display for Scalar {
+  fn fmt(&self, f: &mut Formatter) -> Result {
+    match self {
+      Self::Null      => write!(f, "(null)"),
+      Self::Bool(b)   => b.fmt(f),
+      Self::Number(i) => i.fmt(f),
+      Self::String(s) => write!(f, r#""{}""#, s.replace('"', r#"\""#)),
     }
   }
 }
@@ -960,6 +971,15 @@ pub struct Ksy {
   /// Root type in the file
   #[serde(flatten)]
   pub root: TypeSpec,
+}
+
+#[test]
+fn scalar_display() {
+  assert_eq!("(null)",        format!("{}", Scalar::Null));
+  assert_eq!("true",          format!("{}", Scalar::Bool(true)));
+  assert_eq!("42",            format!("{}", Scalar::Number(42.into())));
+  assert_eq!("4.2",           format!("{}", Scalar::Number(4.2.into())));
+  assert_eq!(r#""(nu\"ll)""#, format!("{}", Scalar::String("(nu\"ll)".into())));
 }
 
 #[test]
