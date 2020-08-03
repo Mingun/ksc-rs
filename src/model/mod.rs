@@ -6,7 +6,11 @@
 
 use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
+use std::fmt::Display;
+use std::hash::Hash;
 
+use indexmap::{indexmap, IndexMap};
+use indexmap::map::Entry;
 use lazy_static::lazy_static;
 use regex::Regex;
 
@@ -575,9 +579,6 @@ impl Chunk {
 /// Defines, how to read and interpret data
 #[derive(Clone, Debug, PartialEq)]
 pub struct Attribute {
-  /// Optional name of attribute. If not defined, then current attribute won't be
-  /// accessible in generated code
-  pub id: FieldName,
   /// Reference to type and size of this attribute. Type can be fixed or calculated
   pub chunk: Variant<Chunk>,
 
@@ -591,7 +592,7 @@ pub struct Attribute {
   pub process: Option<ProcessAlgo>,
 }
 impl Attribute {
-  fn validate(index: usize, attr: p::Attribute, defaults: p::Defaults) -> Result<Self, ModelError> {
+  fn validate(attr: p::Attribute, defaults: p::Defaults) -> Result<Self, ModelError> {
     use p::Variant::*;
 
     let mut props = helpers::TypeProps {
@@ -612,7 +613,6 @@ impl Attribute {
       pad_right:  attr.pad_right,
     };
     Ok(Self {
-      id:        FieldName::validate(index, attr.id)?,
       chunk:     match attr.type_ {
         None             => Variant::Fixed(Chunk::validate(None,      props, size)?),
         Some(Fixed(val)) => Variant::Fixed(Chunk::validate(Some(val), props, size)?),
@@ -638,66 +638,92 @@ impl Attribute {
   }
 }
 
-/// Defines used-defined type
+/// Defines user-defined type
 #[derive(Clone, Debug, PartialEq)]
 pub struct Type {
-  /// Unique identifier of this type
-  pub id: TypeName,
   /// The list of fields that this type consists of. The fields in the data stream
   /// are in the same order as they are declared here.
-  pub fields: Vec<Attribute>,
-  // pub getters: Vec<Instance>,//TODO: instances
+  pub fields: IndexMap<FieldName, Attribute>,
+  // pub getters: IndexMap<InstanceName, Instance>,//TODO: instances
   /// List of used-defined types, defined inside this type.
-  pub types: Vec<Type>,
-  // pub enums: Vec<Enum>,//TODO: Enums
-  // pub params: Vec<Param>,//TODO: Parameters
+  pub types: IndexMap<TypeName, Type>,
+  // pub enums: IndexMap<EnumName, Enum>,//TODO: Enums
+  // pub params: IndexMap<ParamName, Param>,//TODO: Parameters
 }
 impl Type {
-  fn map<I, U, F>(seq: Option<I>, mut f: F) -> Result<Vec<U>, ModelError>
+  fn map<I, K, V, F>(seq: Option<I>, mut f: F) -> Result<IndexMap<K, V>, ModelError>
     where I: IntoIterator,
-          F: FnMut(I::Item) -> Result<U, ModelError>
+          K: Eq + Hash + Display,
+          F: FnMut(I::Item) -> Result<(K, V), ModelError>
   {
+    use ModelError::*;
+
     Ok(match seq {
-      None => vec![],
+      None => indexmap![],
       Some(seq) => {
         let iter = seq.into_iter();
-        let mut result = Vec::with_capacity(iter.size_hint().1.unwrap_or(0));
+        let mut result = IndexMap::with_capacity(iter.size_hint().1.unwrap_or(0));
         for elem in iter {
-          result.push(f(elem)?);
+          let (k, v) = f(elem)?;
+          match result.entry(k) {
+            Entry::Vacant(e)   => e.insert(v),
+            Entry::Occupied(e) => return Err(Validation(format!("duplicated name `{}`", e.key()).into())),
+          };
         }
         result
       }
     })
   }
-  fn validate(name: p::Name, spec: p::TypeSpec, mut defaults: p::Defaults) -> Result<Self, ModelError> {
+  fn validate(spec: p::TypeSpec, mut defaults: p::Defaults) -> Result<Self, ModelError> {
     // Merge type defaults with inherited defaults
     if let Some(def) = spec.default {
       defaults.endian   = def.endian.or(defaults.endian);
       defaults.encoding = def.encoding.or(defaults.encoding);
     }
 
-    let seq = spec.seq.map(|s| s.into_iter().enumerate());
+    let make_field = |(i, mut spec): (usize, p::Attribute)| {
+      Ok((
+        FieldName::validate(i, spec.id.take())?,
+        Attribute::validate(spec, defaults.clone())?,
+      ))
+    };
+    let make_type = |(name, spec)| {
+      Ok((
+        TypeName::validate(name)?,
+        Type::validate(spec, defaults.clone())?
+      ))
+    };
 
     Ok(Self {
-      id:     TypeName::validate(name)?,
-      fields: Self::map(seq, |(i, spec)| Attribute::validate(i, spec, defaults.clone()))?,
-      types:  Self::map(spec.types, |(name, spec)| Type::validate(name, spec, defaults.clone()))?,
+      fields: Self::map(spec.seq.map(|s| s.into_iter().enumerate()), make_field)?,
+      types:  Self::map(spec.types, make_type)?,
     })
   }
 }
-impl TryFrom<p::Ksy> for Type {
+
+/// Defines top-level user-defined type
+#[derive(Clone, Debug, PartialEq)]
+pub struct Root {
+  /// Name of top-level type
+  pub name: TypeName,
+  /// Definition of type
+  pub type_: Type,
+}
+impl TryFrom<p::Ksy> for Root {
   type Error = ModelError;
 
   fn try_from(data: p::Ksy) -> Result<Self, Self::Error> {
     use p::Identifier::*;
 
     let name = match data.meta.id {
-      None              => p::Name("root".to_owned()),
-      Some(Bool(true))  => p::Name("r#true".to_owned()),
-      Some(Bool(false)) => p::Name("r#false".to_owned()),
-      Some(Name(name))  => name,
+      None              => TypeName::valid("root"),
+      Some(Bool(true))  => TypeName::valid("r#true"),
+      Some(Bool(false)) => TypeName::valid("r#false"),
+      Some(Name(name))  => TypeName::validate(name)?,
     };
-    Self::validate(name, data.root, data.meta.defaults.into())
+    let type_ = Type::validate(data.root, data.meta.defaults.into())?;
+
+    Ok(Self { name, type_ })
   }
 }
 
@@ -714,7 +740,7 @@ mod size {
       - id: field
         size: 5
     "#).unwrap();
-    let _ = Type::try_from(ksy).expect("`size` defines size");
+    let _ = Root::try_from(ksy).expect("`size` defines size");
   }
   #[test]
   fn size_eos() {
@@ -725,7 +751,7 @@ mod size {
       - id: field
         size-eos: true
     "#).unwrap();
-    let _ = Type::try_from(ksy).expect("`size-eos` defines size");
+    let _ = Root::try_from(ksy).expect("`size-eos` defines size");
   }
   #[test]
   fn terminator() {
@@ -736,7 +762,7 @@ mod size {
       - id: field
         terminator: 5
     "#).unwrap();
-    let _ = Type::try_from(ksy).expect("`terminator` defines size");
+    let _ = Root::try_from(ksy).expect("`terminator` defines size");
   }
   #[test]
   fn strz() {
@@ -748,7 +774,7 @@ mod size {
         type: strz
         encoding: UTF-8
     "#).unwrap();
-    let _ = Type::try_from(ksy).expect("`strz` defines size (because of implicit `terminator=0`)");
+    let _ = Root::try_from(ksy).expect("`strz` defines size (because of implicit `terminator=0`)");
   }
   #[test]
   fn builtin_types() {
@@ -762,7 +788,7 @@ mod size {
           - id: field
             type: {}
         "#, stringify!($builtin))).unwrap();
-        let _ = Type::try_from(ksy).expect(&format!("`{}` has natural size", stringify!($builtin)));
+        let _ = Root::try_from(ksy).expect(&format!("`{}` has natural size", stringify!($builtin)));
       };
     }
     test!(u1);
@@ -816,7 +842,7 @@ mod strz {
         type: strz
         encoding: UTF-8
     "#).unwrap();
-    let _ = Type::try_from(ksy).expect("`strz` not requires explicit size");
+    let _ = Root::try_from(ksy).expect("`strz` not requires explicit size");
   }
 
   #[test]
@@ -833,10 +859,11 @@ mod strz {
             2: u4be
         encoding: UTF-8
     "#).unwrap();
-    let _ = Type::try_from(ksy).expect("`strz` not requires explicit size");
+    let _ = Root::try_from(ksy).expect("`strz` not requires explicit size");
   }
 }
 
+#[cfg(test)]
 mod encoding {
   macro_rules! tests {
     ($type_name:ident) => {
@@ -852,7 +879,7 @@ mod encoding {
               type: {}
               size: 1
           "#, stringify!($type_name))).unwrap();
-          let _ = crate::model::Type::try_from(ksy).expect_err(&format!("`{}` requires `encoding`", stringify!($type_name)));
+          let _ = crate::model::Root::try_from(ksy).expect_err(&format!("`{}` requires `encoding`", stringify!($type_name)));
         }
 
         #[test]
@@ -870,7 +897,7 @@ mod encoding {
                   2: u1
               size: 1
           "#, stringify!($type_name))).unwrap();
-          let _ = crate::model::Type::try_from(ksy).expect_err(&format!("`{}` requires `encoding`", stringify!($type_name)));
+          let _ = crate::model::Root::try_from(ksy).expect_err(&format!("`{}` requires `encoding`", stringify!($type_name)));
         }
       }
     };
@@ -893,7 +920,7 @@ mod inheritance {
             let s = stringify!($builtin);
             let t = &format!($template, s);
             let ksy: p::Ksy = serde_yaml::from_str(t).unwrap();
-            let _ = Type::try_from(ksy).expect(&format!("inherited `encoding` and `endian` for `{}`\n{}", s, t));
+            let _ = Root::try_from(ksy).expect(&format!("inherited `encoding` and `endian` for `{}`\n{}", s, t));
           };
         }
         test!(u1);
@@ -1013,5 +1040,24 @@ mod inheritance {
               1: {}
               2: unknown_sized
     "#);
+  }
+}
+
+#[cfg(test)]
+mod duplicate {
+  use super::*;
+
+  #[test]
+  fn fields() {
+    let ksy: p::Ksy = serde_yaml::from_str(r#"
+    meta:
+      id: duplicate_fields
+    seq:
+      - id: field
+        size: 1
+      - id: field
+        size: 2
+    "#).unwrap();
+    let _ = Root::try_from(ksy).expect_err("duplicated fields must raise error");
   }
 }
