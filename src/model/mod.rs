@@ -987,13 +987,142 @@ impl From<Chunk> for Attribute {
   }
 }
 
+/// Defines, how to read or calculate data that not in sequence
+#[derive(Clone, Debug, PartialEq)]
+pub enum Instance {
+  /// Calculates the specified expression.
+  ///
+  /// Corresponds to `value` key in the KSY definition:
+  ///
+  /// ```yaml
+  /// instances:
+  ///   instance:
+  ///     value: ...
+  ///     enum: ...   # optional
+  ///     if: ...     # optional
+  /// ```
+  Value {
+    /// Specifies expression to calculate and return as a value.
+    ///
+    /// Corresponds to KSY `value` key
+    value: OwningNode,
+    /// Path to enumeration definition. If specified, type should be represented
+    /// as an enumeration.
+    ///
+    /// Corresponds to KSY `enum` key
+    enum_: Option<EnumPath>,
+    /// If specified, attribute will be read only if condition evaluated to `true`.
+    ///
+    /// Corresponds to KSY `if` key
+    condition: Option<Condition>,
+  },
+  /// Parse data from specified offset and stream.
+  ///
+  /// Corresponds to KSY definition without `value` key:
+  ///
+  /// ```yaml
+  /// instances:
+  ///   instance:
+  ///     io: ...       # optional
+  ///     pos: ...      # optional
+  ///     size: ...     # optional
+  ///     type: ...     # optional
+  ///     enum: ...     # optional
+  ///     repeat: ...   # optional
+  ///     process: ...  # optional
+  ///     if: ...       # optional
+  /// ```
+  Parse {
+    /// Defines how to parse data.
+    data: Attribute,
+    /// An expression that defines a position in the stream at which `data` begins.
+    ///
+    /// Corresponds to KSY `pos` key
+    offset: Position,
+    /// An expression, specifies an IO stream from which a value should be parsed.
+    ///
+    /// Corresponds to KSY `io` key
+    stream: Option<OwningNode>,
+  },
+  /// Parse data after all sequential data
+  //TODO: https://github.com/kaitai-io/kaitai_struct/issues/544: optional offset
+  Last {
+    /// Defines how to parse data.
+    data: Attribute,
+    /// An expression, specifies an IO stream from which a value should be parsed.
+    ///
+    /// Corresponds to KSY `io` key
+    stream: Option<OwningNode>,
+  },
+}
+impl Instance {
+  fn validate(ins: p::Instance, defaults: p::Defaults) -> Result<Self, ModelError> {
+    use ModelError::*;
+
+    match (
+      ins.value, ins.pos, ins.io,
+
+      &ins.common.id,
+      &ins.common.contents,
+      &ins.common.type_,
+      &ins.common.process,
+      &ins.common.encoding,
+
+      &ins.common.repeat,
+      &ins.common.repeat_expr,
+      &ins.common.repeat_until,
+      &ins.common.size,
+      &ins.common.size_eos,
+
+      &ins.common.pad_right,
+      &ins.common.terminator,
+      &ins.common.consume,
+      &ins.common.include,
+      &ins.common.eos_error,
+    ) {
+      (Some(expr), None, None,
+        None, None, None, None, None,
+        None, None, None, None, None,
+        None, None, None, None, None,
+      ) => Ok(Self::Value {
+        value:     OwningNode::try_from(expr)?,
+        enum_:     ins.common.enum_.map(EnumPath::validate).transpose()?,
+        condition: ins.common.condition.map(Condition::validate).transpose()?,
+      }),
+      (None, Some(offset), stream, ..) => Ok(Self::Parse {
+        data:   Attribute::validate(ins.common, defaults)?,
+        offset: Position::validate(offset)?,
+        stream: stream.map(|expr| OwningNode::parse(&expr)).transpose()?,
+      }),
+      (None, None, stream, ..) => Ok(Self::Last {
+        data:   Attribute::validate(ins.common, defaults)?,
+        stream: stream.map(|expr| OwningNode::parse(&expr)).transpose()?,
+      }),
+      _ => Err(Validation("unexpected attribute for `value` instance, only `enum`, `if`, `doc` and `doc-ref` is allowed".into())),
+    }
+  }
+}
+impl From<OwningNode> for Instance {
+  /// Converts an expression into a value instance without enum definition or condition.
+  fn from(value: OwningNode) -> Self {
+    Self::Value {
+      value,
+      enum_: None,
+      condition: None,
+    }
+  }
+}
+
 /// Defines a user-defined type
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct UserType {
   /// The list of fields that this type consists of. The fields in the data stream
   /// are in the same order as they are declared here.
   pub fields: IndexMap<SeqName, Attribute>,
-  // pub getters: IndexMap<InstanceName, Instance>,//TODO: instances
+  /// List of dynamic and calculated fields of this type. The position of these fields
+  /// is not fixed in the type, and they may not even be physically represented in the
+  /// data stream at all.
+  pub instances: IndexMap<FieldName, Instance>,
   /// List of used-defined types, defined inside this type.
   pub types: IndexMap<TypeName, UserType>,
   // pub enums: IndexMap<EnumName, Enum>,//TODO: Enums
@@ -1056,6 +1185,17 @@ impl UserType {
         Attribute::validate(spec, defaults.clone())?,
       ))
     })?;
+    let instances = Self::check_duplicates(spec.instances, |(name, spec)| {
+      use ModelError::*;
+
+      let name = FieldName::validate(name)?;
+
+      if fields.contains_key(&name) {
+        return Err(Validation(format!("a sequenced attribute and an instance cannot have the same name `{}`", name).into()));
+      }
+
+      Ok((name, Instance::validate(spec, defaults.clone())?))
+    })?;
     let types = Self::check_duplicates(spec.types, |(name, spec)| {
       Ok((
         TypeName::validate(name)?,
@@ -1065,6 +1205,7 @@ impl UserType {
 
     Ok(Self {
       fields,
+      instances,
       types,
     })
   }
@@ -1497,7 +1638,198 @@ mod duplicate {
       - id: field
         size: 2
     "#).unwrap();
-    let _ = Root::try_from(ksy).expect_err("duplicated fields must raise error");
+    let _ = Root::try_from(ksy).expect_err("duplicated fields must raise an error");
+  }
+
+  #[test]
+  fn seq_vs_instance() {
+    let ksy: p::Ksy = serde_yml::from_str(r#"
+    meta:
+      id: duplicate_seq_vs_instance
+    seq:
+      - id: field
+        size: 1
+    instances:
+      field:
+        size: 2
+    "#).unwrap();
+    let _ = Root::try_from(ksy).expect_err("the same name of `seq` and `instance` attribute must raise an error");
+  }
+}
+
+#[cfg(test)]
+mod instance {
+  use super::*;
+
+  #[test]
+  fn invalid() {
+    let ksy: p::Instance = serde_yml::from_str(r#"{}"#).unwrap();
+    let _ = Instance::validate(ksy, p::Defaults::default()).expect_err("empty instance must raise an error");
+
+    let ksy: p::Instance = serde_yml::from_str(r#"
+      pos: 42
+    "#).unwrap();
+    let _ = Instance::validate(ksy, p::Defaults::default()).expect_err("instance without size (explicit or implicit) must raise an error");
+
+    let ksy: p::Instance = serde_yml::from_str(r#"
+      io: _root._io
+    "#).unwrap();
+    let _ = Instance::validate(ksy, p::Defaults::default()).expect_err("instance without size (explicit or implicit) must raise an error");
+  }
+
+  /// Value instance defined by `value` attribute
+  mod value {
+    // Colorful diffs in assertions
+    use pretty_assertions::assert_eq;
+    use super::*;
+
+    #[test]
+    fn simple() {
+      let ksy: p::Instance = serde_yml::from_str(r#"
+        value: 42
+      "#).unwrap();
+      let root = Instance::validate(ksy, p::Defaults::default()).expect("value instance must be valid");
+      assert_eq!(root, Instance::Value {
+        value: OwningNode::Int(42.into()),
+        enum_: None,
+        condition: None,
+      });
+    }
+
+    #[test]
+    fn if_() {
+      let ksy: p::Instance = serde_yml::from_str(r#"
+        value: 42
+        if: true
+      "#).unwrap();
+      let root = Instance::validate(ksy, p::Defaults::default()).expect("value instance must be valid");
+      assert_eq!(root, Instance::Value {
+        value: OwningNode::Int(42.into()),
+        enum_: None,
+        condition: Some(Condition(OwningNode::Bool(true))),
+      });
+    }
+
+    #[test]
+    fn enum_() {
+      let ksy: p::Instance = serde_yml::from_str(r#"
+        value: 42
+        enum: enum
+      "#).unwrap();
+      let root = Instance::validate(ksy, p::Defaults::default()).expect("value instance must be valid");
+      assert_eq!(root, Instance::Value {
+        value: OwningNode::Int(42.into()),
+        enum_: Some(EnumName::valid("enum").into()),
+        condition: None,
+      });
+    }
+  }
+
+  /// Parse instance defined by `pos` attribute
+  mod parse {
+    // Colorful diffs in assertions
+    use pretty_assertions::assert_eq;
+    use super::*;
+
+    #[test]
+    fn size() {
+      let ksy: p::Instance = serde_yml::from_str(r#"
+        pos: 42
+        size: 5
+      "#).unwrap();
+      let root = Instance::validate(ksy, p::Defaults::default()).expect("parse instance must be valid");
+      assert_eq!(root, Instance::Parse {
+        data: Chunk {
+          type_ref: TypeRef::Bytes,
+          size: 5.into(),
+        }.into(),
+        offset: Position(OwningNode::Int(42.into())),
+        stream: None,
+      });
+    }
+
+    #[test]
+    fn size_eos() {
+      let ksy: p::Instance = serde_yml::from_str(r#"
+        pos: 42
+        size-eos: true
+      "#).unwrap();
+      let root = Instance::validate(ksy, p::Defaults::default()).expect("parse instance must be valid");
+      assert_eq!(root, Instance::Parse {
+        data: Chunk {
+          type_ref: TypeRef::Bytes,
+          size: Size::Eos(None),
+        }.into(),
+        offset: Position(OwningNode::Int(42.into())),
+        stream: None,
+      });
+    }
+
+    #[test]
+    fn terminator() {
+      let ksy: p::Instance = serde_yml::from_str(r#"
+        pos: 42
+        terminator: 0
+      "#).unwrap();
+      let root = Instance::validate(ksy, p::Defaults::default()).expect("parse instance must be valid");
+      assert_eq!(root, Instance::Parse {
+        data: Chunk {
+          type_ref: TypeRef::Bytes,
+          size: Size::Until(0.into()),
+        }.into(),
+        offset: Position(OwningNode::Int(42.into())),
+        stream: None,
+      });
+    }
+
+    #[test]
+    fn if_() {
+      let ksy: p::Instance = serde_yml::from_str(r#"
+        pos: 42
+        size: 5
+        if: true
+      "#).unwrap();
+      let root = Instance::validate(ksy, p::Defaults::default()).expect("parse instance must be valid");
+      assert_eq!(root, Instance::Parse {
+        data: Attribute {
+          chunk: Variant::Fixed(Chunk {
+            type_ref: TypeRef::Bytes,
+            size: 5.into(),
+          }),
+          repeat: Repeat::None,
+          condition: Some(Condition(OwningNode::Bool(true))),
+          process: None,
+        },
+        offset: Position(OwningNode::Int(42.into())),
+        stream: None,
+      });
+    }
+
+    #[test]
+    fn enum_() {
+      let ksy: p::Instance = serde_yml::from_str(r#"
+        pos: 42
+        type: u1
+        enum: enum
+      "#).unwrap();
+      let root = Instance::validate(ksy, p::Defaults::default()).expect("parse instance must be valid");
+      assert_eq!(root, Instance::Parse {
+        data: Attribute {
+          chunk: Variant::Fixed(Chunk {
+            type_ref: TypeRef::Enum {
+              base: Enumerable::U8,
+              enum_: Some(EnumName::valid("enum").into()),
+            },
+            size: Size::Natural,
+          }),
+          repeat: Repeat::None,
+          condition: None,
+          process: None,
+        },
+        offset: Position(OwningNode::Int(42.into())),
+        stream: None,
+      });
+    }
   }
 }
 

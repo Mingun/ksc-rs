@@ -9,6 +9,8 @@ use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 use std::ops::Deref;
 
+use indexmap::Equivalent;
+
 use crate::error::ModelError;
 use crate::parser as p;
 use crate::parser::expressions::parse_name;
@@ -92,7 +94,10 @@ impl<Tag> Ord for Name<Tag> {
 impl<Tag> Hash for Name<Tag> {
   #[inline]
   fn hash<H: Hasher>(&self, state: &mut H) {
-    self.0.hash(state);
+    // Because we want to search in the IndexMap<FieldName, ...> by InstanceName
+    // the hashes should be the same. Hash of the `value` and `&value` the same,
+    // so just calculate hash from the wrapper
+    (0, &self.0).hash(state);
   }
 }
 impl<Tag> Deref for Name<Tag> {
@@ -110,7 +115,7 @@ impl<Tag> TryFrom<p::Name> for Name<Tag> {
 }
 
 /// Represents name, that can be manually specified or automatically generated one.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum OptionalName<T> {
   /// Name, given to element
   Named(T),
@@ -138,6 +143,25 @@ impl<T: Display> Display for OptionalName<T> {
     match self {
       OptionalName::Named(val) => <T as Display>::fmt(&val, f),
       OptionalName::Unnamed(i) => write!(f, "<unnamed_{}>", i),
+    }
+  }
+}
+impl<Tag> Hash for OptionalName<Name<Tag>> {
+  #[inline]
+  fn hash<H: Hasher>(&self, state: &mut H) {
+    match self {
+      // Because we want to search in the IndexMap<FieldName, ...> by InstanceName
+      // the hashes should be the same
+      OptionalName::Named(val) => val.hash(state),
+      OptionalName::Unnamed(i) => (1, i).hash(state),
+    }
+  }
+}
+impl<Tag> Equivalent<OptionalName<Name<Tag>>> for Name<Tag> {
+  fn equivalent(&self, key: &OptionalName<Name<Tag>>) -> bool {
+    match key {
+      OptionalName::Named(val) => val == self,
+      OptionalName::Unnamed(_) => false,
     }
   }
 }
@@ -192,6 +216,11 @@ impl EnumPath {
     Ok(Self { path, name: EnumName::validate(name)? })
   }
 }
+impl From<EnumName> for EnumPath {
+  fn from(name: EnumName) -> Self {
+    Self { path: vec![], name }
+  }
+}
 
 #[cfg(test)]
 enum Tag {}
@@ -221,4 +250,22 @@ fn start_with_underscore() {
 #[test]
 fn empty() {
   Name::<Tag>::validate(p::Name("".into())).unwrap_err();
+}
+
+#[test]
+fn equivalency() {
+  fn calculate_hash<T: Hash>(t: &T) -> u64 {
+      let mut s = std::collections::hash_map::DefaultHasher::new();
+      t.hash(&mut s);
+      s.finish()
+  }
+  let name: Name<Tag> = Name::valid("field");
+  let opt: OptionalName<Name<Tag>> = OptionalName::Named(Name::valid("field"));
+
+  assert_eq!(
+    calculate_hash(&name),
+    calculate_hash(&opt),
+  );
+
+  assert!(name.equivalent(&opt));
 }
