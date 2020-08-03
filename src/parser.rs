@@ -8,7 +8,8 @@
 use std::fmt::{Display, Formatter, Result};
 use std::hash::{Hash, Hasher};
 use std::ops::{Deref, DerefMut};
-use std::collections::HashMap;
+
+use indexmap::IndexMap;
 use serde::Deserialize;
 use serde_yaml::{Value, Number};
 
@@ -53,7 +54,7 @@ pub enum Variant<T> {
     /// Expression which determines what variant will be used
     switch_on: Scalar,
     /// Variants
-    cases: HashMap<Scalar, T>,
+    cases: IndexMap<Scalar, T>,
   }
 }
 
@@ -279,7 +280,7 @@ pub struct XRefs {
 
   /// References to any other formats.
   #[serde(flatten)]
-  pub other: HashMap<String, XRef>,
+  pub other: IndexMap<String, XRef>,
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -537,7 +538,7 @@ pub struct Defaults {
 
   /// Additional arbitrary values.
   #[serde(flatten)]
-  pub other: HashMap<UserName, Value>,
+  pub other: IndexMap<UserName, Value>,
 }
 
 /// Meta-information relevant the user-defined type or KSY file in whole.
@@ -784,7 +785,7 @@ pub struct Attribute {
 
   /// Additional arbitrary values.
   #[serde(flatten)]
-  pub other: HashMap<UserName, Value>,
+  pub other: IndexMap<UserName, Value>,
 }
 
 /// [`Attribute`] specialization for use in [`instances`].
@@ -858,7 +859,7 @@ pub struct Param {
 
   /// Additional arbitrary values.
   #[serde(flatten)]
-  pub other: HashMap<UserName, Value>,
+  pub other: IndexMap<UserName, Value>,
 }
 
 /// Represents one enumerated value, `value` in:
@@ -890,16 +891,16 @@ pub enum EnumValue {
 
     /// Additional arbitrary values.
     #[serde(flatten)]
-    other: HashMap<UserName, Value>,
+    other: IndexMap<UserName, Value>,
   }
 }
 
 /// Enumeration definition
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 #[serde(transparent)]
-pub struct Enum(HashMap<Scalar, EnumValue>);
+pub struct Enum(IndexMap<Scalar, EnumValue>);
 impl Deref for Enum {
-  type Target = HashMap<Scalar, EnumValue>;
+  type Target = IndexMap<Scalar, EnumValue>;
 
   fn deref(&self) -> &Self::Target { &self.0 }
 }
@@ -943,11 +944,11 @@ pub struct TypeSpec {
   /// List of enumeration types, defined inside this type. Each enumeration has its
   /// own unique name inside this type (however, that name must not be the same as
   /// names in `types` and `instances` keys of this type).
-  pub enums: Option<HashMap<Name, Enum>>,
+  pub enums: Option<IndexMap<Name, Enum>>,
   /// List of used-defined types, defined inside this type. Each type has its
   /// own unique name inside this type (however, that name must not be the same as
   /// names in `enums` and `instances` keys of this type).
-  pub types: Option<HashMap<Name, TypeSpec>>,
+  pub types: Option<IndexMap<Name, TypeSpec>>,
 
   /// The list of fields that this type consists of. The fields in the data stream
   /// are in the same order as they are declared here.
@@ -955,11 +956,11 @@ pub struct TypeSpec {
   /// List of dynamic and calculated fields of this type. The position of these fields
   /// is not fixed in the type, and they may not even be physically represented in the
   /// data stream at all.
-  pub instances: Option<HashMap<Name, Instance>>,
+  pub instances: Option<IndexMap<Name, Instance>>,
 
   /// Additional arbitrary values.
   #[serde(flatten)]
-  pub other: HashMap<UserName, Value>,
+  pub other: IndexMap<UserName, Value>,
 }
 
 /// Type representing the entire file
@@ -1089,7 +1090,7 @@ fn type_() {
   ").unwrap();
   assert_eq!(type_, Type::Choice {
     switch_on: Scalar::String("id".to_owned()),
-    cases: HashMap::from_iter(vec![
+    cases: IndexMap::from_iter(vec![
       (Scalar::String("1".to_owned()), TypeRef::User("one".to_owned())),
       (Scalar::String("2".to_owned()), TypeRef::User("two".to_owned())),
     ]),
