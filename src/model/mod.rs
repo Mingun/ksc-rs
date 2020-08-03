@@ -986,13 +986,83 @@ impl From<Chunk> for Attribute {
   }
 }
 
+/// Defines, how to read or calculate data, that not in sequence
+#[derive(Clone, Debug, PartialEq)]
+pub enum Instance {
+  /// Parse data from specified offset and stream
+  Parse {
+    /// Defines how to parse data.
+    data: Attribute,
+    /// Specifies position at which the value should be parsed.
+    offset: Option<Position>,
+    /// Specifies an IO stream from which a value should be parsed.
+    stream: Option<OwningNode>,
+  },
+  /// Calculates specified expression
+  Value {
+    /// Specifies expression to calculate and return as value
+    value: OwningNode,
+    /// Path to enumeration definition. If specified, type should be represented
+    /// as enumeration
+    enum_: Option<EnumPath>,
+    /// If specified, attribute will be readed only if condition evaluated to `true`.
+    condition: Option<Condition>,
+  }
+}
+impl Instance {
+  fn validate(ins: p::Instance, defaults: p::Defaults) -> Result<Self, ModelError> {
+    use ModelError::*;
+
+    match (
+      ins.value, ins.pos, ins.io,
+
+      &ins.common.id,
+      &ins.common.contents,
+      &ins.common.type_,
+      &ins.common.process,
+      &ins.common.encoding,
+
+      &ins.common.repeat,
+      &ins.common.repeat_expr,
+      &ins.common.repeat_until,
+      &ins.common.size,
+      &ins.common.size_eos,
+
+      &ins.common.pad_right,
+      &ins.common.terminator,
+      &ins.common.consume,
+      &ins.common.include,
+      &ins.common.eos_error,
+    ) {
+      (Some(expr), None, None,
+        None, None, None, None, None,
+        None, None, None, None, None,
+        None, None, None, None, None,
+      ) => Ok(Self::Value {
+        value:     OwningNode::try_from(expr)?,
+        enum_:     ins.common.enum_.map(EnumPath::validate).transpose()?,
+        condition: ins.common.condition.map(Condition::validate).transpose()?,
+      }),
+      (None, offset, stream, ..) => Ok(Self::Parse {
+        data:   Attribute::validate(ins.common, defaults)?,
+        offset: offset.map(Position::validate).transpose()?,
+        stream: stream.map(|expr| OwningNode::parse(&expr)).transpose()?,
+      }),
+      _ => Err(Validation("unexpected attribute for `value` instance, only `enum`, `if`, `doc` and `doc-ref` is allowed".into())),
+    }
+  }
+}
+
 /// Defines a user-defined type
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct UserType {
   /// The list of fields that this type consists of. The fields in the data stream
   /// are in the same order as they are declared here.
   pub fields: IndexMap<SeqName, Attribute>,
-  // pub getters: IndexMap<InstanceName, Instance>,//TODO: instances
+  /// List of dynamic and calculated fields of this type. The position of these fields
+  /// is not fixed in the type, and they may not even be physically represented in the
+  /// data stream at all.
+  pub instances: IndexMap<FieldName, Instance>,
   /// List of used-defined types, defined inside this type.
   pub types: IndexMap<TypeName, UserType>,
   // pub enums: IndexMap<EnumName, Enum>,//TODO: Enums
@@ -1042,6 +1112,12 @@ impl UserType {
         Attribute::validate(spec, defaults.clone())?,
       ))
     })?;
+    let instances = Self::check_duplicates(spec.instances, |(name, spec)| {
+      Ok((
+        FieldName::validate(name)?,
+        Instance::validate(spec, defaults.clone())?
+      ))
+    })?;
     let types = Self::check_duplicates(spec.types, |(name, spec)| {
       Ok((
         TypeName::validate(name)?,
@@ -1051,6 +1127,7 @@ impl UserType {
 
     Ok(Self {
       fields,
+      instances,
       types,
     })
   }
