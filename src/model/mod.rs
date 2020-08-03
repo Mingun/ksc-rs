@@ -12,8 +12,11 @@ use regex::Regex;
 
 use crate::error::ModelError;
 use crate::expressions::OwningNode;
-use crate::expressions::parser::{parse_single, parse_name, parse_type_ref, parse_process};
+use crate::expressions::parser::{parse_single, parse_type_ref, parse_process};
 use crate::parser as p;
+
+mod name;
+pub use name::*;
 
 /// Contains helper structures for implementing `TryFrom`.
 ///
@@ -86,41 +89,11 @@ mod helpers {
   }
 }
 
-/// Type for representing names of:
-///
-/// - [enumerations](./struct.Enum.html)
-/// - [enumeration values](./enum.EnumValue.html)
-/// - [types](./struct.TypeSpec.html)
-/// - [instances](./struct.Instance.html)
-/// - [attributes](./struct.Attribute.html)
-/// - [parameters](./struct.Param.html)
-/// - [KSY file](./struct.Ksy.html)
-#[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Name(String);
-impl Name {
-  fn validate(data: p::Name) -> Result<Self, ModelError> {
-    Ok(Self(parse_name(&data.0)?.into()))
-  }
-}
-
-/// Path to enum name, used to describe `type` in attributes and parameters.
-#[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Path(Vec<Name>);
-impl Path {
-  fn validate(data: p::Path) -> Result<Self, ModelError> {
-    let mut path = Vec::with_capacity(data.0.len());
-    for name in data.0.into_iter() {
-      path.push(Name::validate(name)?);
-    }
-    Ok(Self(path))
-  }
-}
-
 /// Reference to user-defined type name with optional parameters.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct UserTypeRef {
   /// Absolute path to type definition
-  pub path: Path,
+  pub path: Vec<TypeName>,
   /// Optional arguments for type
   pub args: Vec<OwningNode>,
 }
@@ -128,7 +101,7 @@ impl UserTypeRef {
   fn validate(path: String) -> Result<Self, ModelError> {
     let r = parse_type_ref(&path)?;
     Ok(Self {
-      path: Path(r.path.into_iter().map(|n| Name(n.to_owned())).collect()),
+      path: r.path.into_iter().map(TypeName::valid).collect(),
       args: r.args.into_iter().map(Into::into).collect(),
     })
   }
@@ -439,7 +412,7 @@ pub enum TypeRef {
     base: Enumerable,
     /// Path to enumeration definition. If specified, type should be represented
     /// as enumeration
-    enum_: Option<Path>,
+    enum_: Option<EnumPath>,
   },
 
   /// 4-byte floating point format that follows [IEEE 754] standard in specified byte order.
@@ -510,7 +483,7 @@ impl TypeRef {
     // Produces error of illegal use of enum
     let enum_err = || Err(Validation("`enum` can be used only with integral (`u*`, `s*` and `b*`) types".into()));
 
-    let enum_ = props.enum_.map(Path::validate);
+    let enum_ = props.enum_.map(EnumPath::validate);
     match (type_ref, props.encoding.own_value(), props.contents, enum_) {
       (Some(Builtin(s1)),   None, None, e) => Ok(Enum { base: I8, enum_: e.transpose()? }),
       (Some(Builtin(u1)),   None, None, e) => Ok(Enum { base: U8, enum_: e.transpose()? }),
@@ -604,7 +577,7 @@ impl Chunk {
 pub struct Attribute {
   /// Optional name of attribute. If not defined, then current attribute won't be
   /// accessible in generated code
-  pub id: Option<Name>,
+  pub id: FieldName,
   /// Reference to type and size of this attribute. Type can be fixed or calculated
   pub chunk: Variant<Chunk>,
 
@@ -618,7 +591,7 @@ pub struct Attribute {
   pub process: Option<ProcessAlgo>,
 }
 impl Attribute {
-  fn validate(attr: p::Attribute, defaults: p::Defaults) -> Result<Self, ModelError> {
+  fn validate(index: usize, attr: p::Attribute, defaults: p::Defaults) -> Result<Self, ModelError> {
     use p::Variant::*;
 
     let mut props = helpers::TypeProps {
@@ -639,7 +612,7 @@ impl Attribute {
       pad_right:  attr.pad_right,
     };
     Ok(Self {
-      id:        attr.id.map(Name::validate).transpose()?,
+      id:        FieldName::validate(index, attr.id)?,
       chunk:     match attr.type_ {
         None             => Variant::Fixed(Chunk::validate(None,      props, size)?),
         Some(Fixed(val)) => Variant::Fixed(Chunk::validate(Some(val), props, size)?),
@@ -669,7 +642,7 @@ impl Attribute {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Type {
   /// Unique identifier of this type
-  pub id: String,
+  pub id: TypeName,
   /// The list of fields that this type consists of. The fields in the data stream
   /// are in the same order as they are declared here.
   pub fields: Vec<Attribute>,
@@ -703,9 +676,11 @@ impl Type {
       defaults.encoding = def.encoding.or(defaults.encoding);
     }
 
+    let seq = spec.seq.map(|s| s.into_iter().enumerate());
+
     Ok(Self {
-      id: name.0,
-      fields: Self::map(spec.seq,   |spec| Attribute::validate(spec, defaults.clone()))?,
+      id:     TypeName::validate(name)?,
+      fields: Self::map(seq, |(i, spec)| Attribute::validate(i, spec, defaults.clone()))?,
       types:  Self::map(spec.types, |(name, spec)| Type::validate(name, spec, defaults.clone()))?,
     })
   }
@@ -723,38 +698,6 @@ impl TryFrom<p::Ksy> for Type {
       Some(Name(name))  => name,
     };
     Self::validate(name, data.root, data.meta.defaults.into())
-  }
-}
-
-#[cfg(test)]
-mod name {
-  use super::*;
-
-  #[test]
-  fn ascii() {
-    assert_eq!(Name::validate(p::Name("valid".into())), Ok(Name("valid".into())));
-    assert_eq!(Name::validate(p::Name("also_valid_".into())), Ok(Name("also_valid_".into())));
-  }
-
-  #[test]
-  fn with_numbers() {
-    assert_eq!(Name::validate(p::Name("val1d".into())), Ok(Name("val1d".into())));
-    assert_eq!(Name::validate(p::Name("als0_val1d_".into())), Ok(Name("als0_val1d_".into())));
-  }
-
-  #[test]
-  fn start_with_number() {
-    Name::validate(p::Name("1-not-a-name".into())).unwrap_err();
-  }
-
-  #[test]
-  fn start_with_underscore() {
-    Name::validate(p::Name("_not_valid".into())).unwrap_err();
-  }
-
-  #[test]
-  fn empty() {
-    Name::validate(p::Name("".into())).unwrap_err();
   }
 }
 
