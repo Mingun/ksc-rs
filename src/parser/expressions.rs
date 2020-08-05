@@ -388,6 +388,15 @@ pub struct ProcessAlgo<'input> {
   pub args: Vec<Node<'input>>,
 }
 
+/// Represents type for parameter definition
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct ParamType<'input> {
+  /// Relative path to type definition
+  pub path: Vec<&'input str>,
+  /// `true`, is array must be specified
+  pub is_array: bool,
+}
+
 /// Represents postfix operators.
 ///
 /// Temporary hold operators until all postfix operators is parsed,
@@ -480,6 +489,18 @@ peg::parser! {
     /// [`type`]: ../../parser/struct.Attribute.html#structfield.type_
     pub rule parse_type_ref() -> AttrType<'input>
       = _ r:(bits_type() / user_type()) _ EOS() { r };
+
+    /// Entry point for parsing [`type`] in [`params`].
+    ///
+    /// [`type`]: ../../parser/struct.Param.html#structfield.type_
+    /// [`params`]: ../../parser/struct.Type.html#structfield.params
+    pub rule parse_param_type() -> ParamType<'input>
+        //TODO: Original KSC do not allow any spaces
+        // before and after "(" and after ")"
+        // https://github.com/kaitai-io/kaitai_struct/issues/792
+      = path:(name() ** "::") is_array:("[" "]")? EOS() {
+        ParamType { path, is_array: is_array.is_some() }
+      };
 
     /// Entry point for parsing [`process`] field value.
     ///

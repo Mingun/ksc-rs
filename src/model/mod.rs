@@ -22,7 +22,7 @@ use regex::Regex;
 use crate::error::ModelError;
 use crate::model::expressions::OwningNode;
 use crate::parser as p;
-use crate::parser::expressions::{parse_process, parse_type_ref, AttrType};
+use crate::parser::expressions::{parse_param_type, parse_process, parse_type_ref, AttrType};
 
 pub mod contexts;
 pub mod expressions;
@@ -1130,9 +1130,72 @@ impl Enum {
   }
 }
 
+/// Reference to the type definition for parameter - built-in or user-defined.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ParamType {
+  /// Byte slice
+  Bytes,
+  /// Signed integer of any size
+  Signed,
+  /// Unsigned integer of any size
+  Unsigned,
+  /// Floating point number of any size
+  Float,
+  /// Boolean
+  Bool,
+  /// String
+  String,
+  /// Arbitrary KaitaiStruct-compatible user type
+  Struct,
+  /// KaitaiStream-compatible IO stream
+  Stream,
+  /// Any type (if target language supports that)
+  Any,
+  /// Any Kaitai-generated type or array of that types
+  User {
+    /// Reference to a type
+    type_ref: TypeRef,
+    /// `true` if parameter type is an array
+    is_array: bool,
+  },
+}
+impl ParamType {
+  fn validate(spec: String) -> Result<Self, ModelError> {
+    parse_param_type(&spec)?;
+    unimplemented!("parameter type validation")
+  }
+}
+impl Default for ParamType {
+  fn default() -> Self { ParamType::Bytes }
+}
+
+/// Type parameter definition
+#[derive(Clone, Debug, PartialEq)]
+pub struct Param {
+  /// Reference to type and size of this attribute. Type can be fixed or calculated
+  pub type_: ParamType,
+  /// Absolute path to an enum definition if the parameter has enumerated type
+  pub enum_: Option<EnumPath>,
+}
+impl Param {
+  fn validate(index: usize, spec: p::Param) -> Result<(ParamName, Self), ModelError> {
+    Ok((
+      ParamName::validate(index, spec.id)?,
+      Self {
+        type_: spec.type_.map(ParamType::validate).transpose()?.unwrap_or_default(),
+        enum_: spec.enum_.map(EnumPath::validate).transpose()?,
+      }
+    ))
+  }
+}
+
 /// Defines a user-defined type
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct UserType {
+  /// List of type parameters, that can be used, for example, in field existence checks.
+  ///
+  /// The insertion order to the map reflects the order of parameters of the type.
+  pub params: IndexMap<ParamName, Param>,
   /// The list of fields that this type consists of. The fields in the data stream
   /// are in the same order as they are declared here.
   pub fields: IndexMap<SeqName, Attribute>,
@@ -1144,7 +1207,6 @@ pub struct UserType {
   pub types: IndexMap<TypeName, UserType>,
   /// List of enumerations defined inside this type.
   pub enums: IndexMap<EnumName, Enum>,
-  // pub params: IndexMap<ParamName, Param>,//TODO: Parameters
 }
 impl UserType {
   /// Calculates size that instances of that type occupied in the stream.
@@ -1351,6 +1413,9 @@ impl UserType {
       defaults.encoding   = def.encoding.or(defaults.encoding);
     }
 
+    let params = Self::check_duplicates(spec.params.map(|s| s.into_iter().enumerate()), |(i, spec)| {
+      Param::validate(i, spec)
+    })?;
     let fields = Self::check_duplicates(spec.seq.map(|s| s.into_iter().enumerate()), |(i, mut spec)| {
       Ok((
         SeqName::validate(i, spec.id.take())?,
@@ -1382,6 +1447,7 @@ impl UserType {
     })?;
 
     Ok(Self {
+      params,
       fields,
       instances,
       types,
@@ -2009,6 +2075,18 @@ mod instance {
         stream: None,
       });
     }
+  }
+
+  #[test]
+  fn params() {
+    let ksy: p::Ksy = serde_yaml::from_str(r#"
+    meta:
+      id: duplicate_params
+    params:
+      - id: param
+      - id: param
+    "#).unwrap();
+    let _ = Root::try_from(ksy).expect_err("duplicated parameters must raise error");
   }
 }
 
