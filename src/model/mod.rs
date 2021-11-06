@@ -93,11 +93,13 @@ mod helpers {
   }
 }
 
-/// Reference to user-defined type name with optional parameters.
+/// Reference to a user-defined type name with an optional parameters.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct UserTypeRef {
   /// Absolute path to type definition
   pub path: Vec<TypeName>,
+  /// A local name of the referenced type
+  pub name: TypeName,
   /// Optional arguments for type
   pub args: Vec<OwningNode>,
 }
@@ -105,7 +107,9 @@ impl UserTypeRef {
   fn validate(path: String) -> Result<Self, ModelError> {
     let r = parse_type_ref(&path)?;
     Ok(Self {
-      path: r.path.into_iter().map(TypeName::valid).collect(),
+      //TODO: resolve relative types
+      path: r.name.scope.path.into_iter().map(TypeName::valid).collect(),
+      name: TypeName::valid(r.name.name),
       args: r.args.into_iter().map(Into::into).collect(),
     })
   }

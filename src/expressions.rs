@@ -463,12 +463,14 @@ impl BinaryOp {
   }
 }
 
-/// Reference to user-defined type name with optional parameters.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+/// A reference to the type in the attributes' [`type`] field.
+///
+/// [`type`]: ../parser/struct.Attribute.html#structfield.type_
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct UserTypeRef<'input> {
-  /// Absolute path to type definition
-  pub path: Vec<&'input str>,
-  /// Optional arguments for type
+  /// A possible qualified type name of the type used
+  pub name: TypeName<'input>,
+  /// Optional arguments for a type
   pub args: Vec<Node<'input>>,
 }
 
@@ -572,11 +574,8 @@ peg::parser! {
     ///
     /// [`type`]: ../../parser/struct.Attribute.html#structfield.type_
     pub rule parse_type_ref() -> UserTypeRef<'input>
-        //TODO: Original KSC do not allow spaces between "::" in type reference,
-        // before and after "(" and after ")"
-        // https://github.com/kaitai-io/kaitai_struct/issues/792
-      = path:(name() ** "::") args:("(" args:args() _ ")" { args })? EOS() {
-        UserTypeRef { path, args: args.unwrap_or_default() }
+      = _ name:type_name() _ args:("(" _ args:args() _ ")" _ { args })? EOS() {
+        UserTypeRef { name, args: args.unwrap_or_default() }
       };
 
     /// Entry point for parsing [`process`] field value.
@@ -1592,7 +1591,7 @@ mod parse {
     }
   }
 
-  #[cfg(test)]
+  /// Tests for parsing of attributes' type reference definitions
   mod type_ref {
     use super::*;
 
@@ -1604,28 +1603,37 @@ mod parse {
       result
     }
 
+    /// Types, represented only by their local name
     mod local {
       use super::*;
 
       #[test]
       fn simple() {
         assert_eq!(parse("some_type"), Ok(UserTypeRef {
-          path: vec!["some_type"],
+          name: TypeName {
+            scope: Scope { absolute: false, path: vec![] },
+            name: "some_type",
+          },
           args: vec![],
         }));
       }
       #[test]
-      #[should_panic]//TODO: https://github.com/kaitai-io/kaitai_struct/issues/792
       fn with_spaces() {
         assert_eq!(parse("  some_type  "), Ok(UserTypeRef {
-          path: vec!["some_type"],
+          name: TypeName {
+            scope: Scope { absolute: false, path: vec![] },
+            name: "some_type",
+          },
           args: vec![],
         }));
       }
       #[test]
       fn with_args() {
         assert_eq!(parse("some_type(1+2,data)"), Ok(UserTypeRef {
-          path: vec!["some_type"],
+          name: TypeName {
+            scope: Scope { absolute: false, path: vec![] },
+            name: "some_type",
+          },
           args: vec![
             Binary {
               op:    Add,
@@ -1637,10 +1645,12 @@ mod parse {
         }));
       }
       #[test]
-      #[should_panic]//TODO: https://github.com/kaitai-io/kaitai_struct/issues/792
       fn with_args_and_spaces() {
         assert_eq!(parse(" some_type ( 1 + 2 , data ) "), Ok(UserTypeRef {
-          path: vec!["some_type"],
+          name: TypeName {
+            scope: Scope { absolute: false, path: vec![] },
+            name: "some_type",
+          },
           args: vec![
             Binary {
               op:    Add,
@@ -1653,22 +1663,28 @@ mod parse {
       }
     }
 
+    /// Types, represented by the path -- absolute or relative
     mod path {
       use super::*;
 
       #[test]
       fn simple() {
         assert_eq!(parse("some::type"), Ok(UserTypeRef {
-          path: vec!["some", "type"],
+          name: TypeName {
+            scope: Scope { absolute: false, path: vec!["some"] },
+            name: "type",
+          },
           args: vec![],
         }));
       }
 
       #[test]
-      #[should_panic]//TODO: https://github.com/kaitai-io/kaitai_struct/issues/792
       fn with_spaces() {
         assert_eq!(parse("  some  ::  type  "), Ok(UserTypeRef {
-          path: vec!["some", "type"],
+          name: TypeName {
+            scope: Scope { absolute: false, path: vec!["some"] },
+            name: "type",
+          },
           args: vec![],
         }));
       }
@@ -1676,7 +1692,10 @@ mod parse {
       #[test]
       fn with_args() {
         assert_eq!(parse("some::type(1+2,data)"), Ok(UserTypeRef {
-          path: vec!["some", "type"],
+          name: TypeName {
+            scope: Scope { absolute: false, path: vec!["some"] },
+            name: "type",
+          },
           args: vec![
             Binary {
               op:    Add,
@@ -1689,10 +1708,12 @@ mod parse {
       }
 
       #[test]
-      #[should_panic]//TODO: https://github.com/kaitai-io/kaitai_struct/issues/792
       fn with_args_and_spaces() {
         assert_eq!(parse(" some :: type ( 1 + 2 , data ) "), Ok(UserTypeRef {
-          path: vec!["some", "type"],
+          name: TypeName {
+            scope: Scope { absolute: false, path: vec!["some"] },
+            name: "type",
+          },
           args: vec![
             Binary {
               op:    Add,
