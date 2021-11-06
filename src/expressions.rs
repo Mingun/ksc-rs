@@ -28,8 +28,6 @@ pub enum OwningNode {
 
   /// Name of attribute or variable
   Name(String),
-  /// Reference to type
-  Type(OwningTypeRef),
   /// Reference to enum value
   EnumValue {
     /// Reference to enum value.
@@ -119,7 +117,6 @@ impl<'input> From<Node<'input>> for OwningNode {
       Bool(val) => Self::Bool(val),
 
       Name(val) => Self::Name(val.into()),
-      Type(val) => Self::Type(val.into()),
       EnumValue { path, absolute } => Self::EnumValue {
         path: path.into_iter().map(Into::into).collect(),
         absolute
@@ -224,8 +221,6 @@ pub enum Node<'input> {
 
   /// Name of attribute or variable
   Name(&'input str),
-  /// Reference to type
-  Type(TypeRef<'input>),
   /// Reference to enum value
   EnumValue {
     /// Reference to enum value.
