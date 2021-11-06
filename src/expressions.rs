@@ -28,16 +28,14 @@ pub enum OwningNode {
 
   /// Name of attribute or variable
   Name(String),
-  /// Reference to enum value
+  /// Reference to an enum value.
   EnumValue {
-    /// Reference to enum value.
-    ///
-    /// Contains names of all types in path to current value.
-    /// Last element is local name of enum value, and element before last is
-    /// enum local name.
-    path: Vec<String>,
-    /// Path is absolute (starts from top-level type)
-    absolute: bool,
+    /// A type that defines this enum.
+    scope: OwningScope,
+    /// An enum name.
+    name: String,
+    /// An enum value.
+    value: String,
   },
 
   /// Array constructor
@@ -117,9 +115,10 @@ impl<'input> From<Node<'input>> for OwningNode {
       Bool(val) => Self::Bool(val),
 
       Name(val) => Self::Name(val.into()),
-      EnumValue { path, absolute } => Self::EnumValue {
-        path: path.into_iter().map(Into::into).collect(),
-        absolute
+      EnumValue { scope, name, value } => Self::EnumValue {
+        scope: scope.into(),
+        name:  name.into(),
+        value: value.into(),
       },
 
       List(val) => Self::List(val.into_iter().map(Into::into).collect()),
@@ -184,6 +183,25 @@ impl TryFrom<Scalar> for OwningNode {
   }
 }
 
+/// Owning counterpart of a [`Scope`].
+///
+/// [`Scope`]: ./struct.Scope.html
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct OwningScope {
+  /// Path starts from a top-level type of the current KSY file.
+  pub absolute: bool,
+  /// Names of types defining this scope.
+  pub path: Vec<String>,
+}
+impl<'input> From<Scope<'input>> for OwningScope {
+  fn from(reference: Scope<'input>) -> Self {
+    Self {
+      absolute: reference.absolute,
+      path:     reference.path.into_iter().map(ToOwned::to_owned).collect(),
+    }
+  }
+}
+
 /// Owning counterpart of AST [`TypeRef`].
 ///
 /// [`Node`]: ./struct.TypeRef.html
@@ -221,16 +239,14 @@ pub enum Node<'input> {
 
   /// Name of attribute or variable
   Name(&'input str),
-  /// Reference to enum value
+  /// Reference to an enum value.
   EnumValue {
-    /// Reference to enum value.
-    ///
-    /// Contains names of all types in path to current value.
-    /// Last element is local name of enum value, and element before last is
-    /// enum local name.
-    path: Vec<&'input str>,
-    /// Path is absolute (starts from top-level type)
-    absolute: bool,
+    /// A type that defines this enum.
+    scope: Scope<'input>,
+    /// An enum name.
+    name: &'input str,
+    /// An enum value.
+    value: &'input str,
   },
 
   /// Array constructor
@@ -316,6 +332,22 @@ impl<'input> From<Number> for Node<'input> {
     }
     unreachable!("internal error: YAML number is not u64/i64/f64")
   }
+}
+
+/// A scope in which types and enums are defined, used to resolve references
+/// to them in the expressions.
+///
+/// Technically, in Kaitai Struct it matches the one of the [type names],
+/// but generators feel free to choose another representation for the
+/// scope that matches the language best practices.
+///
+/// [type names]: ../parser/struct.TypeSpec.html#structfield.types
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Scope<'input> {
+  /// Path starts from a top-level type of the current KSY file.
+  pub absolute: bool,
+  /// Names of types defining this scope.
+  pub path: Vec<&'input str>,
 }
 
 /// Represents reference to type definition.
@@ -596,8 +628,15 @@ peg::parser! {
       = absolute:"::"? _ n1:name() _ "::" _ n2:name() tail:(_ "::" _ n:name() {n})* {
         let mut path = vec![n1, n2];
         path.extend(tail);
+        //TODO: use unwrap_unchecked when it's stabilized
+        let value = path.pop().unwrap();
+        let name  = path.pop().unwrap();
 
-        Node::EnumValue { path, absolute: absolute.is_some() }
+        Node::EnumValue {
+          scope: Scope { absolute: absolute.is_some(), path },
+          name,
+          value,
+        }
       };
 
     //-------------------------------------------------------------------------------------------------
@@ -697,7 +736,7 @@ peg::parser! {
 
 #[cfg(test)]
 mod parse {
-  use super::{Node, TypeRef, UserTypeRef};
+  use super::{Node, Scope, TypeRef, UserTypeRef};
   use super::Node::*;
   use super::UnaryOp::*;
   use super::BinaryOp::*;
@@ -1129,27 +1168,47 @@ mod parse {
     #[test]
     fn value() {
       assert_eq!(parse_single("port::http"), Ok(
-        EnumValue { path: vec!["port", "http"], absolute: false }
+        EnumValue {
+          scope: Scope { absolute: false, path: vec![] },
+          name: "port",
+          value: "http",
+        }
       ));
     }
 
     #[test]
     fn with_type() {
       assert_eq!(parse_single("some_type::port::http"), Ok(
-        EnumValue { path: vec!["some_type", "port", "http"], absolute: false }
+        EnumValue {
+          scope: Scope { absolute: false, path: vec!["some_type"] },
+          name: "port",
+          value: "http",
+        }
       ));
       assert_eq!(parse_single("parent_type::child_type::port::http"), Ok(
-        EnumValue { path: vec!["parent_type", "child_type", "port", "http"], absolute: false }
+        EnumValue {
+          scope: Scope { absolute: false, path: vec!["parent_type", "child_type"] },
+          name: "port",
+          value: "http",
+        }
       ));
     }
 
     #[test]
     fn with_abs_path() {
       assert_eq!(parse_single("::port::http"), Ok(
-        EnumValue { path: vec!["port", "http"], absolute: true }
+        EnumValue {
+          scope: Scope { absolute: true, path: vec![] },
+          name: "port",
+          value: "http",
+        }
       ));
       assert_eq!(parse_single("::parent_type::child_type::port::http"), Ok(
-        EnumValue { path: vec!["parent_type", "child_type", "port", "http"], absolute: true }
+        EnumValue {
+          scope: Scope { absolute: true, path: vec!["parent_type", "child_type"] },
+          name: "port",
+          value: "http",
+        }
       ));
     }
   }
@@ -1163,8 +1222,9 @@ mod parse {
           op: Add,
           left: Box::new(Access {
             expr: Box::new(EnumValue {
-              path: vec!["port", "http"],
-              absolute: false
+              scope: Scope { absolute: false, path: vec![] },
+              name: "port",
+              value: "http",
             }),
             attr: "to_i"
           }),
