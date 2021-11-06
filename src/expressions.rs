@@ -1667,62 +1667,128 @@ mod parse {
     mod path {
       use super::*;
 
-      #[test]
-      fn simple() {
-        assert_eq!(parse("some::type"), Ok(UserTypeRef {
-          name: TypeName {
-            scope: Scope { absolute: false, path: vec!["some"] },
-            name: "type",
-          },
-          args: vec![],
-        }));
-      }
+      mod absolute {
+        use super::*;
 
-      #[test]
-      fn with_spaces() {
-        assert_eq!(parse("  some  ::  type  "), Ok(UserTypeRef {
-          name: TypeName {
-            scope: Scope { absolute: false, path: vec!["some"] },
-            name: "type",
-          },
-          args: vec![],
-        }));
-      }
-
-      #[test]
-      fn with_args() {
-        assert_eq!(parse("some::type(1+2,data)"), Ok(UserTypeRef {
-          name: TypeName {
-            scope: Scope { absolute: false, path: vec!["some"] },
-            name: "type",
-          },
-          args: vec![
-            Binary {
-              op:    Add,
-              left:  Box::new(Int(1)),
-              right: Box::new(Int(2)),
+        #[test]
+        fn simple() {
+          assert_eq!(parse("::some::type"), Ok(UserTypeRef {
+            name: TypeName {
+              scope: Scope { absolute: true, path: vec!["some"] },
+              name: "type",
             },
-            Name("data"),
-          ],
-        }));
+            args: vec![],
+          }));
+        }
+
+        #[test]
+        fn with_spaces() {
+          assert_eq!(parse("  ::  some  ::  type  "), Ok(UserTypeRef {
+            name: TypeName {
+              scope: Scope { absolute: true, path: vec!["some"] },
+              name: "type",
+            },
+            args: vec![],
+          }));
+        }
+
+        #[test]
+        fn with_args() {
+          assert_eq!(parse("::some::type(1+2,data)"), Ok(UserTypeRef {
+            name: TypeName {
+              scope: Scope { absolute: true, path: vec!["some"] },
+              name: "type",
+            },
+            args: vec![
+              Binary {
+                op:    Add,
+                left:  Box::new(Int(1)),
+                right: Box::new(Int(2)),
+              },
+              Name("data"),
+            ],
+          }));
+        }
+
+        #[test]
+        fn with_args_and_spaces() {
+          assert_eq!(parse(" :: some :: type ( 1 + 2 , data ) "), Ok(UserTypeRef {
+            name: TypeName {
+              scope: Scope { absolute: true, path: vec!["some"] },
+              name: "type",
+            },
+            args: vec![
+              Binary {
+                op:    Add,
+                left:  Box::new(Int(1)),
+                right: Box::new(Int(2)),
+              },
+              Name("data"),
+            ],
+          }));
+        }
       }
 
-      #[test]
-      fn with_args_and_spaces() {
-        assert_eq!(parse(" some :: type ( 1 + 2 , data ) "), Ok(UserTypeRef {
-          name: TypeName {
-            scope: Scope { absolute: false, path: vec!["some"] },
-            name: "type",
-          },
-          args: vec![
-            Binary {
-              op:    Add,
-              left:  Box::new(Int(1)),
-              right: Box::new(Int(2)),
+      mod relative {
+        use super::*;
+
+        #[test]
+        fn simple() {
+          assert_eq!(parse("some::type"), Ok(UserTypeRef {
+            name: TypeName {
+              scope: Scope { absolute: false, path: vec!["some"] },
+              name: "type",
             },
-            Name("data"),
-          ],
-        }));
+            args: vec![],
+          }));
+        }
+
+        #[test]
+        fn with_spaces() {
+          assert_eq!(parse("  some  ::  type  "), Ok(UserTypeRef {
+            name: TypeName {
+              scope: Scope { absolute: false, path: vec!["some"] },
+              name: "type",
+            },
+            args: vec![],
+          }));
+        }
+
+        #[test]
+        fn with_args() {
+          assert_eq!(parse("some::type(1+2,data)"), Ok(UserTypeRef {
+            name: TypeName {
+              scope: Scope { absolute: false, path: vec!["some"] },
+              name: "type",
+            },
+            args: vec![
+              Binary {
+                op:    Add,
+                left:  Box::new(Int(1)),
+                right: Box::new(Int(2)),
+              },
+              Name("data"),
+            ],
+          }));
+        }
+
+        #[test]
+        fn with_args_and_spaces() {
+          assert_eq!(parse(" some :: type ( 1 + 2 , data ) "), Ok(UserTypeRef {
+            name: TypeName {
+              scope: Scope { absolute: false, path: vec!["some"] },
+              name: "type",
+            },
+            args: vec![
+              Binary {
+                op:    Add,
+                left:  Box::new(Int(1)),
+                right: Box::new(Int(2)),
+              },
+              Name("data"),
+            ],
+          }));
+        }
       }
     }
   }
