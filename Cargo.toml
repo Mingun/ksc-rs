@@ -1,5 +1,5 @@
 [package]
-name = "ksc-rs"
+name = "ksc"
 version = "0.1.0"
 authors = ["Mingun <Alexander_Sergey@mail.ru>"]
 edition = "2018"
