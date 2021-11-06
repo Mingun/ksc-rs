@@ -12,7 +12,7 @@ use serde_yaml::Number;
 use crate::error::ModelError;
 use crate::parser::Scalar;
 
-/// Owning counterpart of AST [`Node`].
+/// Owning counterpart of an AST [`Node`].
 ///
 /// [`Node`]: ./enum.Node.html
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -202,9 +202,9 @@ impl<'input> From<Scope<'input>> for OwningScope {
   }
 }
 
-/// Owning counterpart of AST [`TypeRef`].
+/// Owning counterpart of a [`TypeRef`].
 ///
-/// [`Node`]: ./struct.TypeRef.html
+/// [`TypeRef`]: ./struct.TypeRef.html
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct OwningTypeRef {
   /// Names of all types in path to current type.
@@ -224,6 +224,8 @@ impl<'input> From<TypeRef<'input>> for OwningTypeRef {
     }
   }
 }
+
+//-------------------------------------------------------------------------------------------------
 
 /// AST Node, that represent some syntax construct
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -350,9 +352,10 @@ pub struct Scope<'input> {
   pub path: Vec<&'input str>,
 }
 
-/// Represents reference to type definition.
+/// Represents a reference to a type definition, used in the cast and sizeof
+/// expressions.
 ///
-/// Reference to type consist of:
+/// Reference to a type consist of:
 /// - optional absolute path specifier (`::`)
 /// - zero or more types in which required type is defined, delimited by `::`
 /// - (local) name of the required type
@@ -364,8 +367,8 @@ pub struct Scope<'input> {
 /// - `path::to_inner::type`
 /// - `::absolute::path`
 ///
-/// `'input` lifetime is bound to lifetime of parsed string. Each element in path
-/// just a slice inside original string.
+/// `'input` lifetime is bound to the lifetime of a parsed string. Each element
+/// in a path just a slice inside the original string.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TypeRef<'input> {
   /// Names of all types in path to current type.
@@ -618,8 +621,10 @@ peg::parser! {
     rule name_start() = ['a'..='z' | 'A'..='Z' | '_'];
     rule name_part()  = ['a'..='z' | 'A'..='Z' | '_' | '0'..='9'];
 
+    /// Reference to the type for casts and evaluating size.
+    ///
     /// Ex.: `xyz`, `::abc::def`, `array[]`
-    rule type_name() -> TypeRef<'input>
+    rule type_ref() -> TypeRef<'input>
       = absolute:"::"? _ path:path() array:(_ "[" _ "]")? {
         TypeRef { path, absolute: absolute.is_some(), array: array.is_some() }
       };
@@ -705,24 +710,24 @@ peg::parser! {
       ;
 
     rule atom() -> Node<'input>
-      = "(" _ e:expr() _ ")"                    { e }
-      / "[" _ l:list()? _ "]"                   { Node::List(l.unwrap_or_default()) }
-      / "sizeof" _ "<" _ t:type_name() _ ">"    { Node::SizeOf { type_: t, bit: false } }
-      / "bitsizeof" _ "<" _ t:type_name() _ ">" { Node::SizeOf { type_: t, bit: true  } }
-      / v:(s:string() _ {s})+                   { Node::Str(String::from_iter(v.into_iter())) }
-      / "true"  !name_part()                    { Node::Bool(true) }
-      / "false" !name_part()                    { Node::Bool(false) }
-      / e:enum_name()                           { e }
-      / n:name()                                { Node::Name(n) }
-      / f:float()                               { Node::Float(f.into()) }
-      / i:integer()                             { Node::Int(i) }
+      = "(" _ e:expr() _ ")"                   { e }
+      / "[" _ l:list()? _ "]"                  { Node::List(l.unwrap_or_default()) }
+      / "sizeof" _ "<" _ t:type_ref() _ ">"    { Node::SizeOf { type_: t, bit: false } }
+      / "bitsizeof" _ "<" _ t:type_ref() _ ">" { Node::SizeOf { type_: t, bit: true  } }
+      / v:(s:string() _ {s})+                  { Node::Str(String::from_iter(v.into_iter())) }
+      / "true"  !name_part()                   { Node::Bool(true) }
+      / "false" !name_part()                   { Node::Bool(false) }
+      / e:enum_name()                          { e }
+      / n:name()                               { Node::Name(n) }
+      / f:float()                              { Node::Float(f.into()) }
+      / i:integer()                            { Node::Int(i) }
       ;
 
     rule postfix() -> Postfix<'input>
-      = "(" _ a:args() _ ")"                   { Postfix::Args(a)   }// call
-      / "[" _ e:expr() _ "]"                   { Postfix::Index(e)  }// indexing
-      / "." _ "as" _ "<" _ t:type_name() _ ">" { Postfix::CastTo(t) }// type cast
-      / "." _ n:name()                         { Postfix::Field(n)  }// attribute access
+      = "(" _ a:args() _ ")"                  { Postfix::Args(a)   }// call
+      / "[" _ e:expr() _ "]"                  { Postfix::Index(e)  }// indexing
+      / "." _ "as" _ "<" _ t:type_ref() _ ">" { Postfix::CastTo(t) }// type cast
+      / "." _ n:name()                        { Postfix::Field(n)  }// attribute access
       ;
 
     /// List of names, delimited by `::`
