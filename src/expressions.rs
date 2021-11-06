@@ -202,25 +202,40 @@ impl<'input> From<Scope<'input>> for OwningScope {
   }
 }
 
+/// Owning counterpart of a [`TypeName`].
+///
+/// [`TypeName`]: ./struct.TypeName.html
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct OwningTypeName {
+  /// A scope in which type is defined
+  pub scope: OwningScope,
+  /// A local name of the referenced type
+  pub name: String,
+}
+impl<'input> From<TypeName<'input>> for OwningTypeName {
+  fn from(reference: TypeName<'input>) -> Self {
+    Self {
+      scope: reference.scope.into(),
+      name:  reference.name.into(),
+    }
+  }
+}
+
 /// Owning counterpart of a [`TypeRef`].
 ///
 /// [`TypeRef`]: ./struct.TypeRef.html
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct OwningTypeRef {
-  /// Names of all types in path to current type.
-  /// Last element is local name of current type.
-  pub path: Vec<String>,
-  /// Path is absolute (starts from top-level type)
-  pub absolute: bool,
-  /// Path is array type
+  /// A possible qualified type name of the type used
+  pub name: OwningTypeName,
+  /// If `true` then reference represents an array of the specified type.
   pub array: bool,
 }
 impl<'input> From<TypeRef<'input>> for OwningTypeRef {
   fn from(reference: TypeRef<'input>) -> Self {
     Self {
-      path:     reference.path.into_iter().map(ToOwned::to_owned).collect(),
-      absolute: reference.absolute,
-      array:    reference.array,
+      name:  reference.name.into(),
+      array: reference.array,
     }
   }
 }
@@ -352,6 +367,15 @@ pub struct Scope<'input> {
   pub path: Vec<&'input str>,
 }
 
+/// A possible qualified type name, used in references
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct TypeName<'input> {
+  /// A scope in which type is defined
+  pub scope: Scope<'input>,
+  /// A local name of the referenced type
+  pub name: &'input str,
+}
+
 /// Represents a reference to a type definition, used in the cast and sizeof
 /// expressions.
 ///
@@ -371,12 +395,9 @@ pub struct Scope<'input> {
 /// in a path just a slice inside the original string.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TypeRef<'input> {
-  /// Names of all types in path to current type.
-  /// Last element is local name of current type.
-  pub path: Vec<&'input str>,
-  /// Path is absolute (starts from top-level type)
-  pub absolute: bool,
-  /// Path is array type
+  /// A possible qualified type name of the type used
+  pub name: TypeName<'input>,
+  /// If `true` then reference represents an array of the specified type.
   pub array: bool,
 }
 
@@ -625,8 +646,8 @@ peg::parser! {
     ///
     /// Ex.: `xyz`, `::abc::def`, `array[]`
     rule type_ref() -> TypeRef<'input>
-      = absolute:"::"? _ path:path() array:(_ "[" _ "]")? {
-        TypeRef { path, absolute: absolute.is_some(), array: array.is_some() }
+      = name:type_name() array:(_ "[" _ "]")? {
+        TypeRef { name, array: array.is_some() }
       };
     /// Ex.: `enum::value`, `::root::type::enum::value`
     rule enum_name() -> Node<'input>
@@ -730,8 +751,20 @@ peg::parser! {
       / "." _ n:name()                        { Postfix::Field(n)  }// attribute access
       ;
 
-    /// List of names, delimited by `::`
-    rule path() -> Vec<&'input str> = path:name() ** (_ "::" _) { path };
+    /// List of names, delimited by `::`, with an optional leading `::`.
+    ///
+    /// At least one name is guaranteed
+    rule type_name() -> TypeName<'input>
+      = absolute:"::"? _ path:name() ++ (_ "::" _) {
+        let mut path = path;
+        // `path` guarantee that path will contain at least one element
+        //TODO: use unwrap_unchecked when it's stabilized
+        let name = path.pop().unwrap();
+        TypeName {
+          scope: Scope { absolute: absolute.is_some(), path },
+          name,
+        }
+      };
     /// List of expressions, delimited by comma, allowing dangling comma
     rule list() -> Vec<Node<'input>> = list:args() _ ","? { list };
     /// List of expressions, delimited by comma
@@ -741,7 +774,7 @@ peg::parser! {
 
 #[cfg(test)]
 mod parse {
-  use super::{Node, Scope, TypeRef, UserTypeRef};
+  use super::{Node, Scope, TypeName, TypeRef, UserTypeRef};
   use super::Node::*;
   use super::UnaryOp::*;
   use super::BinaryOp::*;
@@ -1275,7 +1308,7 @@ mod parse {
     }
   }
 
-  mod casts {
+  mod cast {
     use super::*;
 
     #[test]
@@ -1283,7 +1316,13 @@ mod parse {
       assert_eq!(parse_single("123.as<u4>"), Ok(
         Cast {
           expr: Box::new(Int(123)),
-          to_type: TypeRef { path: vec!["u4"], absolute: false, array: false }
+          to_type: TypeRef {
+            name: TypeName {
+              scope: Scope { absolute: false, path: vec![] },
+              name: "u4",
+            },
+            array: false,
+          },
         }
       ));
     }
@@ -1292,7 +1331,13 @@ mod parse {
       assert_eq!(parse_single("(123).as<u4>"), Ok(
         Cast {
           expr: Box::new(Int(123)),
-          to_type: TypeRef { path: vec!["u4"], absolute: false, array: false }
+          to_type: TypeRef {
+            name: TypeName {
+              scope: Scope { absolute: false, path: vec![] },
+              name: "u4",
+            },
+            array: false,
+          },
         }
       ));
     }
@@ -1301,7 +1346,13 @@ mod parse {
       assert_eq!(parse_single("\"str\".as<x>"), Ok(
         Cast {
           expr: Box::new(Str("str".into())),
-          to_type: TypeRef { path: vec!["x"], absolute: false, array: false }
+          to_type: TypeRef {
+            name: TypeName {
+              scope: Scope { absolute: false, path: vec![] },
+              name: "x",
+            },
+            array: false,
+          },
         }
       ));
     }
@@ -1310,7 +1361,13 @@ mod parse {
       assert_eq!(parse_single("foo.as<x>"), Ok(
         Cast {
           expr: Box::new(Name("foo")),
-          to_type: TypeRef { path: vec!["x"], absolute: false, array: false }
+          to_type: TypeRef {
+            name: TypeName {
+              scope: Scope { absolute: false, path: vec![] },
+              name: "x",
+            },
+            array: false,
+          },
         }
       ));
     }
@@ -1319,7 +1376,13 @@ mod parse {
       assert_eq!(parse_single("foo.as < x  >  "), Ok(
         Cast {
           expr: Box::new(Name("foo")),
-          to_type: TypeRef { path: vec!["x"], absolute: false, array: false }
+          to_type: TypeRef {
+            name: TypeName {
+              scope: Scope { absolute: false, path: vec![] },
+              name: "x",
+            },
+            array: false,
+          },
         }
       ));
     }
@@ -1329,13 +1392,25 @@ mod parse {
       assert_eq!(parse_single("foo.as<bar::baz>"), Ok(
         Cast {
           expr: Box::new(Name("foo")),
-          to_type: TypeRef { path: vec!["bar", "baz"], absolute: false, array: false }
+          to_type: TypeRef {//TODO: should be enum
+            name: TypeName {
+              scope: Scope { absolute: false, path: vec!["bar"] },
+              name: "baz",
+            },
+            array: false,
+          },
         }
       ));
       assert_eq!(parse_single("foo.as<::bar::baz>"), Ok(
         Cast {
           expr: Box::new(Name("foo")),
-          to_type: TypeRef { path: vec!["bar", "baz"], absolute: true, array: false }
+          to_type: TypeRef {//TODO: should be enum
+            name: TypeName {
+              scope: Scope { absolute: true, path: vec!["bar"] },
+              name: "baz",
+            },
+            array: false,
+          },
         }
       ));
     }
@@ -1345,13 +1420,25 @@ mod parse {
       assert_eq!(parse_single("foo.as<bar[]>"), Ok(
         Cast {
           expr: Box::new(Name("foo")),
-          to_type: TypeRef { path: vec!["bar"], absolute: false, array: true }
+          to_type: TypeRef {
+            name: TypeName {
+              scope: Scope { absolute: false, path: vec![] },
+              name: "bar",
+            },
+            array: true,
+          },
         }
       ));
       assert_eq!(parse_single("foo.as<::bar::baz[]>"), Ok(
         Cast {
           expr: Box::new(Name("foo")),
-          to_type: TypeRef { path: vec!["bar", "baz"], absolute: true, array: true }
+          to_type: TypeRef {
+            name: TypeName {
+              scope: Scope { absolute: true, path: vec!["bar"] },
+              name: "baz",
+            },
+            array: true,
+          },
         }
       ));
     }
@@ -1389,11 +1476,13 @@ mod parse {
       assert_eq!(parse_single("sizeof<foo>"), Ok(
         SizeOf {
           type_: TypeRef {
-            path: vec!["foo"],
-            absolute: false,
-            array: false
+            name: TypeName {
+              scope: Scope { absolute: false, path: vec![] },
+              name: "foo",
+            },
+            array: false,
           },
-          bit: false
+          bit: false,
         }
       ));
     }
@@ -1402,14 +1491,26 @@ mod parse {
     fn of_enum() {
       assert_eq!(parse_single("sizeof<foo::bar>"), Ok(
         SizeOf {
-          type_: TypeRef { path: vec!["foo", "bar"], absolute: false, array: false },
-          bit: false
+          type_: TypeRef {//TODO: should be enum
+            name: TypeName {
+              scope: Scope { absolute: false, path: vec!["foo"] },
+              name: "bar",
+            },
+            array: false,
+          },
+          bit: false,
         }
       ));
       assert_eq!(parse_single("sizeof<::foo::bar>"), Ok(
         SizeOf {
-          type_: TypeRef { path: vec!["foo", "bar"], absolute: true, array: false },
-          bit: false
+          type_: TypeRef {//TODO: should be enum
+            name: TypeName {
+              scope: Scope { absolute: true, path: vec!["foo"] },
+              name: "bar",
+            },
+            array: false,
+          },
+          bit: false,
         }
       ));
     }
@@ -1434,11 +1535,13 @@ mod parse {
       assert_eq!(parse_single("bitsizeof<foo>"), Ok(
         SizeOf {
           type_: TypeRef {
-            path: vec!["foo"],
-            absolute: false,
-            array: false
+            name: TypeName {
+              scope: Scope { absolute: false, path: vec![] },
+              name: "foo",
+            },
+            array: false,
           },
-          bit: true
+          bit: true,
         }
       ));
     }
