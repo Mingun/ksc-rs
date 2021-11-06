@@ -129,7 +129,6 @@ pub struct Import(Name);
 /// Identifier, used for:
 ///
 /// - name of KSY file
-/// - parameter name (will be changed, https://github.com/kaitai-io/ksy_schema/pull/15)
 /// - enumeration value
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(untagged)]
@@ -566,7 +565,7 @@ pub struct MetaSpec {//TODO: json: разделить информацию в с
   /// A string which matches one of the identifiers within the [SPDX license list][licenses].
   ///
   /// [licenses]: https://spdx.org/licenses/
-  pub license: Option<String>,//TODO: OneOrMany<String> (https://github.com/kaitai-io/ksy_schema/pull/13)
+  pub license: Option<String>,//TODO: Add SPDX validation
 
   /// List of relative or absolute paths to another `.ksy` files to import
   /// (**without** the `.ksy` extension).
@@ -808,14 +807,14 @@ pub struct Instance {
   pub value: Option<Value>,
 }
 
-/// Definition of single type parameter under [`params`] key.
+/// Definition of a single type parameter under [`params`] key.
 ///
 /// [`params`]: ./struct.TypeSpec.html#structfield.params
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub struct Param {
-  /// Unique name of this parameter by which it can be referenced in expressions
-  pub id: Identifier,// TODO: special string https://github.com/kaitai-io/ksy_schema/pull/15
+  /// Unique name of this parameter by which it can be referenced in expressions.
+  pub id: Option<Name>,//TODO: why parameter id is optional? Parameters without name is useless
   /// Specifies "pure" type of the parameter, without any serialization details
   /// (like endianness, sizes, encodings).
   ///
@@ -836,7 +835,7 @@ pub struct Param {
   /// One can specify arrays by appending `[]` after the type identifier
   /// (e.g. `type: u2[]`, `type: 'foo::bar[]'`, `type: struct[]` etc.)
   #[serde(rename = "type")]
-  pub type_: Option<String>,//TODO: перечисление типов
+  pub type_: Option<String>,
 
   /// Documentation for parameter.
   #[serde(flatten)]
@@ -884,8 +883,8 @@ pub enum EnumValue {
     #[serde(flatten)]
     doc: Doc,
 
-    /// Original constant identifier in format specification.
-    /// User, if that identifier can't be expressed in `id` field.
+    /// Original constant identifier in the format specification.
+    /// Uses, if that identifier can't be expressed in the `id` field.
     #[serde(rename = "-orig-id")]
     orig_id: Option<String>,//TODO: Если не понадобится в компиляторе, удалить
 
