@@ -37,6 +37,20 @@ jobs:
     - name: Run tests
       run: cargo test --verbose -p ksc-java
 
+  cli:
+    needs:
+      - ksc
+      - ksc-java
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        submodules: true
+    - name: Build
+      run: cargo build --verbose
+    - name: Run tests
+      run: cargo test --verbose
+
   ksc-compatible:
     runs-on: ubuntu-latest
     steps:

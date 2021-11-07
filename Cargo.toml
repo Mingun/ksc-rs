@@ -1,8 +1,10 @@
 [workspace]
 members = [
   ".",
+  "cli",
   "ksc-java",
 ]
+default-members = ["cli"]
 
 [package]
 name = "ksc"
