@@ -883,10 +883,10 @@ pub enum EnumValue {
     #[serde(flatten)]
     doc: Doc,
 
-    /// Original constant identifier in the format specification.
+    /// Original constant identifier(s) in the format specification.
     /// Uses, if that identifier can't be expressed in the `id` field.
     #[serde(rename = "-orig-id")]
-    orig_id: Option<String>,//TODO: Если не понадобится в компиляторе, удалить
+    orig_id: Option<OneOrMany<String>>,//TODO: Если не понадобится в компиляторе, удалить
 
     /// Additional arbitrary values.
     #[serde(flatten)]
