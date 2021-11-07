@@ -1,0 +1,15 @@
+[[bin]]
+name = "ksc"
+path = "src/main.rs"
+
+[package]
+name = "cli"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/Mingun/ksc-rs"
+description = "Alternative [Kaitai Struct](https://kaitai.io) compiler, written in pure Rust"
+
+[dependencies]
+int-enum = { version = "0.5", features = ["convert"] }
+structopt = "0.3"
