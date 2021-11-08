@@ -2,7 +2,7 @@
 name = "ksc"
 version = "0.1.0"
 authors = ["Mingun <Alexander_Sergey@mail.ru>"]
-edition = "2018"
+edition = "2021"
 license = "MIT"
 repository = "https://github.com/Mingun/ksc-rs"
 description = "Alternative [Kaitai Struct](https://kaitai.io) compiler, written in pure Rust"
