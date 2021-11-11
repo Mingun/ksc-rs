@@ -1,9 +1,21 @@
 //! Compiler backend for generate a Java source code from the Kaitai Struct definition.
 
-use heck::{ToUpperCamelCase, ToLowerCamelCase};
-use ksc::model::{FieldName, OptionalName, Root, TypeName, UserType};
-use proc_macro2::{Literal, Ident, Span, TokenStream};
-use quote::quote;
+use std::str::FromStr;
+
+use heck::{ToUpperCamelCase, ToLowerCamelCase, ToShoutySnakeCase};
+use num_traits::cast::ToPrimitive;
+use ksc::model::{
+  EnumName,
+  EnumValueName,
+  FieldName,
+  OptionalName,
+  Root,
+  TypeName,
+  UserType,
+};
+use ksc::model::expressions::OwningNode;
+use proc_macro2::{Literal, Ident, Punct, Spacing, Span, TokenStream};
+use quote::{quote, ToTokens, TokenStreamExt};
 
 /// Translates Kaitai Struct definition to a Java 8 source code
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
@@ -18,6 +30,12 @@ impl JavaGenerator {
   fn translate_field(&self, name: &FieldName) -> Ident {
     //TODO: need to rename special Java methods (toString, hashCode, equals) and keywords
     Ident::new(&name.to_lower_camel_case(), Span::call_site())
+  }
+  fn translate_enum_name(&self, name: &EnumName) -> Ident {
+    Ident::new(&name.to_upper_camel_case(), Span::call_site())
+  }
+  fn translate_enum_value_name(&self, name: &EnumValueName) -> Ident {
+    Ident::new(&name.to_shouty_snake_case(), Span::call_site())
   }
   /// Translates a type into a Java class. Inner types translates to nested `public static final`
   /// classes.
@@ -84,12 +102,147 @@ impl JavaGenerator {
       }
     }
   }
+
+  /// Translate Kaitai Struct expression into Java expression
+  ///
+  /// # Parameters
+  /// - `tokens`: this token stream will filled with expression
+  /// - `expression`: expression to translate
+  fn translate_expression(&self, tokens: &mut TokenStream, expression: &OwningNode) {
+    use OwningNode::*;
+    use ksc::parser::expressions::UnaryOp::*;
+
+    match expression {
+      Str(s) => s.to_tokens(tokens),
+      Int(i) => {
+        if let Some(i) = i.to_i32() {
+          Literal::i32_unsuffixed(i).to_tokens(tokens);
+        } else
+        if let Some(i) = i.to_i64() {
+          // Parsing are always successful because we generate a correct token
+          tokens.extend(TokenStream::from_str(&format!("{}L", i)).unwrap());
+        } else
+        if let Some(i) = i.to_u64() {
+          // Write unsigned big numbers in hexadecimal
+          // Parsing are always successful because we generate a correct token
+          tokens.extend(TokenStream::from_str(&format!("{:#x}L", i)).unwrap());
+        } else {
+          // Write unsigned big numbers in hexadecimal
+          let i = i.to_str_radix(16);
+          tokens.append_all(quote!(new BigInteger(#i, 16)));
+        }
+      },
+      Float(f) => match f.to_f64() {
+        // `to_f64` can return Infinity in case of overflow which `f64_unsuffixed`
+        // cannot handle
+        Some(f) if f.is_finite() => Literal::f64_unsuffixed(f).to_tokens(tokens),
+        _ => {
+          let f = f.to_string();
+          tokens.append_all(quote!(new BigDecimal(#f)));
+        }
+      },
+      Bool(b) => b.to_tokens(tokens),
+
+      //TODO: завершить трансляцию выражений
+      Attr(attr) => {// this.<attr>()
+        tokens.append_all(quote!(this.));
+        self.translate_field(attr).to_tokens(tokens);
+        tokens.append_all(quote!{()});
+      },
+      //SpecialName(n),
+      EnumValue { scope, name, value } => {
+        let scope = scope.path.iter().map(|p| self.translate_type_name(p));
+        let name  = self.translate_enum_name(name);
+        let value = self.translate_enum_value_name(value);
+
+        tokens.append_all(quote!(#(#scope.)* #name . #value));
+      },
+
+      // List(arr),
+
+      // SizeOf { type_, bit },
+
+      Call { callee, method, args } => {//TODO: Fix call generation
+        self.translate_expression(tokens, callee);
+        Punct::new('.', Spacing::Alone).to_tokens(tokens);
+        method.to_tokens(tokens);
+        Punct::new('(', Spacing::Alone).to_tokens(tokens);
+        let mut first = true;
+        for arg in args {
+          if !first {
+            Punct::new(',', Spacing::Alone).to_tokens(tokens);
+          }
+          self.translate_expression(tokens, arg);
+          first = false;
+        }
+        Punct::new(')', Spacing::Alone).to_tokens(tokens);
+      },
+      // Cast { expr, to_type },
+      // Index { expr, index },
+      Access { expr, attr } => {// <expr>.<attr>()
+        self.translate_expression(tokens, expr);
+        tokens.append_all(quote!(.));
+        self.translate_field(attr).to_tokens(tokens);
+        tokens.append_all(quote!{()});
+      },
+
+      Unary { op: Neg, expr } => { tokens.append_all(quote!(-)); self.translate_expression(tokens, expr) },
+      Unary { op: Not, expr } => { tokens.append_all(quote!(!)); self.translate_expression(tokens, expr) },
+      Unary { op: Inv, expr } => { tokens.append_all(quote!(~)); self.translate_expression(tokens, expr) },
+      Binary { op, left, right } => {
+        use ksc::parser::expressions::BinaryOp::*;
+
+        self.translate_expression(tokens, left);
+        tokens.append_all(match op {
+          Add => quote!(+),
+          Sub => quote!(-),
+          Mul => quote!(*),
+          Div => quote!(/),
+          Rem => quote!(%),
+
+          Shl => quote!(<<),
+          Shr => quote!(>>),
+
+          Eq => quote!(==),
+          Ne => quote!(!=),
+          Le => quote!(<=),
+          Ge => quote!(>=),
+          Lt => quote!(<),
+          Gt => quote!(>),
+
+          And => quote!(&&),
+          Or  => quote!(||),
+
+          BitAnd => quote!(&),
+          BitOr  => quote!(|),
+          BitXor => quote!(^),
+        });
+        self.translate_expression(tokens, right);
+      },
+      Branch { condition, if_true, if_false } => {
+        self.translate_expression(tokens, condition);
+        tokens.append_all(quote!(?));
+        self.translate_expression(tokens, if_true);
+        tokens.append_all(quote!(:));
+        self.translate_expression(tokens, if_false);
+      },
+      e => unimplemented!("translating complex expressions not yet implemented. Expression:\n{:#?}", e),
+    }
+  }
 }
 
 /// Internal trait to facilitate translation of recursive structures
 trait Translate {
   /// Translates self into a piece of Java code using settings in `gen`
   fn translate(&self, gen: &JavaGenerator) -> TokenStream;
+}
+
+impl Translate for OwningNode {
+  fn translate(&self, gen: &JavaGenerator) -> TokenStream {
+    let mut tokens = TokenStream::new();
+    gen.translate_expression(&mut tokens, self);
+    tokens
+  }
 }
 
 /// Compile specified `source` as a java code and check that it has no errors.
@@ -129,6 +282,126 @@ stderr(empty={}):
     output.stderr.is_empty(), String::from_utf8_lossy(&output.stderr),
   );
   assert!(output.status.success());
+}
+
+#[cfg(test)]
+mod expressions {
+  use super::*;
+  use std::path::Path;
+
+  /// Translates Kaitai Struct expression into a Java expression and check that it compiles
+  #[track_caller]
+  fn translate(test_name: &str, java_type: &str, expr: &str) {
+    let expr = OwningNode::parse(expr).expect("incorrect Kaitai expression");
+
+    let gen = JavaGenerator;
+    let tokens = expr.translate(&gen);
+    println!("translated: {}", tokens);
+
+    compile(Path::new(test_name), &format!(r#"
+    // For numbers test
+    import java.math.BigDecimal;
+    import java.math.BigInteger;
+    public class KscJavaTest {{
+      // Helper functions for `call` test
+      String argument() {{ return ""; }}
+      char callable(int i, long l, String s) {{ return '0'; }}
+
+      void test() {{
+        final {} result = {};
+      }}
+    }}
+    "#, java_type, tokens));
+  }
+
+  /// - `name`: the name of test function
+  /// - `expr`: the Kaitai Struct expression with number literal
+  /// - `java_type`: the Java type that will be used to hold a generated value
+  macro_rules! expr_test {
+    ($name:ident => $expr:literal, $java_type:ident) => {
+      #[test]
+      fn $name() { translate(stringify!($name), stringify!($java_type), $expr); }
+    };
+  }
+
+  mod numbers {
+    use super::*;
+
+    expr_test!(byte_0x00 => "0",    byte);
+    expr_test!(byte_0x7f => "127",  byte);
+    expr_test!(byte_0x80 => "-128", byte);
+
+    expr_test!(short_0x80   => "128",     short);
+    expr_test!(short_0x7fff => "0x7FFF",  short);
+    expr_test!(short_0x8000 => "-0x7FFF", short);
+
+    expr_test!(int_0x8000      => "0x8000",       int);
+    expr_test!(int_0x7fff_ffff => "0x7FFF_FFFF",  int);
+    expr_test!(int_0x8000_0000 => "-0x7FFF_FFFF", int);
+
+    expr_test!(long_0x8000_0000           => "0x8000_0000",           long);
+    expr_test!(long_0xffff_ffff_ffff_ffff => "0xFFFF_FFFF_FFFF_FFFF", long);
+
+    expr_test!(float_pos => " 123.456", double);
+    expr_test!(float_neg => "-123.456", double);
+
+    expr_test!(float_pos_sci => " 123.456e5", double);
+    expr_test!(float_neg_sci => "-123.456e5", double);
+
+    expr_test!(big_integer => "0xFFFF_FFFF_FFFF_FFFF_FFFF", BigInteger);
+    expr_test!(big_decimal => "1234567890_1234567890_1234567890_1234567890e10000", BigDecimal);
+  }
+
+  mod booleans {
+    use super::*;
+
+    expr_test!(true_  => "true",  boolean);
+    expr_test!(false_ => "false", boolean);
+  }
+
+  mod unary {
+    use super::*;
+
+    expr_test!(neg_byte  => "-1", byte);
+    expr_test!(neg_short => "-1", short);
+    expr_test!(neg_int   => "-1", int);
+    expr_test!(neg_long  => "-1", long);
+    expr_test!(not => "not true", boolean);
+    expr_test!(inv_byte  => "~1", byte);
+    expr_test!(inv_short => "~1", short);
+    expr_test!(inv_int   => "~1", int);
+    expr_test!(inv_long  => "~1", long);
+  }
+
+  mod binary {
+    use super::*;
+
+    expr_test!(add => "1 + 2", int);
+    expr_test!(sub => "1 - 2", int);
+    expr_test!(mul => "1 * 2", int);
+    expr_test!(div => "1 / 2", int);
+    expr_test!(rem => "1 % 2", int);
+
+    expr_test!(eq => "1 == 2", boolean);
+    expr_test!(ne => "1 != 2", boolean);
+    expr_test!(le => "1 <= 2", boolean);
+    expr_test!(ge => "1 >= 2", boolean);
+    expr_test!(lt => "1 < 2",  boolean);
+    expr_test!(gt => "1 > 2",  boolean);
+
+    expr_test!(and => "true and false", boolean);
+    expr_test!(or  => "true or false",  boolean);
+
+    expr_test!(bit_and => "1 & 2", int);
+    expr_test!(bit_or  => "1 | 2", int);
+    expr_test!(bit_xor => "1 ^ 2", int);
+  }
+
+  expr_test!(ternary => r#"1 == 2 ? "equal" : "not equal""#, String);
+
+  expr_test!(attr => r#"to_string"#, String);
+  expr_test!(call => r#"callable(1, 2, argument)"#, char);
+  expr_test!(access => r#"to_string.hash_code"#, int);
 }
 
 /// Try to generate Java files for all format files and optionally compile them with
