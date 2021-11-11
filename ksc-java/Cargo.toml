@@ -16,6 +16,7 @@ proc-macro2 = "1.0"
 quote = "1.0"
 
 [dev-dependencies]
+indexmap.workspace = true
 pretty_assertions.workspace = true
 serde_yml.workspace = true
 test-generator.workspace = true

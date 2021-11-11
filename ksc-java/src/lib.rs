@@ -12,8 +12,10 @@ use ksc::model::{
   Root,
   TypeName,
   UserType,
+  Variant,
 };
 use ksc::model::expressions::OwningNode;
+use ksc::parser::expressions::SpecialName;
 use proc_macro2::{Literal, Ident, Punct, Spacing, Span, TokenStream};
 use quote::{quote, ToTokens, TokenStreamExt};
 
@@ -245,6 +247,45 @@ impl Translate for OwningNode {
   }
 }
 
+impl<T: Translate> Translate for Variant<T> {
+  fn translate(&self, gen: &JavaGenerator) -> TokenStream {
+    match self {
+      Variant::Fixed(value) => value.translate(gen),
+      Variant::Choice { switch_on, cases } => {
+        let choice = switch_on.translate(gen);
+
+        //TODO: use `if` for complex cases
+        let cases = cases.iter().map(|(case, body)| {
+          let body = body.translate(gen);
+          match case {
+            OwningNode::SpecialName(SpecialName::Value) => quote! {
+              default: {
+                #body
+                break;
+              }
+            },
+            _ => {
+              let case = case.translate(gen);
+              quote! {
+                case #case: {
+                  #body
+                  break;
+                }
+              }
+            },
+          }
+        });
+
+        quote! {
+          switch (#choice) {
+            #(#cases)*
+          }
+        }
+      },
+    }
+  }
+}
+
 /// Compile specified `source` as a java code and check that it has no errors.
 /// The source should contain definition of the `KscJavaTest` class.
 ///
@@ -402,6 +443,88 @@ mod expressions {
   expr_test!(attr => r#"to_string"#, String);
   expr_test!(call => r#"callable(1, 2, argument)"#, char);
   expr_test!(access => r#"to_string.hash_code"#, int);
+}
+
+#[cfg(test)]
+mod variant {
+  use super::*;
+  use indexmap::indexmap;
+  use std::path::Path;
+
+  struct Empty(&'static str);
+  impl Translate for Empty {
+    fn translate(&self, _gen: &JavaGenerator) -> TokenStream {
+      let text = self.0;
+      quote!(System.out.println(#text);)
+    }
+  }
+
+  /// Translates the following expression:
+  ///
+  /// ```yaml
+  /// switch-on: 0
+  /// cases:
+  ///   0: branch 0
+  ///   1: branch 1
+  /// ```
+  #[test]
+  fn switch() {
+    let variant = Variant::Choice {
+      switch_on: OwningNode::Int(0.into()),
+      cases: indexmap![
+        OwningNode::Int(0.into()) => Empty("branch 0"),
+        OwningNode::Int(1.into()) => Empty("branch 1"),
+      ],
+    };
+
+    let gen = JavaGenerator;
+    let tokens = variant.translate(&gen);
+    println!("translated: {}", tokens);
+
+    compile(&Path::new("variant").join("switch"), &format!(r#"
+    public class KscJavaTest {{
+      void test() {{
+        {}
+      }}
+    }}
+    "#, tokens));
+  }
+
+  /// Translates the following expression:
+  ///
+  /// ```yaml
+  /// switch-on: 0
+  /// cases:
+  ///   i: branch 0
+  ///   j: branch 1
+  /// ```
+  ///
+  /// Because cases are not constant, `if-else` chains is used
+  #[test]
+  fn if_() {
+    let case1 = OwningNode::parse("i").unwrap();
+    let case2 = OwningNode::parse("j").unwrap();
+
+    let variant = Variant::Choice {
+      switch_on: OwningNode::Int(0.into()),
+      cases: indexmap![
+        case1 => Empty("branch 0"),
+        case2 => Empty("branch 1"),
+      ],
+    };
+
+    let gen = JavaGenerator;
+    let tokens = variant.translate(&gen);
+    println!("translated: {}", tokens);
+
+    compile(&Path::new("variant").join("switch"), &format!(r#"
+    public class KscJavaTest {{
+      void test() {{
+        {}
+      }}
+    }}
+    "#, tokens));
+  }
 }
 
 /// Try to generate Java files for all format files and optionally compile them with
