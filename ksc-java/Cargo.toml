@@ -11,6 +11,7 @@ description = "A Java generator for ksc - an alternative [Kaitai Struct](https:/
 [dependencies]
 heck = "0.4"
 ksc = { version = "0.1", path = ".." }
+num-traits = "0.2"
 proc-macro2 = "1.0"
 quote = "1.0"
 
