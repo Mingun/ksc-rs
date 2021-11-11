@@ -13,9 +13,30 @@ jobs:
       with:
         submodules: true
     - name: Build
-      run: cargo build --verbose
+      run: cargo build --verbose -p ksc
     - name: Run tests
-      run: cargo test --verbose
+      run: cargo test --verbose -p ksc
+
+  ksc-java:
+    needs: ksc
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        submodules: true
+    # https://github.com/marketplace/actions/setup-java-jdk
+    - name: Setup Java 8 JDK
+      uses: actions/setup-java@v2.3.1
+      with:
+        # Use minimum supported Java version.
+        # Actually, the generated code should be compatible with Java 6
+        java-version: 8
+        distribution: temurin
+    - name: Build
+      run: cargo build --verbose -p ksc-java
+    - name: Run tests
+      run: cargo test --verbose -p ksc-java
+
   ksc-compatible:
     runs-on: ubuntu-latest
     steps:
@@ -23,6 +44,6 @@ jobs:
       with:
         submodules: true
     - name: Build
-      run: cargo build --verbose --features compatible
+      run: cargo build --verbose --features compatible -p ksc
     - name: Run tests
-      run: cargo test --verbose --features compatible
+      run: cargo test --verbose --features compatible -p ksc

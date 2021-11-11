@@ -1,3 +1,13 @@
+[workspace]
+members = [
+  ".",
+  "ksc-java",
+]
+
+[workspace.dependencies]
+indexmap = "2.0"
+pretty_assertions = "1.0"
+
 [package]
 name = "ksc"
 version = "0.1.0"
@@ -11,7 +21,7 @@ description = "Alternative [Kaitai Struct](https://kaitai.io) compiler, written 
 
 [dependencies]
 bigdecimal = "0.4"
-indexmap = { version = "2.0", features = ["serde"] }
+indexmap = { workspace = true, features = ["serde"] }
 lazy_static = "1.4"
 peg = "0.8"
 regex = "1.5"
@@ -22,7 +32,7 @@ serde_yml = "0.0.12"
 
 [dev-dependencies]
 heck = "0.5"
-pretty_assertions = "1.0"
+pretty_assertions.workspace = true
 test-generator = "0.3"
 
 [features]
