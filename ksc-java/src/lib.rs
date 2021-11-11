@@ -7,7 +7,9 @@ use indexmap::IndexMap;
 use ksc::model::expressions::{OwningAttr, OwningNode};
 use ksc::model::{
   AttributeName, EnumName, EnumVariantName, FieldName, OptionalName, Root, TypeName, UserType,
+  Variant,
 };
+use ksc::parser::expressions::ContextVar;
 use num_traits::cast::ToPrimitive;
 use proc_macro2::{Ident, Literal, Punct, Spacing, Span, TokenStream};
 use quote::{quote, ToTokens, TokenStreamExt};
@@ -382,6 +384,45 @@ impl Translate for OwningNode {
   }
 }
 
+impl<T: Translate> Translate for Variant<T> {
+  fn translate(&self, gen: &TypeGenerator) -> TokenStream {
+    match self {
+      Variant::Fixed(value) => value.translate(gen),
+      Variant::Choice { switch_on, cases } => {
+        let choice = switch_on.translate(gen);
+
+        //TODO: use `if` for complex cases
+        let cases = cases.iter().map(|(case, body)| {
+          let body = body.translate(gen);
+          match case {
+            OwningNode::ContextVar(ContextVar::Value) => quote!(
+              default: {
+                #body
+                break;
+              }
+            ),
+            _ => {
+              let case = case.translate(gen);
+              quote!(
+                case #case: {
+                  #body
+                  break;
+                }
+              )
+            },
+          }
+        });
+
+        quote!(
+          switch (#choice) {
+            #(#cases)*
+          }
+        )
+      }
+    }
+  }
+}
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /// Compile specified `source` as a java code and check that it has no errors.
@@ -570,6 +611,91 @@ mod expressions {
   expr_test!(call => r#"callable(1, 2, argument)"#, char);
   expr_test!(method_call => r#"object.callable(1, 2, argument)"#, char);
   expr_test!(access => r#"to_string.hash_code"#, int);
+}
+
+#[cfg(test)]
+mod variant {
+  use super::*;
+  use indexmap::indexmap;
+  use std::path::Path;
+
+  struct Empty(&'static str);
+  impl Translate for Empty {
+    fn translate(&self, _gen: &TypeGenerator) -> TokenStream {
+      let text = self.0;
+      quote!(System.out.println(#text);)
+    }
+  }
+
+  /// Translates the following expression:
+  ///
+  /// ```yaml
+  /// switch-on: 0
+  /// cases:
+  ///   0: branch 0
+  ///   1: branch 1
+  /// ```
+  #[test]
+  fn switch() {
+    let variant = Variant::Choice {
+      switch_on: OwningNode::Int(0.into()),
+      cases: indexmap![
+        OwningNode::Int(0.into()) => Empty("branch 0"),
+        OwningNode::Int(1.into()) => Empty("branch 1"),
+      ],
+    };
+
+    let gen = TypeGenerator { field_names: IndexMap::new() };
+    let tokens = variant.translate(&gen);
+    println!("translated: {}", tokens);
+
+    compile(&Path::new("variant").join("switch"), &format!(r#"
+    public class KscJavaTest {{
+      void test() {{
+        {}
+      }}
+    }}
+    "#, tokens));
+  }
+
+  /// Translates the following expression:
+  ///
+  /// ```yaml
+  /// switch-on: 0
+  /// cases:
+  ///   i: branch 0
+  ///   j: branch 1
+  /// ```
+  ///
+  /// Because cases are not constant, `if-else` chains is used
+  #[test]
+  fn if_() {
+    let case1 = parse("i");
+    let case2 = parse("j");
+
+    let variant = Variant::Choice {
+      switch_on: OwningNode::Int(0.into()),
+      cases: indexmap![
+        case1 => Empty("branch 0"),
+        case2 => Empty("branch 1"),
+      ],
+    };
+
+    let gen = TypeGenerator { field_names: IndexMap::new() };
+    let tokens = variant.translate(&gen);
+    println!("translated: {}", tokens);
+
+    compile(&Path::new("variant").join("switch"), &format!(r#"
+    public class KscJavaTest {{
+      // Methods called by the translator
+      void i() {{}}
+      void j() {{}}
+      void test() {{
+        {}
+      }}
+    }}
+    "#, tokens));
+  }
 }
 
 /// Try to generate Java files for all format files and optionally compile them with
