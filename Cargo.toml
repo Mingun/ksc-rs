@@ -1,3 +1,9 @@
+[workspace]
+members = [
+  ".",
+  "ksc-java",
+]
+
 [package]
 name = "ksc"
 version = "0.1.0"
