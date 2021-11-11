@@ -1,3 +1,12 @@
+[workspace]
+members = [
+  ".",
+  "ksc-java",
+]
+
+[workspace.dependencies]
+pretty_assertions = "1.0"
+
 [package]
 name = "ksc"
 version = "0.1.0"
@@ -22,7 +31,7 @@ serde_yml = "0.0.11"
 
 [dev-dependencies]
 heck = "0.4"
-pretty_assertions = "1.0"
+pretty_assertions.workspace = true
 test-generator = "0.3"
 
 [features]

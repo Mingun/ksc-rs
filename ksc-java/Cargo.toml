@@ -1,0 +1,20 @@
+[package]
+name = "ksc-java"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/Mingun/ksc-rs"
+description = "A Java generator for ksc - an alternative [Kaitai Struct](https://kaitai.io) compiler, written in pure Rust"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+ksc = { version = "0.1", path = ".." }
+proc-macro2 = "1.0"
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+
+[features]
+## Used to enable testing in compatible mode
+compatible = ["ksc/compatible"]
