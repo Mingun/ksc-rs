@@ -6,8 +6,8 @@ use heck::{ToLowerCamelCase, ToShoutySnakeCase, ToUpperCamelCase};
 use indexmap::IndexMap;
 use ksc::model::expressions::{OwningAttr, OwningNode};
 use ksc::model::{
-  Attribute, AttributeName, EnumName, EnumVariantName, FieldName, OptionalName, Repeat, Root,
-  SeqName, TypeName, UserType, Variant,
+  Attribute, AttributeName, Chunk, EnumName, EnumVariantName, FieldName, OptionalName, Repeat, Root,
+  SeqName, Terminator, TypeName, UserType, Variant,
 };
 use ksc::parser::expressions::ContextVar;
 use num_traits::cast::ToPrimitive;
@@ -183,6 +183,7 @@ impl<'a> TypeGenerator<'a> {
         public Map<String, Span> _spans() { return _spans; }
 
         public _read() {
+          KaitaiStream _io;
           #(#parsers)*
         }
       }
@@ -338,7 +339,7 @@ impl<'a> TypeGenerator<'a> {
   fn translate_attribute(&self, name: &SeqName, attr: &Attribute) -> TokenStream {
     let ty = quote!(Object);//TODO: calculate type
     let stream = quote!(this._io);//TODO: calculate stream
-    let parse = quote!(final Object _value = unimplemented(););//TODO: implement parse of attribute
+    let parse = attr.chunk.translate(self);
 
     let statement = match &attr.repeat {
       Repeat::None => parse,
@@ -490,6 +491,38 @@ impl<T: Translate> Translate for Variant<T> {
           }
         )
       }
+    }
+  }
+}
+
+impl Translate for Chunk {
+  fn translate(&self, gen: &TypeGenerator) -> TokenStream {
+    use ksc::model::Size::*;
+
+    let stream = match &self.size {
+      Natural | Eos(None) => None,
+      Eos(Some(Terminator { value, consume, include, mandatory })) => {
+        let value = Literal::u8_unsuffixed(*value);
+        Some(quote!(this._io.subStream(#value, #consume, #include, #mandatory)))
+      },
+      Until(Terminator { value, consume, include, mandatory }) => {
+        let value = Literal::u8_unsuffixed(*value);
+        Some(quote!(this._io.subStream(#value, #consume, #include, #mandatory)))
+      },
+      Exact { count, until: None } => {
+        let count = count.translate(gen);
+        Some(quote!(this._io.subStream(#count)))
+      },
+      Exact { count, until: Some(Terminator { value, consume, include, mandatory }) } => {
+        let count = count.translate(gen);
+        let value = Literal::u8_unsuffixed(*value);
+        Some(quote!(this._io.subStream(#count, #value, #consume, #include, #mandatory)))
+      },
+    }.map(|stream| quote!(_io = #stream;));
+
+    quote! {
+      #stream
+      final Object _value = unimplemented();//TODO: implement parse of attribute
     }
   }
 }
@@ -785,6 +818,7 @@ mod attribute {
     import java.util.ArrayList;
     abstract interface KaitaiStream {{
       boolean isEof();
+      KaitaiStream subStream(int size);
     }}
     public abstract class KscJavaTest {{
       KaitaiStream _io;
