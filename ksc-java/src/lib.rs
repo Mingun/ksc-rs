@@ -6,6 +6,7 @@ use heck::{ToUpperCamelCase, ToLowerCamelCase, ToShoutySnakeCase};
 use num_traits::cast::ToPrimitive;
 use ksc::model::{
   Attribute,
+  Chunk,
   EnumName,
   EnumValueName,
   FieldName,
@@ -13,6 +14,7 @@ use ksc::model::{
   Repeat,
   Root,
   SeqName,
+  Terminator,
   TypeName,
   UserType,
   Variant,
@@ -107,6 +109,7 @@ impl JavaGenerator {
         public Map<String, Span> _spans() { return _spans; }
 
         public _read() {
+          KaitaiStream _stream;
           #(#parsers)*
         }
       }
@@ -115,7 +118,7 @@ impl JavaGenerator {
   fn translate_attribute(&self, name: &SeqName, attr: &Attribute) -> TokenStream {
     let ty = quote!(Object);//TODO: calculate type
     let stream = quote!(this._io);//TODO: calculate stream
-    let parse = quote!(unimplemented());//TODO: implement parse of attribute
+    let parse = attr.chunk.translate(self);
 
     let statement = match &attr.repeat {
       Repeat::None => quote!(#parse;),
@@ -335,6 +338,39 @@ impl<T: Translate> Translate for Variant<T> {
           }
         }
       },
+    }
+  }
+}
+
+impl Translate for Chunk {
+  fn translate(&self, gen: &JavaGenerator) -> TokenStream {
+    use ksc::model::Size::*;
+
+    let parse = quote!(parse());//TODO: implement parse of attribute
+    let stream = match &self.size {
+      Natural | Eos(None) => None,
+      Eos(Some(Terminator { value, consume, include, mandatory })) => {
+        let value = Literal::u8_unsuffixed(*value);
+        Some(quote!(this._stream.subStream(#value, #consume, #include, #mandatory)))
+      },
+      Until(Terminator { value, consume, include, mandatory }) => {
+        let value = Literal::u8_unsuffixed(*value);
+        Some(quote!(this._stream.subStream(#value, #consume, #include, #mandatory)))
+      },
+      Exact { count, until: None } => {
+        let count = count.translate(gen);
+        Some(quote!(this._stream.subStream(#count)))
+      },
+      Exact { count, until: Some(Terminator { value, consume, include, mandatory }) } => {
+        let count = count.translate(gen);
+        let value = Literal::u8_unsuffixed(*value);
+        Some(quote!(this._stream.subStream(#count, #value, #consume, #include, #mandatory)))
+      },
+    }.map(|stream| quote!(_stream = #stream;));
+
+    quote! {
+      #stream
+      #parse
     }
   }
 }
