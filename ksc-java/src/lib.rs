@@ -6,8 +6,8 @@ use heck::{ToLowerCamelCase, ToShoutySnakeCase, ToUpperCamelCase};
 use indexmap::IndexMap;
 use ksc::model::expressions::{OwningAttr, OwningNode};
 use ksc::model::{
-  AttributeName, EnumName, EnumVariantName, FieldName, OptionalName, Root, TypeName, UserType,
-  Variant,
+  Attribute, AttributeName, EnumName, EnumVariantName, FieldName, OptionalName, Repeat, Root,
+  SeqName, TypeName, UserType, Variant,
 };
 use ksc::parser::expressions::ContextVar;
 use num_traits::cast::ToPrimitive;
@@ -166,6 +166,7 @@ impl<'a> TypeGenerator<'a> {
         })
       }
     });
+    let parsers = ty.fields.iter().map(|(n, a)| self.translate_attribute(n, a));
 
     let classes = ty.types.iter().map(|(n, t)| TypeGenerator::new(t).translate(n, t, true));
 
@@ -180,6 +181,10 @@ impl<'a> TypeGenerator<'a> {
 
         @Override
         public Map<String, Span> _spans() { return _spans; }
+
+        public _read() {
+          #(#parsers)*
+        }
       }
     }
   }
@@ -327,6 +332,72 @@ impl<'a> TypeGenerator<'a> {
         self.translate_expression(tokens, if_false);
       },
       e => unimplemented!("translating complex expressions not yet implemented. Expression:\n{:#?}", e),
+    }
+  }
+
+  fn translate_attribute(&self, name: &SeqName, attr: &Attribute) -> TokenStream {
+    let ty = quote!(Object);//TODO: calculate type
+    let stream = quote!(this._io);//TODO: calculate stream
+    let parse = quote!(final Object _value = unimplemented(););//TODO: implement parse of attribute
+
+    let statement = match &attr.repeat {
+      Repeat::None => parse,
+      Repeat::Eos => quote!(
+        int i = 0;
+        final ArrayList<#ty> _arr = new ArrayList<>();
+        while (!#stream.isEof()) {
+          #parse
+          _arr.add(_value);
+          i += 1;
+        }
+      ),
+      Repeat::Count(count) => {
+        let count = count.translate(self);
+        quote!(
+          int _count = #count;
+          final ArrayList<#ty> _arr = new ArrayList<>(_count);
+          for (int i = 0; i < _count; i += 1) {
+            #parse
+            _arr.add(_value);
+          }
+        )
+      },
+      Repeat::Until(condition) => {
+        let condition = condition.translate(self);
+        quote!(
+          int i = 0;
+          final ArrayList<#ty> _arr = new ArrayList<>();
+          do {
+            #parse
+            _arr.add(_value);
+            i += 1;
+          } while (!#condition);
+        )
+      },
+    };
+    let store = match name {
+      // Assign `_value` or `_arr` to the field
+      OptionalName::Named(name) => {
+        let field = self.translate_field_name(name);
+        match attr.repeat {
+          Repeat::None => quote!(this.#field = _value;),
+          _ => quote!(this.#field = _arr;),
+        }
+      }
+      // Do not store result of parsing in case of unnamed fields
+      OptionalName::Unnamed(_) => quote!(),
+    };
+    let statement = quote!({
+      #statement
+      #store
+    });
+
+    if let Some(condition) = &attr.condition {
+      let condition = condition.translate(self);
+      // Braces not required here because every expression already in braces
+      quote!(if (#condition) #statement)
+    } else {
+      statement
     }
   }
 
@@ -695,6 +766,80 @@ mod variant {
       }}
     }}
     "#, tokens));
+  }
+}
+
+#[cfg(test)]
+mod attribute {
+  use super::*;
+  use ksc::model::{Chunk, TypeRef};
+  use std::path::Path;
+
+  #[track_caller]
+  fn compile(path: &Path, attr: Attribute) {
+    let gen = TypeGenerator { field_names: IndexMap::new() };
+    let tokens = gen.translate_attribute(&SeqName::Unnamed(0), &attr);
+    println!("translated: {}", tokens);
+
+    super::compile(path, &format!(r#"
+    import java.util.ArrayList;
+    abstract interface KaitaiStream {{
+      boolean isEof();
+    }}
+    public abstract class KscJavaTest {{
+      KaitaiStream _io;
+      abstract Object unimplemented();
+      void test() {{
+        {}
+      }}
+    }}
+    "#, tokens));
+  }
+
+  mod repeat {
+    use super::*;
+
+    #[test]
+    fn eos() {
+      compile(&Path::new("attribute").join("repeat").join("eos"), Attribute {
+        chunk: Variant::Fixed(Chunk {
+          type_ref: TypeRef::Bytes,
+          size: 10.into(),
+        }),
+        repeat: Repeat::Eos,
+        condition: None,
+        process: None,
+      });
+    }
+
+    //TODO: finish repeat tests
+    /*#[test]
+    fn count() {
+      use ksc::model::Count;
+      compile(&Path::new("attribute").join("repeat").join("count"), Attribute {
+        chunk: Variant::Fixed(Chunk {
+          type_ref: TypeRef::Bytes,
+          size: 10.into(),
+        }),
+        repeat: Repeat::Count(Count()),
+        condition: None,
+        process: None,
+      });
+    }
+
+    #[test]
+    fn until() {
+      use ksc::model::Condition;
+      compile(&Path::new("attribute").join("repeat").join("until"), Attribute {
+        chunk: Variant::Fixed(Chunk {
+          type_ref: TypeRef::Bytes,
+          size: 10.into(),
+        }),
+        repeat: Repeat::Until(),
+        condition: None,
+        process: None,
+      });
+    }*/
   }
 }
 
