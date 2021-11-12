@@ -5,11 +5,14 @@ use std::str::FromStr;
 use heck::{ToUpperCamelCase, ToLowerCamelCase, ToShoutySnakeCase};
 use num_traits::cast::ToPrimitive;
 use ksc::model::{
+  Attribute,
   EnumName,
   EnumValueName,
   FieldName,
   OptionalName,
+  Repeat,
   Root,
+  SeqName,
   TypeName,
   UserType,
   Variant,
@@ -87,6 +90,7 @@ impl JavaGenerator {
         })
       }
     });
+    let parsers = ty.fields.iter().map(|(n, a)| self.translate_attribute(n, a));
 
     let classes = ty.types.iter().map(|(n, t)| self.translate_type(n, t, true));
 
@@ -101,10 +105,59 @@ impl JavaGenerator {
 
         @Override
         public Map<String, Span> _spans() { return _spans; }
+
+        public _read() {
+          #(#parsers)*
+        }
       }
     }
   }
+  fn translate_attribute(&self, name: &SeqName, attr: &Attribute) -> TokenStream {
+    let ty = quote!(Object);//TODO: calculate type
+    let stream = quote!(this._io);//TODO: calculate stream
+    let parse = quote!(unimplemented());//TODO: implement parse of attribute
 
+    let statement = match &attr.repeat {
+      Repeat::None => quote!(#parse;),
+      Repeat::Eos => quote!({
+        int i = 0;
+        final ArrayList<#ty> _arr = new ArrayList<#ty>();
+        while (!#stream.isEof()) {
+          _arr.add(#parse);
+          i += 1;
+        }
+      }),
+      Repeat::Count(count) => {
+        let count = count.translate(self);
+        quote!({
+          int _count = #count;
+          final ArrayList<#ty> _arr = new ArrayList<#ty>(_count);
+          for (int i = 0; i < _count; i += 1) {
+            _arr.add(#parse);
+          }
+        })
+      },
+      Repeat::Until(condition) => {
+        let condition = condition.translate(self);
+        quote!({
+          int i = 0;
+          final ArrayList<#ty> _arr = new ArrayList<#ty>();
+          do {
+            _arr.add(#parse);
+            i += 1;
+          } while (!#condition);
+        })
+      },
+    };
+
+    if let Some(condition) = &attr.condition {
+      let condition = condition.translate(self);
+      // Braces not required here because every expression already in braces
+      quote!(if (#condition) #statement)
+    } else {
+      statement
+    }
+  }
   /// Translate Kaitai Struct expression into Java expression
   ///
   /// # Parameters
@@ -523,6 +576,76 @@ mod variant {
       }}
     }}
     "#, tokens));
+  }
+}
+
+#[cfg(test)]
+mod attribute {
+  use super::*;
+  use ksc::model::{Chunk, TypeRef};
+  use std::path::Path;
+
+  #[track_caller]
+  fn compile(path: &Path, attr: Attribute) {
+    let gen = JavaGenerator;
+    let tokens = gen.translate_attribute(&SeqName::Unnamed(0), &attr);
+    println!("translated: {}", tokens);
+
+    super::compile(path, &format!(r#"
+    import java.util.ArrayList;
+    public abstract class KscJavaTest {{
+      abstract Object unimplemented();
+      void test() {{
+        {}
+      }}
+    }}
+    "#, tokens));
+  }
+
+  mod repeat {
+    use super::*;
+
+    #[test]
+    fn eos() {
+      compile(&Path::new("attribute").join("repeat").join("eos"), Attribute {
+        chunk: Variant::Fixed(Chunk {
+          type_ref: TypeRef::Bytes,
+          size: 10.into(),
+        }),
+        repeat: Repeat::Eos,
+        condition: None,
+        process: None,
+      });
+    }
+
+    //TODO: finish repeat tests
+    /*#[test]
+    fn count() {
+      use ksc::model::Count;
+      compile(&Path::new("attribute").join("repeat").join("count"), Attribute {
+        chunk: Variant::Fixed(Chunk {
+          type_ref: TypeRef::Bytes,
+          size: 10.into(),
+        }),
+        repeat: Repeat::Count(Count()),
+        condition: None,
+        process: None,
+      });
+    }
+
+    #[test]
+    fn until() {
+      use ksc::model::Condition;
+      compile(&Path::new("attribute").join("repeat").join("until"), Attribute {
+        chunk: Variant::Fixed(Chunk {
+          type_ref: TypeRef::Bytes,
+          size: 10.into(),
+        }),
+        repeat: Repeat::Until(),
+        condition: None,
+        process: None,
+      });
+    }*/
   }
 }
 
