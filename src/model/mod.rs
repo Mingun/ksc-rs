@@ -4,7 +4,6 @@
 //!
 //! [`parser`]: ./parser/index.html
 
-use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 use std::fmt::Display;
 use std::hash::Hash;
@@ -188,7 +187,7 @@ pub enum Variant<T> {
     /// Expression which determines what variant will be used
     switch_on: OwningNode,
     /// Variants
-    cases: HashMap<OwningNode, T>,
+    cases: IndexMap<OwningNode, T>,
   }
 }
 impl<T, U: TryInto<T>> TryFrom<p::Variant<U>> for Variant<T>
@@ -202,7 +201,7 @@ impl<T, U: TryInto<T>> TryFrom<p::Variant<U>> for Variant<T>
     match data {
       Fixed(val) => Ok(Variant::Fixed(val.try_into().map_err(Into::into)?)),
       Choice { switch_on, cases } => {
-        let mut new_cases = HashMap::with_capacity(cases.len());
+        let mut new_cases = IndexMap::with_capacity(cases.len());
         for (k, v) in cases.into_iter() {
           new_cases.insert(k.try_into()?, v.try_into().map_err(Into::into)?);
         }
@@ -624,7 +623,7 @@ impl Attribute {
           // Because in switch-on expression encoding defined not at the same level, as type
           // (not in `case:` clause), we make it inherited
           props.encoding = props.encoding.to_inherited();
-          let mut new_cases = HashMap::with_capacity(cases.len());
+          let mut new_cases = IndexMap::with_capacity(cases.len());
           for (k, val) in cases.into_iter() {
             let chunk = Chunk::validate(Some(val), props.clone(), size.clone())?;
             new_cases.insert(k.try_into()?, chunk);
