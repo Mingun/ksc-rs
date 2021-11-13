@@ -7,6 +7,7 @@
 use std::convert::{TryFrom, TryInto};
 use std::fmt::Display;
 use std::hash::Hash;
+use std::ops::Deref;
 
 use indexmap::{indexmap, IndexMap};
 use indexmap::map::Entry;
@@ -114,7 +115,7 @@ impl UserTypeRef {
   }
 }
 
-/// Name and parameters of process routine.
+/// Name and parameters of the process routine.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProcessAlgo {
   /// Name of process routine
@@ -132,9 +133,9 @@ impl ProcessAlgo {
   }
 }
 
-/// Expression, that used in boolean contexts.
+/// An expression used in boolean contexts.
 ///
-/// Contains AST of expression language, that evaluated to boolean expression.
+/// Contains AST of the expression language that evaluated to a boolean value.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Condition(OwningNode);
 impl Condition {
@@ -143,6 +144,14 @@ impl Condition {
       p::Condition::Expr(expr)   => Self(parse_single(&expr)?.into()),
       p::Condition::Value(value) => Self(OwningNode::Bool(value)),
     })
+  }
+}
+impl Deref for Condition {
+  type Target = OwningNode;
+
+  #[inline]
+  fn deref(&self) -> &OwningNode {
+    &self.0
   }
 }
 
@@ -159,20 +168,28 @@ macro_rules! usize_expr {
         })
       }
     }
+    impl Deref for $to {
+      type Target = OwningNode;
+
+      #[inline]
+      fn deref(&self) -> &OwningNode {
+        &self.0
+      }
+    }
   };
 }
 
 usize_expr!(
-  /// Expression used to represent repetition count.
+  /// An expression used to represent repetition count.
   ///
-  /// Contains AST of expression language, that evaluated to integer expression.
+  /// Contains AST of the expression language that evaluated to an integer value.
   p::Count => Count
 );
 
 usize_expr!(
-  /// Expression used to represent instance position.
+  /// An expression used to represent instance position.
   ///
-  /// Contains AST of expression language, that evaluated to integer expression.
+  /// Contains AST of the expression language that evaluated to an integer value.
   p::Position => Position
 );
 
@@ -277,6 +294,21 @@ pub struct Terminator {
   /// Corresponds to `eos-error` key.
   pub mandatory: bool,
 }
+impl From<u8> for Terminator {
+  /// Creates a new terminator from the specified terminator byte.
+  ///
+  /// Terminator will be mandatory and consumed, but not included
+  /// (default behavior of the `strz` type and `terminator: value`
+  /// key without other options specified)
+  fn from(value: u8) -> Self {
+    Self {
+      value,
+      consume: true,
+      include: false,
+      mandatory: true,
+    }
+  }
+}
 
 /// Defines the way of determining size of stream for reading user type.
 /// This is size, that attribute is occupied in the stream, but not all
@@ -345,6 +377,20 @@ impl Size {
         Unsized => Err(Validation("`size`, `size-eos: true` or `terminator` must be specified".into())),
         Sized(size) => Ok(Self::Exact { count: Count(OwningNode::Int(size as u64)), until: None }),
       },
+    }
+  }
+}
+impl From<u64> for Size {
+  /// Creates a new exact-sized `Size` from the specified numeric value.
+  /// An equivalent KSY definition would be:
+  ///
+  /// ```yaml
+  /// - size: <value>
+  /// ```
+  fn from(value: u64) -> Self {
+    Self::Exact {
+      count: Count(OwningNode::Int(value)),
+      until: None,
     }
   }
 }
@@ -555,8 +601,8 @@ pub struct Chunk {
   /// Reference to type of this attribute. Type can be fixed or calculated
   pub type_ref: TypeRef,//TODO: resolve references, check, that all types exist
 
-  /// Size of stream from which this attribute will be readed. That size of one element,
-  /// so if attribute repeated many times, that field determines size of each element,
+  /// Size of stream from which this attribute will be read. That size of the one element,
+  /// so if attribute repeated many times, that field determines the size of each element,
   /// not the size of sequence.
   pub size: Size,
 }
@@ -587,7 +633,7 @@ pub struct Attribute {
 
   /// Specify how many times a given attribute should occur in a stream.
   pub repeat: Repeat,
-  /// If specified, attribute will be readed only if condition evaluated to `true`.
+  /// If specified, attribute will be read only if condition evaluated to `true`.
   pub condition: Option<Condition>,
 
   /// Algorithm that run on raw byte array before parsing data.
@@ -638,6 +684,29 @@ impl Attribute {
       condition: attr.condition.map(Condition::validate).transpose()?,
       process:   attr.process.map(ProcessAlgo::validate).transpose()?,
     })
+  }
+}
+impl From<Chunk> for Attribute {
+  /// Creates a new attribute definition from a chunk definition.
+  ///
+  /// Attribute created without repetitions, conditions or process routine.
+  /// An equivalent KSY definition would be:
+  ///
+  /// ```yaml
+  /// seq:
+  ///   - type: ...       # not `switch-on`
+  ///     size: ...       # optional
+  ///     # size-eos: ... # optional
+  ///     terminator: ... # optional
+  ///     eos-error: ...  # optional
+  /// ```
+  fn from(chunk: Chunk) -> Self {
+    Self {
+      chunk: Variant::Fixed(chunk),
+      repeat: Repeat::None,
+      condition: None,
+      process: None,
+    }
   }
 }
 
