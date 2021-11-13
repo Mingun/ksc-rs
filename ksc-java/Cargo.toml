@@ -9,8 +9,17 @@ description = "A Java generator for ksc - an alternative [Kaitai Struct](https:/
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+heck = "0.4"
 ksc = { version = "0.1", path = ".." }
 proc-macro2 = "1.0"
+quote = "1.0"
 
 [dev-dependencies]
 pretty_assertions = "1.0"
+serde_yaml = "0.8"
+test-generator = "0.3"
+
+[features]
+# Enable this feature to compile generated sources of files from formats directory.
+# This can take a significant amount of time!
+test-compile-formats = []
