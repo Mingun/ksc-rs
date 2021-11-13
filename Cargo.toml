@@ -5,7 +5,12 @@ members = [
 ]
 
 [workspace.dependencies]
+heck = "0.4"
 pretty_assertions = "1.0"
+# When update version check `impl Hash for Scalar`, it should be the same as
+# `impl Hash for serde_yml::Value` for consistency
+serde_yml = "0.0.11"
+test-generator = "0.3"
 
 [package]
 name = "ksc"
@@ -25,14 +30,12 @@ lazy_static = "1.4"
 peg = "0.8"
 regex = "1.5"
 serde = { version = "1.0", features = ["derive"] }
-# When update version check `impl Hash for Scalar`, it should be the same as
-# `impl Hash for serde_yml::Value` for consistency
-serde_yml = "0.0.11"
+serde_yml.workspace = true
 
 [dev-dependencies]
-heck = "0.4"
+heck.workspace = true
 pretty_assertions.workspace = true
-test-generator = "0.3"
+test-generator.workspace = true
 
 [features]
 # When enabled, the compiler will preserve compatibility with the original compiler
