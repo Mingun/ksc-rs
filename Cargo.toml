@@ -21,6 +21,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_yml = "0.0.10"
 
 [dev-dependencies]
+heck = "0.4"
 pretty_assertions = "1.0"
 test-generator = "0.3"
 
