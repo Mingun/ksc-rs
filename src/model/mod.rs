@@ -1142,6 +1142,160 @@ impl UserType {
     self.fields.iter().fold(SizeOf::Sized(0usize.into()), |acc, (_, a)| acc + a.sizeof())
   }
 
+  /// Returns a map with field names that is valid according to the target
+  /// language rules. Generation and validity checks are performed by the
+  /// `generator` function that receives 2 parameters:
+  /// - a field name for which name is generated
+  /// - a generation attempt. Attempts are started from zero and increasing
+  ///   over the time. The generator MUST return different name on each attempt
+  ///   otherwise the algorithm will run in infinity cycle.
+  ///
+  /// # Parameters
+  /// - `generator`: a name generator function. This function should return
+  ///   `Some(name)` if generated name in this attempt is valid and `None` if not.
+  ///
+  /// # Example
+  ///
+  /// ```
+  /// # use ksc::model::Type;
+  /// use ksc::model::AttributeName::*;
+  /// use heck::MixedCase;
+  ///
+  /// # let ty: Type = Type::default();/*
+  /// let ty: Type = ...;
+  /// # */
+  ///
+  /// // List of reserved words
+  /// const KEYWORDS: [&'static str; 1] = [
+  ///   "enum",
+  /// ];
+  ///
+  /// let names = ty.attribute_names(|name, attempt| {
+  ///   // Generate a name converted by converting KSY field name
+  ///   // to mixedCase (Java field style names) on first attempt
+  ///   // and adding a numerical suffix on other attempts
+  ///   let generated = match (attempt, name) {
+  ///     // it is better to generate non-intersecting names for
+  ///     // unnamed fields, for example, in this case, starting
+  ///     // with an underscore (because such names are not possible
+  ///     // for named fields after to mixedCase conversion), but
+  ///     // that is not strictly necessary
+  ///     (0, Unnamed(i)) => format!("unnamed{}", i),
+  ///     (a, Unnamed(i)) => format!("unnamed{}{}", i, a),
+  ///
+  ///     (0, Seq(n)) => n.to_mixed_case(),
+  ///     (a, Seq(n)) => format!("{}{}", n.to_mixed_case(), a),
+  ///
+  ///     (0, NonSeq(n)) => n.to_mixed_case(),
+  ///     (a, NonSeq(n)) => format!("{}{}", n.to_mixed_case(), a),
+  ///   };
+  ///
+  ///   // Check if a generated name conflicts with a keyword and
+  ///   // return `None` if that is true
+  ///   match KEYWORDS.binary_search(&generated.as_ref()) {
+  ///     Ok(_) => None,
+  ///     Err(_) => Some(generated),
+  ///   }
+  /// });
+  /// ```
+  pub fn attribute_names<G, R>(
+    &self,
+    generator: G,
+  ) -> IndexMap<AttributeName, R>
+    where G: Fn(AttributeName, usize) -> Option<R>,
+          R: Clone + Eq + Hash + AsRef<str>,
+  {
+    let mut mapping = IndexMap::new();
+    let mut used_names = IndexMap::new();
+    let mut unprocessed_named = Vec::new();
+    let mut unprocessed_unnamed = Vec::new();
+
+    enum State<'a> {
+      /// Mapping was added
+      Inserted,
+      /// Old mapping was replaced by new one, the old mapped value returned
+      Replaced(AttributeName<'a>),
+      /// Mapping was not done because there is a invalid name or unnamed field
+      Postponed,
+    }
+
+    let mut generate = |attempt, name, original| {
+      if let Some(generated) = generator(name, attempt) {
+        match used_names.entry(generated.clone()) {
+          // If name not used yet, register mapping
+          Entry::Vacant(e) => {
+            mapping.insert(name, generated);
+            e.insert(name);
+            State::Inserted
+          },
+          // If mapping already used, but generated name does not match
+          // original one, and new candidate has the same name as generated one,
+          // replace mapping
+          Entry::Occupied(mut e) => {
+            if original == generated.as_ref() && mapping.get(&name) != Some(&generated) {
+              mapping.insert(name, generated);
+              let old = e.insert(name);
+              mapping.swap_remove(&old);
+              State::Replaced(old)
+            } else {
+              State::Postponed
+            }
+          },
+        }
+      } else {
+        State::Postponed
+      }
+    };
+
+    // First, use all names that does not violates rules. Unnamed fields does
+    // not violate rules, but their generated names could conflict with the
+    // explicitly defined ones, so we postpone their name generation
+    for (name, _) in &self.fields {
+      match name {
+        OptionalName::Unnamed(i) => unprocessed_unnamed.push(*i),
+        OptionalName::Named(n) => {
+          match generate(0, AttributeName::Seq(n), n.deref()) {
+            State::Inserted => {},
+            State::Replaced(old) => unprocessed_named.push(old),
+            State::Postponed => unprocessed_named.push(AttributeName::Seq(n)),
+          }
+        }
+      }
+    }
+
+    for (name, _) in &self.instances {
+      match generate(0, AttributeName::NonSeq(name), name.deref()) {
+        State::Inserted => {},
+        State::Replaced(old) => unprocessed_named.push(old),
+        State::Postponed => unprocessed_named.push(AttributeName::NonSeq(name)),
+      }
+    }
+
+    for name in unprocessed_named {
+      match name {
+        AttributeName::Seq(n) | AttributeName::NonSeq(n) => {
+          for attempt in 1.. {
+            if let State::Inserted = generate(attempt, name, n.deref()) {
+              break;
+            }
+          }
+        },
+        _ => unreachable!(),
+      }
+    }
+
+    // Generate names for unnamed fields in the last stage
+    for i in unprocessed_unnamed {
+      for attempt in 0.. {
+        if let State::Inserted = generate(attempt, AttributeName::Unnamed(i), "") {
+          break;
+        }
+      }
+    }
+
+    mapping
+  }
+
   /// Performs validation of lists for duplicated entries
   ///
   /// # Parameters
@@ -4158,4 +4312,91 @@ mod sizeof {
       }
     }
   }
+}
+
+#[test]
+fn type_names() {
+  // Colorful diffs in assertions
+  use pretty_assertions::assert_eq;
+  use std::collections::BTreeMap;
+  use heck::ToLowerCamelCase;
+  use AttributeName::*;
+
+  macro_rules! p {
+    (@ $key:literal => $value:literal) => {
+      (Unnamed($key), $value.to_string())
+    };
+    ($key:literal => $value:literal) => {
+      (Seq(&Name::valid($key)), $value.to_string())
+    };
+  }
+
+  let ksy: p::TypeSpec = serde_yml::from_str(r#"
+  seq:
+  - size: 1
+  - size: 1
+  - size: 1
+
+  - id: unnamed0
+    size: 1
+  - id: unnamed01
+    size: 1
+  - id: unnamed0_1
+    size: 1
+
+  - id: unnamed1
+    size: 1
+  - id: unnamed1_1
+    size: 1
+  - id: unnamed11
+    size: 1
+
+  - id: enum
+    size: 1
+  - id: enum1
+    size: 1
+  - id: enum1_1
+    size: 1
+  "#).unwrap();
+
+  let ty = UserType::validate(ksy, p::Defaults::default()).unwrap();
+  const KEYWORDS: [&'static str; 1] = [
+    "enum",
+  ];
+
+  let names = ty.attribute_names(|name, attempt| {
+    let generated = match (attempt, name) {
+      (0, Unnamed(i)) => format!("unnamed{}", i),
+      (a, Unnamed(i)) => format!("unnamed{}{}", i, a),
+      (0, Seq(n)) => n.to_lower_camel_case(),
+      (a, Seq(n)) => format!("{}{}", n.to_lower_camel_case(), a),
+      (0, NonSeq(n)) => n.to_lower_camel_case(),
+      (a, NonSeq(n)) => format!("{}{}", n.to_lower_camel_case(), a),
+    };
+
+    match KEYWORDS.binary_search(&generated.as_ref()) {
+      Ok(_) => None,
+      Err(_) => Some(generated),
+    }
+  });
+
+  let names: BTreeMap<_, _> = names.into_iter().collect();
+
+  assert_eq!(names, BTreeMap::from([
+    p!(@ 0          => "unnamed02"),  // Because "unnamed0" and "unnamed01" already exist
+    p!(@ 1          => "unnamed12"),  // Because "unnamed1" already exist
+    p!(@ 2          => "unnamed2"),
+
+    p!("unnamed0"   => "unnamed0"),
+    p!("unnamed01"  => "unnamed01"),
+    p!("unnamed0_1" => "unnamed011"), // Because "unnamed01" already exist
+
+    p!("unnamed1"   => "unnamed1"),
+    p!("unnamed1_1" => "unnamed111"),
+    p!("unnamed11"  => "unnamed11"),  // Because "unnamed01" already exist
+
+    p!("enum"       => "enum2"),      // Because "enum1" already exist
+    p!("enum1"      => "enum1"),
+    p!("enum1_1"    => "enum11"),
+  ]));
 }

@@ -185,6 +185,17 @@ pub type EnumName = Name<tags::Enum>;
 /// Name of enumeration value
 pub type EnumValueName = Name<tags::EnumValue>;
 
+/// Name that can represent both sequential and non-sequential attributes
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum AttributeName<'a> {
+  /// Name of sequential attribute, defined in the `seq` section
+  Seq(&'a FieldName),
+  /// Name of non-sequential attribute, defined in the `instances` section
+  NonSeq(&'a FieldName),
+  /// Automatically generated name of unnamed sequential attribute, defined in
+  /// the `seq` section. Name is derived from sequential index starting from zero.
+  Unnamed(usize),
+}
 
 /// Path to enum name, used to describe `type` in attributes and parameters.
 #[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
