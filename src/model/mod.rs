@@ -32,7 +32,8 @@ mod r#type;
 mod validator;
 
 pub use name::{
-  EnumName, EnumVariantName, FieldName, Name, OptionalName, ParamName, SeqName, TypeName,
+  AttributeName, EnumName, EnumVariantName, FieldName, Name, OptionalName, ParamName, SeqName,
+  TypeName,
 };
 pub use package::{ImportLoader, Package};
 pub use r#enum::Enum;
