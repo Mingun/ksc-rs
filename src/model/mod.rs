@@ -315,6 +315,10 @@ impl From<u8> for Terminator {
 /// bytes can be used for parsing. Some bytes can stay unused.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Size {
+  /// Size not defined explicitly, natural size should be used for reading
+  /// field. Corresponds to not defined size. Variant contains Calculated
+  /// size of type in bytes.
+  Natural(usize),
   /// Read all remaining bytes in a stream. Optionally terminator
   /// can define actually available slice for parsing. In that case
   /// only bytes in range `[0; terminator]` will be used to parse data.
@@ -375,7 +379,7 @@ impl Size {
         // For unknown sized types use all remaining input
         Unknown => Ok(Self::Eos(None)),
         Unsized => Err(Validation("`size`, `size-eos: true` or `terminator` must be specified".into())),
-        Sized(size) => Ok(Self::Exact { count: Count(OwningNode::Int(size as u64)), until: None }),
+        Sized(size) => Ok(Self::Natural(size)),
       },
     }
   }
@@ -439,19 +443,17 @@ pub enum Enumerable {
   Bits(usize),
 }
 impl Enumerable {
-  /// Return natural size of type in bytes, or `None`, if type is unsized
-  /// (byte arrays and strings) or size is unknown (user types).
-  pub fn natural_size(&self) -> NaturalSize {
+  /// Returns size of type in bytes.
+  pub fn size(&self) -> usize {
     use Enumerable::*;
-    use NaturalSize::*;
 
     match self {
-      U8 | I8 => Sized(1),
-      U16(_) | I16(_) => Sized(2),
-      U32(_) | I32(_) => Sized(4),
-      U64(_) | I64(_) => Sized(8),
+      U8 | I8 => 1,
+      U16(_) | I16(_) => 2,
+      U32(_) | I32(_) => 4,
+      U64(_) | I64(_) => 8,
 
-      Bits(size) => Sized(size.saturating_add(7) >> 3),// convert bit count to byte count
+      Bits(size) => size.saturating_add(7) >> 3,// convert bit count to byte count
     }
   }
 }
@@ -497,7 +499,7 @@ impl TypeRef {
     use NaturalSize::*;
 
     match self {
-      Enum { base, .. } => base.natural_size(),
+      Enum { base, .. } => Sized(base.size()),
 
       F32(_) => Sized(4),
       F64(_) => Sized(8),
