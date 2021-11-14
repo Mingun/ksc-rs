@@ -713,7 +713,7 @@ impl From<Chunk> for Attribute {
 }
 
 /// Defines user-defined type
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Type {
   /// The list of fields that this type consists of. The fields in the data stream
   /// are in the same order as they are declared here.
@@ -804,6 +804,7 @@ impl TryFrom<p::Ksy> for Root {
 #[cfg(test)]
 mod size {
   use super::*;
+  use indexmap::indexmap;
 
   #[test]
   fn size() {
@@ -814,7 +815,19 @@ mod size {
       - id: field
         size: 5
     "#).unwrap();
-    let _ = Root::try_from(ksy).expect("`size` defines size");
+    let root = Root::try_from(ksy).expect("`size` defines size");
+    assert_eq!(root, Root {
+      name: TypeName::valid("test"),
+      type_: Type {
+        fields: indexmap![
+          FieldName::Named(Name::valid("field")) => Chunk {
+            type_ref: TypeRef::Bytes,
+            size: 5.into(),
+          }.into(),
+        ],
+        ..Default::default()
+      }
+    });
   }
   #[test]
   fn size_eos() {
@@ -825,7 +838,19 @@ mod size {
       - id: field
         size-eos: true
     "#).unwrap();
-    let _ = Root::try_from(ksy).expect("`size-eos` defines size");
+    let root = Root::try_from(ksy).expect("`size-eos` defines size");
+    assert_eq!(root, Root {
+      name: TypeName::valid("test"),
+      type_: Type {
+        fields: indexmap![
+          FieldName::Named(Name::valid("field")) => Chunk {
+            type_ref: TypeRef::Bytes,
+            size: Size::Eos(None),
+          }.into(),
+        ],
+        ..Default::default()
+      }
+    });
   }
   #[test]
   fn terminator() {
@@ -836,7 +861,19 @@ mod size {
       - id: field
         terminator: 5
     "#).unwrap();
-    let _ = Root::try_from(ksy).expect("`terminator` defines size");
+    let root = Root::try_from(ksy).expect("`terminator` defines size");
+    assert_eq!(root, Root {
+      name: TypeName::valid("test"),
+      type_: Type {
+        fields: indexmap![
+          FieldName::Named(Name::valid("field")) => Chunk {
+            type_ref: TypeRef::Bytes,
+            size: Size::Until(5.into()),
+          }.into(),
+        ],
+        ..Default::default()
+      }
+    });
   }
   #[test]
   fn strz() {
@@ -848,12 +885,28 @@ mod size {
         type: strz
         encoding: UTF-8
     "#).unwrap();
-    let _ = Root::try_from(ksy).expect("`strz` defines size (because of implicit `terminator=0`)");
+    let root = Root::try_from(ksy).expect("`strz` defines size (because of implicit `terminator=0`)");
+    assert_eq!(root, Root {
+      name: TypeName::valid("test"),
+      type_: Type {
+        fields: indexmap![
+          FieldName::Named(Name::valid("field")) => Chunk {
+            type_ref: TypeRef::String("UTF-8".into()),
+            size: Size::Until(0.into()),
+          }.into(),
+        ],
+        ..Default::default()
+      }
+    });
   }
   #[test]
   fn builtin_types() {
+    use p::Endian::*;
+    use Enumerable::*;
+    use Variant::*;
+
     macro_rules! test {
-      ($builtin:ident) => {
+      ($builtin:ident, $size:literal, $base:expr) => {
         let ksy: p::Ksy = serde_yaml::from_str(&format!(r#"
         meta:
           id: test
@@ -862,43 +915,55 @@ mod size {
           - id: field
             type: {}
         "#, stringify!($builtin))).unwrap();
-        let _ = Root::try_from(ksy).expect(&format!("`{}` has natural size", stringify!($builtin)));
+        let root = Root::try_from(ksy).expect(&format!("`{}` has natural size", stringify!($builtin)));
+        assert_eq!(root, Root {
+          name: TypeName::valid("test"),
+          type_: Type {
+            fields: indexmap![
+              FieldName::Named(Name::valid("field")) => Chunk {
+                type_ref: $base,
+                size: Size::Natural($size),
+              }.into(),
+            ],
+            ..Default::default()
+          }
+        });
       };
     }
-    test!(u1);
-    test!(u2);
-    test!(u4);
-    test!(u8);
+    test!(u1, 1, TypeRef::Enum { base: U8, enum_: None });
+    test!(u2, 2, TypeRef::Enum { base: U16(Fixed(Be)), enum_: None });
+    test!(u4, 4, TypeRef::Enum { base: U32(Fixed(Be)), enum_: None });
+    test!(u8, 8, TypeRef::Enum { base: U64(Fixed(Be)), enum_: None });
 
-    test!(s1);
-    test!(s2);
-    test!(s4);
-    test!(s8);
+    test!(s1, 1, TypeRef::Enum { base: I8, enum_: None });
+    test!(s2, 2, TypeRef::Enum { base: I16(Fixed(Be)), enum_: None });
+    test!(s4, 4, TypeRef::Enum { base: I32(Fixed(Be)), enum_: None });
+    test!(s8, 8, TypeRef::Enum { base: I64(Fixed(Be)), enum_: None });
 
-    test!(f4);
-    test!(f8);
+    test!(f4, 4, TypeRef::F32(Fixed(Be)));
+    test!(f8, 8, TypeRef::F64(Fixed(Be)));
     //----------------------
-    test!(u2be);
-    test!(u4be);
-    test!(u8be);
+    test!(u2be, 2, TypeRef::Enum { base: U16(Fixed(Be)), enum_: None });
+    test!(u4be, 4, TypeRef::Enum { base: U32(Fixed(Be)), enum_: None });
+    test!(u8be, 8, TypeRef::Enum { base: U64(Fixed(Be)), enum_: None });
 
-    test!(s2be);
-    test!(s4be);
-    test!(s8be);
+    test!(s2be, 2, TypeRef::Enum { base: I16(Fixed(Be)), enum_: None });
+    test!(s4be, 4, TypeRef::Enum { base: I32(Fixed(Be)), enum_: None });
+    test!(s8be, 8, TypeRef::Enum { base: I64(Fixed(Be)), enum_: None });
 
-    test!(f4be);
-    test!(f8be);
+    test!(f4be, 4, TypeRef::F32(Fixed(Be)));
+    test!(f8be, 8, TypeRef::F64(Fixed(Be)));
     //----------------------
-    test!(u2le);
-    test!(u4le);
-    test!(u8le);
+    test!(u2le, 2, TypeRef::Enum { base: U16(Fixed(Le)), enum_: None });
+    test!(u4le, 4, TypeRef::Enum { base: U32(Fixed(Le)), enum_: None });
+    test!(u8le, 8, TypeRef::Enum { base: U64(Fixed(Le)), enum_: None });
 
-    test!(s2le);
-    test!(s4le);
-    test!(s8le);
+    test!(s2le, 2, TypeRef::Enum { base: I16(Fixed(Le)), enum_: None });
+    test!(s4le, 4, TypeRef::Enum { base: I32(Fixed(Le)), enum_: None });
+    test!(s8le, 8, TypeRef::Enum { base: I64(Fixed(Le)), enum_: None });
 
-    test!(f4le);
-    test!(f8le);
+    test!(f4le, 4, TypeRef::F32(Fixed(Le)));
+    test!(f8le, 8, TypeRef::F64(Fixed(Le)));
   }
 }
 
