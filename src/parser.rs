@@ -5,6 +5,10 @@
 //!
 //! [`model`]: ../model/index.html
 
+// Colorful diffs in assertions
+#[cfg(test)]
+use pretty_assertions::assert_eq;
+
 use std::fmt::{Display, Formatter, Result};
 use std::hash::{Hash, Hasher};
 use std::ops::{Deref, DerefMut};
@@ -1098,6 +1102,8 @@ fn type_() {
 
 #[cfg(test)]
 mod repeat {
+  // Colorful diffs in assertions - resolve ambiguous
+  use pretty_assertions::assert_eq;
   use super::*;
 
   #[test]

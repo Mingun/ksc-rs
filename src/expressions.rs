@@ -836,6 +836,8 @@ peg::parser! {
 
 #[cfg(test)]
 mod parse {
+  // Colorful diffs in assertions
+  use pretty_assertions::assert_eq;
   use super::{Node, Scope, TypeName, TypeRef, UserTypeRef};
   use super::Node::*;
   use super::UnaryOp::*;
@@ -850,6 +852,8 @@ mod parse {
   }
 
   mod comments {
+    // Colorful diffs in assertions - resolve ambiguous
+    use pretty_assertions::assert_eq;
     use super::*;
 
     #[test]
@@ -880,6 +884,8 @@ mod parse {
   }
 
   mod dec {
+    // Colorful diffs in assertions - resolve ambiguous
+    use pretty_assertions::assert_eq;
     use super::*;
 
     #[test]
@@ -900,6 +906,8 @@ mod parse {
   }
 
   mod hex {
+    // Colorful diffs in assertions - resolve ambiguous
+    use pretty_assertions::assert_eq;
     use super::*;
 
     #[test]
@@ -927,6 +935,8 @@ mod parse {
   }
 
   mod oct {
+    // Colorful diffs in assertions - resolve ambiguous
+    use pretty_assertions::assert_eq;
     use super::*;
 
     #[test]
@@ -954,6 +964,8 @@ mod parse {
   }
 
   mod bin {
+    // Colorful diffs in assertions - resolve ambiguous
+    use pretty_assertions::assert_eq;
     use super::*;
 
     #[test]
@@ -981,6 +993,8 @@ mod parse {
   }
 
   mod float {
+    // Colorful diffs in assertions - resolve ambiguous
+    use pretty_assertions::assert_eq;
     use super::*;
 
     #[test]
@@ -1026,6 +1040,8 @@ mod parse {
   }
 
   mod string {
+    // Colorful diffs in assertions - resolve ambiguous
+    use pretty_assertions::assert_eq;
     use super::*;
 
     #[test]
@@ -1064,6 +1080,8 @@ mod parse {
     }
 
     mod escape_sequence {
+      // Colorful diffs in assertions - resolve ambiguous
+      use pretty_assertions::assert_eq;
       use super::*;
 
       #[test]
@@ -1114,6 +1132,8 @@ mod parse {
     }
 
     mod concat {
+      // Colorful diffs in assertions - resolve ambiguous
+      use pretty_assertions::assert_eq;
       use super::*;
 
       #[test]
@@ -1145,6 +1165,8 @@ mod parse {
   }
 
   mod expr {
+    // Colorful diffs in assertions - resolve ambiguous
+    use pretty_assertions::assert_eq;
     use super::*;
 
     #[test]
@@ -1263,6 +1285,8 @@ mod parse {
   }
 
   mod enums {
+    // Colorful diffs in assertions - resolve ambiguous
+    use pretty_assertions::assert_eq;
     use super::*;
 
     #[test]
@@ -1343,6 +1367,8 @@ mod parse {
   }
 
   mod literals {
+    // Colorful diffs in assertions - resolve ambiguous
+    use pretty_assertions::assert_eq;
     use super::*;
 
     #[test]
@@ -1407,6 +1433,8 @@ mod parse {
   }
 
   mod cast {
+    // Colorful diffs in assertions - resolve ambiguous
+    use pretty_assertions::assert_eq;
     use super::*;
 
     #[test]
@@ -1567,6 +1595,8 @@ mod parse {
   }
 
   mod sizeof_ {
+    // Colorful diffs in assertions - resolve ambiguous
+    use pretty_assertions::assert_eq;
     use super::*;
 
     #[test]
@@ -1626,6 +1656,8 @@ mod parse {
   }
 
   mod bitsizeof_ {
+    // Colorful diffs in assertions - resolve ambiguous
+    use pretty_assertions::assert_eq;
     use super::*;
 
     #[test]
@@ -1657,6 +1689,8 @@ mod parse {
   }
 
   mod attrs {
+    // Colorful diffs in assertions - resolve ambiguous
+    use pretty_assertions::assert_eq;
     use super::*;
 
     #[test]
@@ -1704,6 +1738,8 @@ mod parse {
 
     /// Types, represented only by their local name
     mod local {
+      // Colorful diffs in assertions - resolve ambiguous
+      use pretty_assertions::assert_eq;
       use super::*;
 
       #[test]
@@ -1767,6 +1803,8 @@ mod parse {
       use super::*;
 
       mod absolute {
+        // Colorful diffs in assertions - resolve ambiguous
+        use pretty_assertions::assert_eq;
         use super::*;
 
         #[test]
@@ -1829,6 +1867,8 @@ mod parse {
       }
 
       mod relative {
+        // Colorful diffs in assertions - resolve ambiguous
+        use pretty_assertions::assert_eq;
         use super::*;
 
         #[test]
@@ -1895,6 +1935,8 @@ mod parse {
 
 #[cfg(test)]
 mod convert {
+  // Colorful diffs in assertions
+  use pretty_assertions::assert_eq;
   use super::*;
 
   #[test]
@@ -1913,6 +1955,8 @@ mod convert {
   }
 
   mod integer {
+    // Colorful diffs in assertions - resolve ambiguous
+    use pretty_assertions::assert_eq;
     use super::*;
 
     #[test]
@@ -1935,6 +1979,8 @@ mod convert {
   }
 
   mod float {
+    // Colorful diffs in assertions - resolve ambiguous
+    use pretty_assertions::assert_eq;
     use super::*;
 
     #[test]

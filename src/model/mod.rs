@@ -712,7 +712,7 @@ impl From<Chunk> for Attribute {
   }
 }
 
-/// Defines user-defined type
+/// Defines a user-defined type
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Type {
   /// The list of fields that this type consists of. The fields in the data stream
@@ -803,6 +803,8 @@ impl TryFrom<p::Ksy> for Root {
 
 #[cfg(test)]
 mod size {
+  // Colorful diffs in assertions
+  use pretty_assertions::assert_eq;
   use super::*;
   use indexmap::indexmap;
 

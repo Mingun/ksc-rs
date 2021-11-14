@@ -1,3 +1,7 @@
+// Colorful diffs in assertions
+#[cfg(test)]
+use pretty_assertions::assert_eq;
+
 use std::convert::TryFrom;
 use std::fmt::{self, Debug, Display, Formatter};
 use std::cmp::Ordering;
