@@ -16,13 +16,11 @@ use crate::parser as p;
 /// Contains tags to create distinguish types for each kind of name
 /// so it accidentally wouldn't be mixed in one expression.
 mod tags {
-  /// Tag for name of sequential attribute
+  /// Tag for name of fields (both sequential and instance attributes)
   pub enum Field {}
   /// Tag for name of user type parameter
   pub enum Param {}
 
-  /// Tag for name of instance
-  pub enum Instance {}
   /// Tag for name of user type
   pub enum Type {}
   /// Tag for name of enumeration
@@ -47,13 +45,13 @@ mod tags {
 /// - [KSY file](./struct.Ksy.html)
 pub struct Name<Tag>(String, PhantomData<Tag>);
 impl<Tag> Name<Tag> {
-  /// Creates new name assumes that it is valid
+  /// Creates a new name assumes that it is valid
   pub(crate) fn valid(name: &str) -> Self {
     Self(name.into(), PhantomData)
   }
   /// Checks that the name contains only valid characters and creates a new one.
   ///
-  /// Valid names matches following regexp: `$[a-zA-Z][a-zA-Z0-9_]*^`.
+  /// Valid names matches the following regexp: `$[a-zA-Z][a-zA-Z0-9_]*^`.
   pub fn validate(name: p::Name) -> Result<Self, ModelError> {
     Ok(Self::valid(parse_name(&name.0)?))
   }
@@ -151,7 +149,7 @@ pub type FieldName = OptionalName<Name<tags::Field>>;
 pub type ParamName = OptionalName<Name<tags::Param>>;
 
 /// Name of instance
-pub type InstanceName = Name<tags::Instance>;
+pub type InstanceName = Name<tags::Field>;
 
 /// Name of type
 pub type TypeName = Name<tags::Type>;
