@@ -725,7 +725,13 @@ pub struct Type {
   // pub params: IndexMap<ParamName, Param>,//TODO: Parameters
 }
 impl Type {
-  fn map<I, K, V, F>(seq: Option<I>, mut f: F) -> Result<IndexMap<K, V>, ModelError>
+  /// Performs validation of lists for duplicated entries
+  ///
+  /// # Parameters
+  /// - `seq`: sequence of elements from a `parser` module
+  /// - `check`: validation function that converts type from a `parser` module into
+  ///   type from a `model` module
+  fn check_duplicates<I, K, V, F>(seq: Option<I>, mut check: F) -> Result<IndexMap<K, V>, ModelError>
     where I: IntoIterator,
           K: Eq + Hash + Display,
           F: FnMut(I::Item) -> Result<(K, V), ModelError>
@@ -738,7 +744,7 @@ impl Type {
         let iter = seq.into_iter();
         let mut result = IndexMap::with_capacity(iter.size_hint().1.unwrap_or(0));
         for elem in iter {
-          let (k, v) = f(elem)?;
+          let (k, v) = check(elem)?;
           match result.entry(k) {
             Entry::Vacant(e)   => e.insert(v),
             Entry::Occupied(e) => return Err(Validation(format!("duplicated name `{}`", e.key()).into())),
@@ -755,13 +761,13 @@ impl Type {
       defaults.encoding = def.encoding.or(defaults.encoding);
     }
 
-    let fields = Self::map(spec.seq.map(|s| s.into_iter().enumerate()), |(i, mut spec)| {
+    let fields = Self::check_duplicates(spec.seq.map(|s| s.into_iter().enumerate()), |(i, mut spec)| {
       Ok((
         SeqName::validate(i, spec.id.take())?,
         Attribute::validate(spec, defaults.clone())?,
       ))
     })?;
-    let types = Self::map(spec.types, |(name, spec)| {
+    let types = Self::check_duplicates(spec.types, |(name, spec)| {
       Ok((
         TypeName::validate(name)?,
         Type::validate(spec, defaults.clone())?
