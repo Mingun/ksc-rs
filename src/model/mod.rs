@@ -717,7 +717,7 @@ impl From<Chunk> for Attribute {
 pub struct Type {
   /// The list of fields that this type consists of. The fields in the data stream
   /// are in the same order as they are declared here.
-  pub fields: IndexMap<FieldName, Attribute>,
+  pub fields: IndexMap<SeqName, Attribute>,
   // pub getters: IndexMap<InstanceName, Instance>,//TODO: instances
   /// List of used-defined types, defined inside this type.
   pub types: IndexMap<TypeName, Type>,
@@ -757,7 +757,7 @@ impl Type {
 
     let make_field = |(i, mut spec): (usize, p::Attribute)| {
       Ok((
-        FieldName::validate(i, spec.id.take())?,
+        SeqName::validate(i, spec.id.take())?,
         Attribute::validate(spec, defaults.clone())?,
       ))
     };
@@ -822,7 +822,7 @@ mod size {
       name: TypeName::valid("test"),
       type_: Type {
         fields: indexmap![
-          FieldName::Named(Name::valid("field")) => Chunk {
+          SeqName::Named(Name::valid("field")) => Chunk {
             type_ref: TypeRef::Bytes,
             size: 5.into(),
           }.into(),
@@ -845,7 +845,7 @@ mod size {
       name: TypeName::valid("test"),
       type_: Type {
         fields: indexmap![
-          FieldName::Named(Name::valid("field")) => Chunk {
+          SeqName::Named(Name::valid("field")) => Chunk {
             type_ref: TypeRef::Bytes,
             size: Size::Eos(None),
           }.into(),
@@ -868,7 +868,7 @@ mod size {
       name: TypeName::valid("test"),
       type_: Type {
         fields: indexmap![
-          FieldName::Named(Name::valid("field")) => Chunk {
+          SeqName::Named(Name::valid("field")) => Chunk {
             type_ref: TypeRef::Bytes,
             size: Size::Until(5.into()),
           }.into(),
@@ -892,7 +892,7 @@ mod size {
       name: TypeName::valid("test"),
       type_: Type {
         fields: indexmap![
-          FieldName::Named(Name::valid("field")) => Chunk {
+          SeqName::Named(Name::valid("field")) => Chunk {
             type_ref: TypeRef::String("UTF-8".into()),
             size: Size::Until(0.into()),
           }.into(),
@@ -922,7 +922,7 @@ mod size {
           name: TypeName::valid("test"),
           type_: Type {
             fields: indexmap![
-              FieldName::Named(Name::valid("field")) => Chunk {
+              SeqName::Named(Name::valid("field")) => Chunk {
                 type_ref: $base,
                 size: Size::Natural($size),
               }.into(),

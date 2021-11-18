@@ -142,14 +142,15 @@ impl<T: Display> Display for OptionalName<T> {
   }
 }
 
-/// Name of attribute in `seq`
-pub type FieldName = OptionalName<Name<tags::Field>>;
+/// Name of attributes that can be parsed not in strict order and defined in the
+/// `instances` map
+pub type FieldName = Name<tags::Field>;
+
+/// Name of attributes that parsed sequentially and defined in the `seq` list
+pub type SeqName = OptionalName<FieldName>;
 
 /// Name of user type parameter
 pub type ParamName = OptionalName<Name<tags::Param>>;
-
-/// Name of instance
-pub type InstanceName = Name<tags::Field>;
 
 /// Name of type
 pub type TypeName = Name<tags::Type>;
