@@ -755,22 +755,22 @@ impl Type {
       defaults.encoding = def.encoding.or(defaults.encoding);
     }
 
-    let make_field = |(i, mut spec): (usize, p::Attribute)| {
+    let fields = Self::map(spec.seq.map(|s| s.into_iter().enumerate()), |(i, mut spec)| {
       Ok((
         SeqName::validate(i, spec.id.take())?,
         Attribute::validate(spec, defaults.clone())?,
       ))
-    };
-    let make_type = |(name, spec)| {
+    })?;
+    let types = Self::map(spec.types, |(name, spec)| {
       Ok((
         TypeName::validate(name)?,
         Type::validate(spec, defaults.clone())?
       ))
-    };
+    })?;
 
     Ok(Self {
-      fields: Self::map(spec.seq.map(|s| s.into_iter().enumerate()), make_field)?,
-      types:  Self::map(spec.types, make_type)?,
+      fields,
+      types,
     })
   }
 }
