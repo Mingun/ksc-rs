@@ -110,7 +110,7 @@ impl UserTypeRef {
       //TODO: resolve relative types
       path: r.name.scope.path.into_iter().map(TypeName::valid).collect(),
       name: TypeName::valid(r.name.name),
-      args: r.args.into_iter().map(Into::into).collect(),
+      args: OwningNode::validate_all(r.args),
     })
   }
 }
@@ -128,7 +128,7 @@ impl ProcessAlgo {
     let r = parse_process(&algo.0)?;
     Ok(Self {
       name: r.name.into(),
-      args: r.args.into_iter().map(Into::into).collect(),
+      args: OwningNode::validate_all(r.args),
     })
   }
 }

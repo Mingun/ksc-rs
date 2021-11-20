@@ -117,6 +117,13 @@ impl OwningNode {
   pub fn parse(expr: &str) -> Result<Self, ModelError> {
     Ok(parser::parse_single(expr)?.into())
   }
+  /// Performs validation of all nodes in an argument
+  ///
+  /// # Parameters
+  /// - `nodes`: List of nodes for validation
+  pub fn validate_all(nodes: Vec<Node>) -> Vec<Self> {
+    nodes.into_iter().map(Into::into).collect()
+  }
 }
 impl<'input> From<Node<'input>> for OwningNode {
   fn from(reference: Node<'input>) -> Self {
@@ -136,13 +143,13 @@ impl<'input> From<Node<'input>> for OwningNode {
         value: value.into(),
       },
 
-      List(val) => Self::List(val.into_iter().map(Into::into).collect()),
+      List(val) => Self::List(Self::validate_all(val)),
 
       SizeOf { type_, bit } => Self::SizeOf { type_: type_.into(), bit },
 
       Call { callee, args } => Self::Call {
         callee: Box::new((*callee).into()),
-        args: args.into_iter().map(Into::into).collect(),
+        args: Self::validate_all(args),
       },
       Cast { expr, to_type } => Self::Cast {
         expr: Box::new((*expr).into()),
