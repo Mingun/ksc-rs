@@ -10,6 +10,7 @@ use ordered_float::OrderedFloat;
 use serde_yaml::Number;
 
 use crate::error::ModelError;
+use crate::model::{FieldName, EnumName, EnumValueName, TypeName as TName};
 use crate::parser::Scalar;
 
 /// Owning counterpart of an AST [`Node`].
@@ -27,7 +28,7 @@ pub enum OwningNode {
   Bool(bool),
 
   /// Name of field of the type in which attribute expression is defined
-  Attr(String),
+  Attr(FieldName),
   /// Built-in variable
   SpecialName(SpecialName),
   /// Reference to an enum value.
@@ -35,9 +36,9 @@ pub enum OwningNode {
     /// A type that defines this enum.
     scope: OwningScope,
     /// An enum name.
-    name: String,
+    name: EnumName,
     /// An enum value.
-    value: String,
+    value: EnumValueName,
   },
 
   /// Array constructor
@@ -77,7 +78,7 @@ pub enum OwningNode {
     /// Expression which attribute must be evaluated
     expr: Box<OwningNode>,
     /// Retrieved attribute
-    attr: String,
+    attr: FieldName,
   },
 
   /// The unary prefix operator, such as unary `-` or logical `not`.
@@ -135,12 +136,14 @@ impl<'input> From<Node<'input>> for OwningNode {
       Float(val)=> Self::Float(val),
       Bool(val) => Self::Bool(val),
 
-      Attr(val) => Self::Attr(val.into()),
+      //TODO: Name already contains only valid symbols, but need to check that it is really exists
+      Attr(val) => Self::Attr(FieldName::valid(val)),
       SpecialName(val) => Self::SpecialName(val),
+      //TODO: Names already contains only valid symbols, but need to check that they is really exists
       EnumValue { scope, name, value } => Self::EnumValue {
         scope: scope.into(),
-        name:  name.into(),
-        value: value.into(),
+        name:  EnumName::valid(name),
+        value: EnumValueName::valid(value),
       },
 
       List(val) => Self::List(Self::validate_all(val)),
@@ -161,7 +164,8 @@ impl<'input> From<Node<'input>> for OwningNode {
       },
       Access { expr, attr } => Self::Access {
         expr: Box::new((*expr).into()),
-        attr: attr.into(),
+        //TODO: Name already contains only valid symbols, but need to check that it is really exists
+        attr: FieldName::valid(attr),
       },
 
       Unary { op, expr } => Self::Unary {
@@ -213,13 +217,14 @@ pub struct OwningScope {
   /// Path starts from a top-level type of the current KSY file.
   pub absolute: bool,
   /// Names of types defining this scope.
-  pub path: Vec<String>,
+  pub path: Vec<TName>,
 }
 impl<'input> From<Scope<'input>> for OwningScope {
   fn from(reference: Scope<'input>) -> Self {
     Self {
       absolute: reference.absolute,
-      path:     reference.path.into_iter().map(ToOwned::to_owned).collect(),
+      //TODO: Name already contains only valid symbols, but need to check that it is really exists
+      path:     reference.path.into_iter().map(TName::valid).collect(),
     }
   }
 }
@@ -232,13 +237,14 @@ pub struct OwningTypeName {
   /// A scope in which type is defined
   pub scope: OwningScope,
   /// A local name of the referenced type
-  pub name: String,
+  pub name: TName,
 }
 impl<'input> From<TypeName<'input>> for OwningTypeName {
   fn from(reference: TypeName<'input>) -> Self {
     Self {
       scope: reference.scope.into(),
-      name:  reference.name.into(),
+      //TODO: Name already contains only valid symbols, but need to check that it is really exists
+      name:  TName::valid(reference.name),
     }
   }
 }
@@ -2020,7 +2026,7 @@ mod convert {
 
   #[test]
   fn from_string() {
-    assert_eq!(OwningNode::try_from(Scalar::String("id".into())), Ok(OwningNode::Attr("id".into())));
+    assert_eq!(OwningNode::try_from(Scalar::String("id".into())), Ok(OwningNode::Attr(FieldName::valid("id"))));
     assert_eq!(OwningNode::try_from(Scalar::String("1 + 2".into())), Ok(OwningNode::Binary {
       op: BinaryOp::Add,
       left:  Box::new(OwningNode::Int(1)),
