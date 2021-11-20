@@ -26,8 +26,8 @@ pub enum OwningNode {
   /// Boolean constant
   Bool(bool),
 
-  /// Name of attribute or variable
-  Name(String),
+  /// Name of field of the type in which attribute expression is defined
+  Attr(String),
   /// Built-in variable
   SpecialName(SpecialName),
   /// Reference to an enum value.
@@ -116,7 +116,7 @@ impl<'input> From<Node<'input>> for OwningNode {
       Float(val)=> Self::Float(val),
       Bool(val) => Self::Bool(val),
 
-      Name(val) => Self::Name(val.into()),
+      Attr(val) => Self::Attr(val.into()),
       SpecialName(val) => Self::SpecialName(val),
       EnumValue { scope, name, value } => Self::EnumValue {
         scope: scope.into(),
@@ -257,8 +257,8 @@ pub enum Node<'input> {
   /// Boolean constant
   Bool(bool),
 
-  /// Name of attribute or variable
-  Name(&'input str),
+  /// Name of field of the type in which attribute expression is defined
+  Attr(&'input str),
   /// Built-in variable
   SpecialName(SpecialName),
   /// Reference to an enum value.
@@ -789,7 +789,7 @@ peg::parser! {
       / v:(s:string() _ {s})+                  { Node::Str(String::from_iter(v.into_iter())) }
       / n:special_name() !name_part()          { n }
       / e:enum_name()                          { e }
-      / n:name()                               { Node::Name(n) }
+      / n:name()                               { Node::Attr(n) }
       / f:float()                              { Node::Float(f.into()) }
       / i:integer()                            { Node::Int(i) }
       ;
@@ -1218,7 +1218,7 @@ mod parse {
     fn ternary() {
       assert_eq!(parse_single("x ? \"foo\" : \"bar\""), Ok(
         Branch {
-          condition: Box::new(Name("x")),
+          condition: Box::new(Attr("x")),
           if_true:   Box::new(Str("foo".into())),
           if_false:  Box::new(Str("bar".into()))
         }
@@ -1269,11 +1269,11 @@ mod parse {
     #[test]
     fn indexing() {
       assert_eq!(parse_single("a[42]"), Ok(
-        Index { expr: Box::new(Name("a")), index: Box::new(Int(42)) }
+        Index { expr: Box::new(Attr("a")), index: Box::new(Int(42)) }
       ));
       assert_eq!(parse_single("a[42 - 2]"), Ok(
         Index {
-          expr: Box::new(Name("a")),
+          expr: Box::new(Attr("a")),
           index: Box::new(Binary {
             op: Sub,
             left:  Box::new(Int(42)),
@@ -1391,44 +1391,44 @@ mod parse {
 
     #[test]
     fn identifiers() {
-      assert_eq!(parse_single("truex"), Ok(Name("truex")));
-      assert_eq!(parse_single("true1"), Ok(Name("true1")));
+      assert_eq!(parse_single("truex"), Ok(Attr("truex")));
+      assert_eq!(parse_single("true1"), Ok(Attr("true1")));
 
-      assert_eq!(parse_single("falsex"), Ok(Name("falsex")));
-      assert_eq!(parse_single("false1"), Ok(Name("false1")));
+      assert_eq!(parse_single("falsex"), Ok(Attr("falsex")));
+      assert_eq!(parse_single("false1"), Ok(Attr("false1")));
 
-      assert_eq!(parse_single("notx"), Ok(Name("notx")));
-      assert_eq!(parse_single("not1"), Ok(Name("not1")));
+      assert_eq!(parse_single("notx"), Ok(Attr("notx")));
+      assert_eq!(parse_single("not1"), Ok(Attr("not1")));
 
-      assert_eq!(parse_single("andx"), Ok(Name("andx")));
-      assert_eq!(parse_single("and1"), Ok(Name("and1")));
+      assert_eq!(parse_single("andx"), Ok(Attr("andx")));
+      assert_eq!(parse_single("and1"), Ok(Attr("and1")));
 
-      assert_eq!(parse_single("orx"), Ok(Name("orx")));
-      assert_eq!(parse_single("or1"), Ok(Name("or1")));
+      assert_eq!(parse_single("orx"), Ok(Attr("orx")));
+      assert_eq!(parse_single("or1"), Ok(Attr("or1")));
 
-      assert_eq!(parse_single("_iox"), Ok(Name("_iox")));
-      assert_eq!(parse_single("_io1"), Ok(Name("_io1")));
+      assert_eq!(parse_single("_iox"), Ok(Attr("_iox")));
+      assert_eq!(parse_single("_io1"), Ok(Attr("_io1")));
 
-      assert_eq!(parse_single("_rootx"), Ok(Name("_rootx")));
-      assert_eq!(parse_single("_root1"), Ok(Name("_root1")));
+      assert_eq!(parse_single("_rootx"), Ok(Attr("_rootx")));
+      assert_eq!(parse_single("_root1"), Ok(Attr("_root1")));
 
-      assert_eq!(parse_single("_parentx"), Ok(Name("_parentx")));
-      assert_eq!(parse_single("_parent1"), Ok(Name("_parent1")));
+      assert_eq!(parse_single("_parentx"), Ok(Attr("_parentx")));
+      assert_eq!(parse_single("_parent1"), Ok(Attr("_parent1")));
 
-      assert_eq!(parse_single("_indexx"), Ok(Name("_indexx")));
-      assert_eq!(parse_single("_index1"), Ok(Name("_index1")));
+      assert_eq!(parse_single("_indexx"), Ok(Attr("_indexx")));
+      assert_eq!(parse_single("_index1"), Ok(Attr("_index1")));
 
-      assert_eq!(parse_single("_x"), Ok(Name("_x")));
-      assert_eq!(parse_single("_1"), Ok(Name("_1")));
+      assert_eq!(parse_single("_x"), Ok(Attr("_x")));
+      assert_eq!(parse_single("_1"), Ok(Attr("_1")));
 
-      assert_eq!(parse_single("_onx"), Ok(Name("_onx")));
-      assert_eq!(parse_single("_on1"), Ok(Name("_on1")));
+      assert_eq!(parse_single("_onx"), Ok(Attr("_onx")));
+      assert_eq!(parse_single("_on1"), Ok(Attr("_on1")));
 
-      assert_eq!(parse_single("_sizeofx"), Ok(Name("_sizeofx")));
-      assert_eq!(parse_single("_sizeof1"), Ok(Name("_sizeof1")));
+      assert_eq!(parse_single("_sizeofx"), Ok(Attr("_sizeofx")));
+      assert_eq!(parse_single("_sizeof1"), Ok(Attr("_sizeof1")));
 
-      assert_eq!(parse_single("_is_lex"), Ok(Name("_is_lex")));
-      assert_eq!(parse_single("_is_le1"), Ok(Name("_is_le1")));
+      assert_eq!(parse_single("_is_lex"), Ok(Attr("_is_lex")));
+      assert_eq!(parse_single("_is_le1"), Ok(Attr("_is_le1")));
     }
   }
 
@@ -1486,7 +1486,7 @@ mod parse {
     fn var_as_type() {
       assert_eq!(parse_single("foo.as<x>"), Ok(
         Cast {
-          expr: Box::new(Name("foo")),
+          expr: Box::new(Attr("foo")),
           to_type: TypeRef {
             name: TypeName {
               scope: Scope { absolute: false, path: vec![] },
@@ -1501,7 +1501,7 @@ mod parse {
     fn as_type_with_spaces() {
       assert_eq!(parse_single("foo.as < x  >  "), Ok(
         Cast {
-          expr: Box::new(Name("foo")),
+          expr: Box::new(Attr("foo")),
           to_type: TypeRef {
             name: TypeName {
               scope: Scope { absolute: false, path: vec![] },
@@ -1517,7 +1517,7 @@ mod parse {
     fn as_enum() {
       assert_eq!(parse_single("foo.as<bar::baz>"), Ok(
         Cast {
-          expr: Box::new(Name("foo")),
+          expr: Box::new(Attr("foo")),
           to_type: TypeRef {//TODO: should be enum
             name: TypeName {
               scope: Scope { absolute: false, path: vec!["bar"] },
@@ -1529,7 +1529,7 @@ mod parse {
       ));
       assert_eq!(parse_single("foo.as<::bar::baz>"), Ok(
         Cast {
-          expr: Box::new(Name("foo")),
+          expr: Box::new(Attr("foo")),
           to_type: TypeRef {//TODO: should be enum
             name: TypeName {
               scope: Scope { absolute: true, path: vec!["bar"] },
@@ -1545,7 +1545,7 @@ mod parse {
     fn as_array() {
       assert_eq!(parse_single("foo.as<bar[]>"), Ok(
         Cast {
-          expr: Box::new(Name("foo")),
+          expr: Box::new(Attr("foo")),
           to_type: TypeRef {
             name: TypeName {
               scope: Scope { absolute: false, path: vec![] },
@@ -1557,7 +1557,7 @@ mod parse {
       ));
       assert_eq!(parse_single("foo.as<::bar::baz[]>"), Ok(
         Cast {
-          expr: Box::new(Name("foo")),
+          expr: Box::new(Attr("foo")),
           to_type: TypeRef {
             name: TypeName {
               scope: Scope { absolute: true, path: vec!["bar"] },
@@ -1573,7 +1573,7 @@ mod parse {
     fn attribute() {
       assert_eq!(parse_single("foo.as"), Ok(
         Access {
-          expr: Box::new(Name("foo")),
+          expr: Box::new(Attr("foo")),
           attr: "as",
         }
       ));
@@ -1585,10 +1585,10 @@ mod parse {
         Binary {
           op: Lt,
           left: Box::new(Access {
-            expr: Box::new(Name("foo")),
+            expr: Box::new(Attr("foo")),
             attr: "as"
           }),
-          right: Box::new(Name("x")),
+          right: Box::new(Attr("x")),
         }
       ));
     }
@@ -1648,8 +1648,8 @@ mod parse {
       assert_eq!(parse_single("sizeof<foo"), Ok(
         Binary {
           op: Lt,
-          left: Box::new(Name("sizeof")),
-          right: Box::new(Name("foo")),
+          left: Box::new(Attr("sizeof")),
+          right: Box::new(Attr("foo")),
         }
       ));
     }
@@ -1681,8 +1681,8 @@ mod parse {
       assert_eq!(parse_single("bitsizeof<foo"), Ok(
         Binary {
           op: Lt,
-          left: Box::new(Name("bitsizeof")),
-          right: Box::new(Name("foo")),
+          left: Box::new(Attr("bitsizeof")),
+          right: Box::new(Attr("foo")),
         }
       ));
     }
@@ -1698,7 +1698,7 @@ mod parse {
       assert_eq!(parse_single("123.to_s"  ), Ok(Access { expr: Box::new(Int(123)), attr: "to_s" }));
       assert_eq!(parse_single("123. to_s" ), Ok(Access { expr: Box::new(Int(123)), attr: "to_s" }));
       assert_eq!(parse_single("123.\nto_s"), Ok(Access { expr: Box::new(Int(123)), attr: "to_s" }));
-      assert_eq!(parse_single("foo.bar"   ), Ok(Access { expr: Box::new(Name("foo")), attr: "bar" }));
+      assert_eq!(parse_single("foo.bar"   ), Ok(Access { expr: Box::new(Attr("foo")), attr: "bar" }));
     }
 
     #[test]
@@ -1775,7 +1775,7 @@ mod parse {
               left:  Box::new(Int(1)),
               right: Box::new(Int(2)),
             },
-            Name("data"),
+            Attr("data"),
           ],
         }));
       }
@@ -1792,7 +1792,7 @@ mod parse {
               left:  Box::new(Int(1)),
               right: Box::new(Int(2)),
             },
-            Name("data"),
+            Attr("data"),
           ],
         }));
       }
@@ -1842,7 +1842,7 @@ mod parse {
                 left:  Box::new(Int(1)),
                 right: Box::new(Int(2)),
               },
-              Name("data"),
+              Attr("data"),
             ],
           }));
         }
@@ -1860,7 +1860,7 @@ mod parse {
                 left:  Box::new(Int(1)),
                 right: Box::new(Int(2)),
               },
-              Name("data"),
+              Attr("data"),
             ],
           }));
         }
@@ -1906,7 +1906,7 @@ mod parse {
                 left:  Box::new(Int(1)),
                 right: Box::new(Int(2)),
               },
-              Name("data"),
+              Attr("data"),
             ],
           }));
         }
@@ -1924,7 +1924,7 @@ mod parse {
                 left:  Box::new(Int(1)),
                 right: Box::new(Int(2)),
               },
-              Name("data"),
+              Attr("data"),
             ],
           }));
         }
@@ -2001,7 +2001,7 @@ mod convert {
 
   #[test]
   fn from_string() {
-    assert_eq!(OwningNode::try_from(Scalar::String("id".into())), Ok(OwningNode::Name("id".into())));
+    assert_eq!(OwningNode::try_from(Scalar::String("id".into())), Ok(OwningNode::Attr("id".into())));
     assert_eq!(OwningNode::try_from(Scalar::String("1 + 2".into())), Ok(OwningNode::Binary {
       op: BinaryOp::Add,
       left:  Box::new(OwningNode::Int(1)),
