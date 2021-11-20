@@ -124,7 +124,7 @@ impl ProcessAlgo {
     let r = parse_process(&algo.0)?;
     Ok(Self {
       path: r.path.into_iter().map(|n| n.into()).collect(),
-      args: OwningNode::validate_all(r.args),
+      args: OwningNode::validate_all(r.args)?,
     })
   }
 }
@@ -770,7 +770,7 @@ impl TypeRef {
             //TODO: resolve relative types
             path: name.scope.path.into_iter().map(TypeName::valid).collect(),
             name: TypeName::valid(name.name),
-            args: OwningNode::validate_all(args),
+            args: OwningNode::validate_all(args)?,
           }))
         } else {
           enum_err()

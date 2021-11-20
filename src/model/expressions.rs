@@ -3,6 +3,7 @@
 //! [parser]: ../parser/expressions/index.html
 
 use std::convert::TryFrom;
+use std::hint::unreachable_unchecked;
 
 use bigdecimal::num_bigint::BigInt;
 use bigdecimal::BigDecimal;
@@ -118,13 +119,13 @@ impl OwningNode {
   ///
   /// [module level documentation]: ./index.html
   pub fn parse(expr: &str) -> Result<Self, ModelError> {
-    Ok(Self::validate(parse_single(expr)?))
+    Self::validate(parse_single(expr)?)
   }
   /// Performs a semantic validation of raw parsed expression
-  pub fn validate(node: Node) -> Self {
+  pub fn validate(node: Node) -> Result<Self, ModelError> {
     use OwningNode::*;
 
-    match node {
+    Ok(match node {
       Node::Str(val)  => Str(val),
       Node::Int(val)  => Int(val),
       Node::Float(val)=> Float(val),
@@ -140,24 +141,24 @@ impl OwningNode {
         value: EnumValueName::valid(value),
       },
 
-      Node::List(val) => List(Self::validate_all(val)),
+      Node::List(val) => List(Self::validate_all(val)?),
 
       Node::SizeOf { type_, bit } => SizeOf { type_: type_.into(), bit },
 
       Node::Call { callee, args } => Call {
-        callee: Box::new(Self::validate(*callee)),
-        args: Self::validate_all(args),
+        callee: Box::new(Self::validate(*callee)?),
+        args: Self::validate_all(args)?,
       },
       Node::Cast { expr, to_type } => Cast {
-        expr: Box::new(Self::validate(*expr)),
+        expr: Box::new(Self::validate(*expr)?),
         to_type: to_type.into(),
       },
       Node::Index { expr, index } => Index {
-        expr:  Box::new(Self::validate(*expr)),
-        index: Box::new(Self::validate(*index)),
+        expr:  Box::new(Self::validate(*expr)?),
+        index: Box::new(Self::validate(*index)?),
       },
       Node::Access { expr, attr } => Access {
-        expr: Box::new(Self::validate(*expr)),
+        expr: Box::new(Self::validate(*expr)?),
         //TODO: Name already contains only valid symbols, but need to check that it is really exists
         attr: FieldName::valid(attr),
       },
@@ -165,7 +166,7 @@ impl OwningNode {
       Node::Unary { op, expr } => {
         use UnaryOp::*;
 
-        match (op, Self::validate(*expr)) {
+        match (op, Self::validate(*expr)?) {
           // Remove doubled operators
           (first, Unary { op, expr }) if first == op => *expr,
 
@@ -184,13 +185,13 @@ impl OwningNode {
       }
       Node::Binary { op, left, right } => Binary {
         op,
-        left:  Box::new(Self::validate(*left)),
-        right: Box::new(Self::validate(*right)),
+        left:  Box::new(Self::validate(*left)?),
+        right: Box::new(Self::validate(*right)?),
       },
       Node::Branch { condition, if_true, if_false } => {
-        let condition = Self::validate(*condition);
-        let if_true   = Self::validate(*if_true);
-        let if_false  = Self::validate(*if_false);
+        let condition = Self::validate(*condition)?;
+        let if_true   = Self::validate(*if_true)?;
+        let if_false  = Self::validate(*if_false)?;
 
         match condition {
           Bool(true)  => if_true,
@@ -202,20 +203,25 @@ impl OwningNode {
           },
         }
       }
-    }
+    })
   }
-  /// Performs validation of all nodes in an argument
+  /// Performs validation of all nodes in an argument and returns a validated
+  /// AST node or the first error.
   ///
   /// # Parameters
   /// - `nodes`: List of nodes for validation
-  pub fn validate_all(nodes: Vec<Node>) -> Vec<Self> {
-    nodes.into_iter().map(Self::validate).collect()
+  pub fn validate_all(nodes: Vec<Node>) -> Result<Vec<Self>, ModelError> {
+    nodes.into_iter().map(Self::validate).collect::<Result<_, _>>()
   }
 }
 impl From<Number> for OwningNode {
   #[inline]
   fn from(number: Number) -> Self {
-    Self::validate(Node::from(number))
+    match Self::validate(Node::from(number)) {
+      Ok(node) => node,
+      // SAFETY: conversion from numerical Node into OwningNode always successful
+      Err(_) => unsafe { unreachable_unchecked() },
+    }
   }
 }
 impl TryFrom<Scalar> for OwningNode {
