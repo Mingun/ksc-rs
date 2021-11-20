@@ -118,21 +118,20 @@ impl OwningNode {
   ///
   /// [module level documentation]: ./index.html
   pub fn parse(expr: &str) -> Result<Self, ModelError> {
-    Ok(parse_single(expr)?.into())
+    Ok(Self::validate(parse_single(expr)?))
   }
   /// Performs validation of all nodes in an argument
   ///
   /// # Parameters
   /// - `nodes`: List of nodes for validation
   pub fn validate_all(nodes: Vec<Node>) -> Vec<Self> {
-    nodes.into_iter().map(Into::into).collect()
+    nodes.into_iter().map(Self::validate).collect()
   }
-}
-impl<'input> From<Node<'input>> for OwningNode {
-  fn from(reference: Node<'input>) -> Self {
+  /// Performs a semantic validation of raw parsed expression
+  pub fn validate(node: Node) -> Self {
     use OwningNode::*;
 
-    match reference {
+    match node {
       Node::Str(val)  => Str(val),
       Node::Int(val)  => Int(val),
       Node::Float(val)=> Float(val),
@@ -153,19 +152,19 @@ impl<'input> From<Node<'input>> for OwningNode {
       Node::SizeOf { type_, bit } => SizeOf { type_: type_.into(), bit },
 
       Node::Call { callee, args } => Call {
-        callee: Box::new((*callee).into()),
+        callee: Box::new(Self::validate(*callee)),
         args: Self::validate_all(args),
       },
       Node::Cast { expr, to_type } => Cast {
-        expr: Box::new((*expr).into()),
+        expr: Box::new(Self::validate(*expr)),
         to_type: to_type.into(),
       },
       Node::Index { expr, index } => Index {
-        expr:  Box::new((*expr).into()),
-        index: Box::new((*index).into()),
+        expr:  Box::new(Self::validate(*expr)),
+        index: Box::new(Self::validate(*index)),
       },
       Node::Access { expr, attr } => Access {
-        expr: Box::new((*expr).into()),
+        expr: Box::new(Self::validate(*expr)),
         //TODO: Name already contains only valid symbols, but need to check that it is really exists
         attr: FieldName::valid(attr),
       },
@@ -173,7 +172,7 @@ impl<'input> From<Node<'input>> for OwningNode {
       Node::Unary { op, expr } => {
         use UnaryOp::*;
 
-        match (op, (*expr).into()) {
+        match (op, Self::validate(*expr)) {
           // Remove doubled operators
           (first, Unary { op, expr }) if first == op => *expr,
 
@@ -192,13 +191,13 @@ impl<'input> From<Node<'input>> for OwningNode {
       }
       Node::Binary { op, left, right } => Binary {
         op,
-        left:  Box::new((*left).into()),
-        right: Box::new((*right).into()),
+        left:  Box::new(Self::validate(*left)),
+        right: Box::new(Self::validate(*right)),
       },
       Node::Branch { condition, if_true, if_false } => {
-        let condition = (*condition).into();
-        let if_true   = (*if_true).into();
-        let if_false  = (*if_false).into();
+        let condition = Self::validate(*condition);
+        let if_true   = Self::validate(*if_true);
+        let if_false  = Self::validate(*if_false);
 
         match condition {
           Bool(true)  => if_true,
@@ -216,7 +215,7 @@ impl<'input> From<Node<'input>> for OwningNode {
 impl From<Number> for OwningNode {
   #[inline]
   fn from(number: Number) -> Self {
-    Node::from(number).into()
+    Self::validate(Node::from(number))
   }
 }
 impl TryFrom<Scalar> for OwningNode {
