@@ -16,7 +16,7 @@ use regex::Regex;
 
 use crate::error::ModelError;
 use crate::expressions::OwningNode;
-use crate::expressions::parser::{parse_single, parse_type_ref, parse_process};
+use crate::expressions::parser::{parse_type_ref, parse_process};
 use crate::parser as p;
 
 mod name;
@@ -141,7 +141,7 @@ pub struct Condition(OwningNode);
 impl Condition {
   fn validate(data: p::Condition) -> Result<Self, ModelError> {
     Ok(match data {
-      p::Condition::Expr(expr)   => Self(parse_single(&expr)?.into()),
+      p::Condition::Expr(expr)   => Self(OwningNode::parse(&expr)?),
       p::Condition::Value(value) => Self(OwningNode::Bool(value)),
     })
   }
@@ -163,7 +163,7 @@ macro_rules! usize_expr {
     impl $to {
       fn validate(data: $from) -> Result<Self, ModelError> {
         Ok(match data {
-          p::Expression::Expr(expr)   => Self(parse_single(&expr)?.into()),
+          p::Expression::Expr(expr)   => Self(OwningNode::parse(&expr)?),
           p::Expression::Value(value) => Self(OwningNode::Int(value)),
         })
       }

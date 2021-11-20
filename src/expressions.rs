@@ -106,6 +106,18 @@ pub enum OwningNode {
     if_false:  Box<OwningNode>,
   },
 }
+impl OwningNode {
+  /// Parses and validates an expression
+  ///
+  /// # Parameters
+  /// - `expr`: Kaitai struct language expression. See [module level documentation]
+  ///   for syntax
+  ///
+  /// [module level documentation]: ./index.html
+  pub fn parse(expr: &str) -> Result<Self, ModelError> {
+    Ok(parser::parse_single(expr)?.into())
+  }
+}
 impl<'input> From<Node<'input>> for OwningNode {
   fn from(reference: Node<'input>) -> Self {
     use Node::*;
@@ -181,7 +193,7 @@ impl TryFrom<Scalar> for OwningNode {
          equivalent of absence of any value, use 'null' if you want to refer to name `null`)".into())),
       Bool(val)   => Ok(Self::Bool(val)),
       Number(n)   => Ok(n.into()),
-      String(val) => Ok(parser::parse_single(&val)?.into()),
+      String(val) => Ok(Self::parse(&val)?),
     }
   }
 }
