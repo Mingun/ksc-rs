@@ -24,6 +24,7 @@ use crate::model::expressions::OwningNode;
 use crate::parser as p;
 use crate::parser::expressions::{parse_process, parse_type_ref, AttrType};
 
+pub mod contexts;
 pub mod expressions;
 mod name;
 pub use name::*;
