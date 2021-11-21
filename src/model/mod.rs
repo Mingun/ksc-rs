@@ -23,6 +23,7 @@ use crate::model::expressions::{OwningEnumRef, OwningNode};
 use crate::parser as p;
 use crate::parser::expressions::{parse_process, parse_type_ref, AttrType};
 
+pub mod contexts;
 mod r#enum;
 pub mod expressions;
 mod name;
