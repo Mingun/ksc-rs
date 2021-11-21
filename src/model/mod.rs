@@ -15,10 +15,11 @@ use lazy_static::lazy_static;
 use regex::Regex;
 
 use crate::error::ModelError;
-use crate::expressions::OwningNode;
+use crate::model::expressions::OwningNode;
 use crate::expressions::parser::{parse_type_ref, parse_process};
 use crate::parser as p;
 
+pub mod expressions;
 mod name;
 pub use name::*;
 
