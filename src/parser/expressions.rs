@@ -3,6 +3,7 @@
 //TODO: Describe the language
 
 use std::char;
+use std::fmt::{self, Display, Formatter};
 use std::iter::FromIterator;
 
 use bigdecimal::num_bigint::BigInt;
@@ -267,6 +268,23 @@ pub enum SpecialName {
   SwitchOn,//TODO: probably not available in the expression language - no examples of usage
   /// `_is_le`.
   IsLe,//TODO: what's this?
+}
+impl Display for SpecialName {
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    use SpecialName::*;
+
+    match self {
+      Stream =>   f.write_str("_io"),
+      Root =>     f.write_str("_root"),
+      Parent =>   f.write_str("_parent"),
+      Index =>    f.write_str("_index"),
+      Value =>    f.write_str("_"),
+      RawValue => f.write_str("_buf"),
+      SizeOf =>   f.write_str("_sizeof"),
+      SwitchOn => f.write_str("_on"),
+      IsLe =>     f.write_str("_is_le"),
+    }
+  }
 }
 
 /// List of possible unary operations
