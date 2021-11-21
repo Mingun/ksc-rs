@@ -19,6 +19,8 @@ use serde_yaml::{Value, Number};
 
 use crate::identifiers::*;
 
+pub mod expressions;
+
 /// Generic wrapper that allow one or more occurrences of specified type.
 ///
 /// In YAML it will presented or as a value, or as an array:

@@ -1,6 +1,6 @@
 //! Validated AST of expressions from a [parser] module.
 //!
-//! [parser]: ../expressions/index.html
+//! [parser]: ../parser/expressions/index.html
 
 use std::convert::TryFrom;
 
@@ -8,10 +8,10 @@ use ordered_float::OrderedFloat;
 use serde_yaml::Number;
 
 use crate::error::ModelError;
-use crate::expressions::{BinaryOp, Node, Scope, SpecialName, TypeName, TypeRef, UnaryOp};
-use crate::expressions::parser::parse_single;
 use crate::model::{FieldName, EnumName, EnumValueName, TypeName as TName};
 use crate::parser::Scalar;
+use crate::parser::expressions::{BinaryOp, Node, Scope, SpecialName, TypeName, TypeRef, UnaryOp};
+use crate::parser::expressions::parser::parse_single;
 
 /// Owning counterpart of an AST [`Node`].
 ///

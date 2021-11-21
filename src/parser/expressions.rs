@@ -1142,14 +1142,14 @@ mod parse {
 
     #[test]
     fn special() {
-      assert_eq!(parse_single("_io"),     Ok(SpecialName(crate::expressions::SpecialName::Stream)));
-      assert_eq!(parse_single("_root"),   Ok(SpecialName(crate::expressions::SpecialName::Root)));
-      assert_eq!(parse_single("_parent"), Ok(SpecialName(crate::expressions::SpecialName::Parent)));
-      assert_eq!(parse_single("_index"),  Ok(SpecialName(crate::expressions::SpecialName::Index)));
-      assert_eq!(parse_single("_"),       Ok(SpecialName(crate::expressions::SpecialName::Value)));
-      assert_eq!(parse_single("_on"),     Ok(SpecialName(crate::expressions::SpecialName::SwitchOn)));
-      assert_eq!(parse_single("_sizeof"), Ok(SpecialName(crate::expressions::SpecialName::SizeOf)));
-      assert_eq!(parse_single("_is_le"),  Ok(SpecialName(crate::expressions::SpecialName::IsLe)));
+      assert_eq!(parse_single("_io"),     Ok(SpecialName(crate::parser::expressions::SpecialName::Stream)));
+      assert_eq!(parse_single("_root"),   Ok(SpecialName(crate::parser::expressions::SpecialName::Root)));
+      assert_eq!(parse_single("_parent"), Ok(SpecialName(crate::parser::expressions::SpecialName::Parent)));
+      assert_eq!(parse_single("_index"),  Ok(SpecialName(crate::parser::expressions::SpecialName::Index)));
+      assert_eq!(parse_single("_"),       Ok(SpecialName(crate::parser::expressions::SpecialName::Value)));
+      assert_eq!(parse_single("_on"),     Ok(SpecialName(crate::parser::expressions::SpecialName::SwitchOn)));
+      assert_eq!(parse_single("_sizeof"), Ok(SpecialName(crate::parser::expressions::SpecialName::SizeOf)));
+      assert_eq!(parse_single("_is_le"),  Ok(SpecialName(crate::parser::expressions::SpecialName::IsLe)));
     }
 
     #[test]

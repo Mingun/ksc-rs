@@ -16,8 +16,8 @@ use regex::Regex;
 
 use crate::error::ModelError;
 use crate::model::expressions::OwningNode;
-use crate::expressions::parser::{parse_type_ref, parse_process};
 use crate::parser as p;
+use crate::parser::expressions::parser::{parse_type_ref, parse_process};
 
 pub mod expressions;
 mod name;

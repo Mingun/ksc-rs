@@ -2,7 +2,6 @@
 #![deny(missing_docs)]
 
 pub mod error;
-pub mod expressions;
 pub mod identifiers;
 pub mod model;
 pub mod parser;

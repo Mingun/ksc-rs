@@ -10,8 +10,8 @@ use std::ops::Deref;
 use std::marker::PhantomData;
 
 use crate::error::ModelError;
-use crate::expressions::parser::parse_name;
 use crate::parser as p;
+use crate::parser::expressions::parser::parse_name;
 
 /// Contains tags to create distinguish types for each kind of name
 /// so it accidentally wouldn't be mixed in one expression.
