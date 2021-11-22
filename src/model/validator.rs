@@ -451,7 +451,7 @@ impl<'t> TypeContext<'t> {
       }
       List(vec) => todo!("{:?}", expression),
       SizeOf { .. } => Ok(AttrType::Usize),
-      Call { callee, args } => {
+      Call { callee, method, args } => {
         let callee = self.calc_type(callee)?;
         let args: Result<Vec<_>, ResolveError> = args.iter().map(|a| self.calc_type(a)).collect();
 

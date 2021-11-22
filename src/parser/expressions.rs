@@ -57,10 +57,12 @@ pub enum Node<'input> {
     bit: bool,
   },
 
-  /// Calling function or method: `${expr}(${args})`.
+  /// Calling function or method: `[${callee}.]${method}(${args})`.
   Call {
     /// Expression which is called
     callee: Box<Node<'input>>,
+    /// Name of method to call
+    method: &'input str,
     /// Arguments of method call
     args: Vec<Node<'input>>,
   },
@@ -477,7 +479,7 @@ pub struct ProcessAlgo<'input> {
 /// then converted to `Node` with `make_chain` call.
 enum Postfix<'input> {
   /// Calling function or method with specified arguments.
-  Args(Vec<Node<'input>>),
+  Call(&'input str, Vec<Node<'input>>),
   /// Conversion to specified type.
   CastTo(TypeRef<'input>),
   /// Index expression
@@ -527,10 +529,10 @@ fn to_escaped(ch: &str) -> char {
 fn make_chain<'i>(mut expr: Node<'i>, tail: Vec<Postfix<'i>>) -> Node<'i> {
   for p in tail {
     expr = match p {
-      Postfix::Args(args)      => Node::Call   { callee: Box::new(expr), args },
-      Postfix::CastTo(to_type) => Node::Cast   { expr: Box::new(expr), to_type },
-      Postfix::Index(index)    => Node::Index  { expr: Box::new(expr), index: Box::new(index) },
-      Postfix::Field(attr)     => Node::Access { expr: Box::new(expr), attr },
+      Postfix::Call(method, args) => Node::Call   { callee: Box::new(expr), method, args },
+      Postfix::CastTo(to_type)    => Node::Cast   { expr: Box::new(expr), to_type },
+      Postfix::Index(index)       => Node::Index  { expr: Box::new(expr), index: Box::new(index) },
+      Postfix::Field(attr)        => Node::Access { expr: Box::new(expr), attr },
     }
   }
   expr
@@ -780,10 +782,10 @@ peg::parser! {
       / n:name()                      { Attr::User(n) }
       ;
     rule postfix() -> Postfix<'input>
-      = "(" _ a:args() _ ")"                  { Postfix::Args(a)   }// call
-      / "[" _ e:expr() _ "]"                  { Postfix::Index(e)  }// indexing
-      / "." _ "as" _ "<" _ t:type_ref() _ ">" { Postfix::CastTo(t) }// type cast
-      / "." _ a:attr()                        { Postfix::Field(a)  }// attribute access
+      = "[" _ e:expr() _ "]"                  { Postfix::Index(e)   }// indexing
+      / "." _ "as" _ "<" _ t:type_ref() _ ">" { Postfix::CastTo(t)  }// type cast
+      / "." _ n:name() _ "(" _ a:args() _ ")" { Postfix::Call(n, a) }// call
+      / "." _ a:attr()                        { Postfix::Field(a)   }// attribute access
       ;
 
     /// List of names, delimited by `::`, with an optional leading `::`.
@@ -1877,6 +1879,158 @@ mod parse {
       assert_eq!(parse_single("123.4.to_s"  ), Ok(Access { expr: Box::new(Float((1234, 1).into())), attr: User("to_s"), }));
       assert_eq!(parse_single("123.4. to_s" ), Ok(Access { expr: Box::new(Float((1234, 1).into())), attr: User("to_s"), }));
       assert_eq!(parse_single("123.4.\nto_s"), Ok(Access { expr: Box::new(Float((1234, 1).into())), attr: User("to_s"), }));
+    }
+  }
+
+  mod call {
+    use super::*;
+    use pretty_assertions::assert_eq;
+
+    #[test]
+    fn without_params() {
+      assert_eq!(parse_single("123.bar()"), Ok(Call {
+        callee: Box::new(Int(123.into())),
+        method: "bar",
+        args: vec![],
+      }));
+      assert_eq!(parse_single("123. bar()"), Ok(Call {
+        callee: Box::new(Int(123.into())),
+        method: "bar",
+        args: vec![],
+      }));
+      assert_eq!(parse_single("123.\nbar()"), Ok(Call {
+        callee: Box::new(Int(123.into())),
+        method: "bar",
+        args: vec![],
+      }));
+      assert_eq!(parse_single("foo.bar()"), Ok(Call {
+        callee: Box::new(Attr(User("foo"))),
+        method: "bar",
+        args: vec![],
+      }));
+    }
+
+    #[test]
+    fn with_params() {
+      assert_eq!(parse_single("123.bar(42)"), Ok(Call {
+        callee: Box::new(Int(123.into())),
+        method: "bar",
+        args: vec![Int(42.into())],
+      }));
+      assert_eq!(parse_single("123. bar(42)"), Ok(Call {
+        callee: Box::new(Int(123.into())),
+        method: "bar",
+        args: vec![Int(42.into())],
+      }));
+      assert_eq!(parse_single("123.\nbar(42)"), Ok(Call {
+        callee: Box::new(Int(123.into())),
+        method: "bar",
+        args: vec![Int(42.into())],
+      }));
+      assert_eq!(parse_single("foo.bar(42)"), Ok(Call {
+        callee: Box::new(Attr(User("foo"))),
+        method: "bar",
+        args: vec![Int(42.into())],
+      }));
+    }
+
+    #[test]
+    fn on_strings() {
+      assert_eq!(parse_single(r#""foo".bar(42)"#), Ok(Call {
+        callee: Box::new(Str("foo".into())),
+        method: "bar",
+        args: vec![Int(42.into())],
+      }));
+      assert_eq!(parse_single("'foo'.bar(42)"), Ok(Call {
+        callee: Box::new(Str("foo".into())),
+        method: "bar",
+        args: vec![Int(42.into())],
+      }));
+    }
+
+    #[test]
+    fn on_booleans() {
+      assert_eq!(parse_single("true.bar(42)"), Ok(Call {
+        callee: Box::new(Bool(true)),
+        method: "bar",
+        args: vec![Int(42.into())],
+      }));
+      assert_eq!(parse_single("false.bar(42)"), Ok(Call {
+        callee: Box::new(Bool(false)),
+        method: "bar",
+        args: vec![Int(42.into())],
+      }));
+    }
+
+    #[test]
+    fn on_integer() {
+      assert_eq!(parse_single("42.bar(42)"), Ok(Call {
+        callee: Box::new(Int(42.into())),
+        method: "bar",
+        args: vec![Int(42.into())],
+      }));
+    }
+
+    #[test]
+    fn on_float() {
+      assert_eq!(parse_single("42.0.bar(42)"), Ok(Call {
+        callee: Box::new(Float(42.into())),
+        method: "bar",
+        args: vec![Int(42.into())],
+      }));
+    }
+
+    #[test]
+    fn on_array() {
+      assert_eq!(parse_single("[].bar(42)"), Ok(Call {
+        callee: Box::new(List(vec![])),
+        method: "bar",
+        args: vec![Int(42.into())],
+      }));
+    }
+
+    #[test]
+    fn on_slice() {
+      assert_eq!(parse_single("foo[1].bar(42)"), Ok(Call {
+        callee: Box::new(Index {
+          expr: Box::new(Attr(User("foo"))),
+          index: Box::new(Int(1.into())),
+        }),
+        method: "bar",
+        args: vec![Int(42.into())],
+      }));
+    }
+
+    #[test]
+    fn on_group() {
+      assert_eq!(parse_single("(42).bar(42)"), Ok(Call {
+        callee: Box::new(Int(42.into())),
+        method: "bar",
+        args: vec![Int(42.into())],
+      }));
+    }
+
+    #[test]
+    fn on_expression() {
+      assert_eq!(parse_single("(1+2).bar(42)"), Ok(Call {
+        callee: Box::new(Binary {
+          op: Add,
+          left:  Box::new(Int(1.into())),
+          right: Box::new(Int(2.into())),
+        }),
+        method: "bar",
+        args: vec![Int(42.into())],
+      }));
+    }
+
+    #[test]
+    fn should_fail() {
+      assert!(parse_single("''(42)").is_err());
+      assert!(parse_single("()(42)").is_err());
+      assert!(parse_single("[](42)").is_err());
+      assert!(parse_single("12(42)").is_err());
+      assert!(parse_single("12.3(42)").is_err());
+      assert!(parse_single(r#"""(42)"#).is_err());
     }
   }
 

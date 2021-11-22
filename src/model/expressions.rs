@@ -59,10 +59,12 @@ pub enum OwningNode {
     bit: bool,
   },
 
-  /// Calling function or method: `${expr}(${args})`.
+  /// Calling function or method: `[${callee}.]${method}(${args})`.
   Call {
     /// Expression which is called
     callee: Box<OwningNode>,
+    /// Name of method to call
+    method: FieldName,
     /// Arguments of method call
     args: Vec<OwningNode>,
   },
@@ -165,8 +167,9 @@ impl OwningNode {
 
       Node::SizeOf { type_, bit } => SizeOf { type_: type_.into(), bit },
 
-      Node::Call { callee, args } => Call {
+      Node::Call { callee, method, args } => Call {
         callee: Box::new(Self::validate(*callee, ctx)?),
+        method: FieldName::valid(method),
         args: Self::validate_all(args, ctx)?,
       },
       Node::Cast { expr, to_type } => Cast {
