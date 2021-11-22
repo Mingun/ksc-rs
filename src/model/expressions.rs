@@ -10,8 +10,7 @@ use serde_yaml::Number;
 use crate::error::ModelError;
 use crate::model::{FieldName, EnumName, EnumValueName, TypeName as TName};
 use crate::parser::Scalar;
-use crate::parser::expressions::{BinaryOp, Node, Scope, SpecialName, TypeName, TypeRef, UnaryOp};
-use crate::parser::expressions::parser::parse_single;
+use crate::parser::expressions::{parse_single, BinaryOp, Node, Scope, SpecialName, TypeName, TypeRef, UnaryOp};
 
 /// Owning counterpart of an AST [`Node`].
 ///

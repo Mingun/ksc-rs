@@ -8,6 +8,9 @@ use std::iter::FromIterator;
 use ordered_float::OrderedFloat;
 use serde_yaml::Number;
 
+// Re-export parsing functions from generated parser module
+pub use parser::*;
+
 /// AST Node, that represent some syntax construct
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Node<'input> {
@@ -373,7 +376,7 @@ fn left_associative<'i, T>(mut left: Node<'i>, tail: T) -> Node<'i>
 
 peg::parser! {
   /// Contains generated parser for Kaitai Struct expression language.
-  pub grammar parser() for str {
+  grammar parser() for str {
     use UnaryOp::*;
     use BinaryOp::*;
 
@@ -609,7 +612,7 @@ mod parse {
   /// Wrapper, for use with https://github.com/fasterthanlime/pegviz
   fn parse_single(input: &str) -> Result<Node, peg::error::ParseError<peg::str::LineCol>> {
     println!("[PEG_INPUT_START]\n{}\n[PEG_TRACE_START]", input);
-    let result = super::parser::parse_single(input);
+    let result = super::parse_single(input);
     println!("[PEG_TRACE_STOP]");
     result
   }
@@ -1494,7 +1497,7 @@ mod parse {
     /// Wrapper, for use with https://github.com/fasterthanlime/pegviz
     fn parse(input: &str) -> Result<UserTypeRef, peg::error::ParseError<peg::str::LineCol>> {
       println!("[PEG_INPUT_START]\n{}\n[PEG_TRACE_START]", input);
-      let result = super::super::parser::parse_type_ref(input);
+      let result = super::super::parse_type_ref(input);
       println!("[PEG_TRACE_STOP]");
       result
     }
