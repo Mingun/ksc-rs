@@ -287,6 +287,44 @@ impl JavaGenerator {
       e => unimplemented!("translating complex expressions not yet implemented. Expression:\n{:#?}", e),
     }
   }
+  fn translate_enum(&self, name: &EnumName) -> TokenStream {
+    let name = self.translate_enum_name(name);
+    let elements = vec![];
+    quote!{
+      public interface #name extends KaitaiEnum {
+        enum Known implements #name {
+          #(#elements),*;
+
+          private final int value;
+          private Known(int value) { this.value = value; }
+          @Override
+          public int value() { return value; }
+        }
+        final class Unknown implements #name<Known> {
+          private final int value;
+          public Unknown(int value) { this.value = value; }
+
+          @Override
+          public int ordinal() { return -1; }
+          @Override
+          public String name() { return null; }
+          @Override
+          public int value() { return value; }
+          @Override
+          public String toString() { return "#name("+value+")"; }
+
+          public static #name resolve(int value) {
+            for (final Known e : Known.values()) {
+              if (e.value() == value) {
+                return e;
+              }
+            }
+            return new Unknown(value);
+          }
+        }
+      }
+    }
+  }
 }
 
 /// Internal trait to facilitate translation of recursive structures
