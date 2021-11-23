@@ -24,8 +24,11 @@ use crate::model::expressions::OwningNode;
 use crate::parser as p;
 use crate::parser::expressions::{parse_process, parse_type_ref, AttrType};
 
+mod r#enum;
 pub mod expressions;
 mod name;
+
+pub use r#enum::Enum;
 pub use name::*;
 
 /// Contains helper structures for implementing `TryFrom`.
@@ -995,7 +998,8 @@ pub struct UserType {
   // pub getters: IndexMap<InstanceName, Instance>,//TODO: instances
   /// List of used-defined types, defined inside this type.
   pub types: IndexMap<TypeName, UserType>,
-  // pub enums: IndexMap<EnumName, Enum>,//TODO: Enums
+  /// List of enumerations defined inside this type.
+  pub enums: IndexMap<EnumName, Enum>,
   // pub params: IndexMap<ParamName, Param>,//TODO: Parameters
 }
 impl UserType {
@@ -1048,10 +1052,17 @@ impl UserType {
         UserType::validate(spec, defaults.clone())?,
       ))
     })?;
+    let enums = Self::check_duplicates(spec.enums, |(name, spec)| {
+      Ok((
+        EnumName::validate(name)?,
+        Enum::validate(spec)?,
+      ))
+    })?;
 
     Ok(Self {
       fields,
       types,
+      enums,
     })
   }
 }

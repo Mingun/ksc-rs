@@ -33,6 +33,17 @@ mod formats {
     if resource.ends_with("type_ternary_2nd_falsy.ksy") {
       return;
     }
+    // Contains underscores in numbers, which are threated as strings according to YAML 1.2 rules
+    // which serde_yml applies, but original compiler apply YAML 1.1 rules.
+    // See https://github.com/kaitai-io/kaitai_struct/issues/1132
+    if resource.ends_with("renderware_binary_stream.ksy") {
+      return;
+    }
+    // Invalid spec - defines some enum values as strings instead of numbers
+    // TODO: remove when https://github.com/kaitai-io/kaitai_struct_formats/pull/701 merged
+    if resource.ends_with("nt_mdt.ksy") {
+      return;
+    }
 
     let _: Root = ksy.try_into().expect(&format!("incorrect KSY {}", resource));
   }
