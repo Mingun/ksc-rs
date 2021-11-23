@@ -9,13 +9,14 @@
 #[cfg(test)]
 use pretty_assertions::assert_eq;
 
-use std::fmt::{Display, Formatter, Result};
+use std::fmt::{self, Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::mem;
 use std::ops::{Deref, DerefMut};
 
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
+use serde::de::{self, Deserializer, Visitor};
 use serde_yml::{Number, Value};
 
 use crate::identifiers::*;
@@ -205,7 +206,7 @@ impl Hash for Scalar {
   }
 }
 impl Display for Scalar {
-  fn fmt(&self, f: &mut Formatter) -> Result {
+  fn fmt(&self, f: &mut Formatter) -> fmt::Result {
     match self {
       Self::Null      => write!(f, "(null)"),
       Self::Bool(b)   => b.fmt(f),
@@ -948,6 +949,57 @@ pub struct Param {
   pub other: IndexMap<UserName, Value>,
 }
 
+/// Enum values in Kaitai Struct YAML definition can be represented or as
+/// YAML integral numbers, or as strings which can be parsed to numbers.
+/// This type allow parse both of them into a number.
+#[derive(Clone, Copy, Debug, Default, Serialize, PartialEq, Eq, Hash)]
+#[serde(transparent)]
+pub struct EnumId(pub i64);
+impl Display for EnumId {
+  fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+    self.0.fmt(f)
+  }
+}
+impl<'de> Deserialize<'de> for EnumId {
+  fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where D: Deserializer<'de>
+  {
+    struct IdVisitor;
+
+    impl<'de> Visitor<'de> for IdVisitor {
+      type Value = EnumId;
+
+      fn expecting(&self, f: &mut Formatter) -> fmt::Result {
+        f.write_str("enum constant as an integer or a string with an integer value")
+      }
+
+      fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
+        where E: de::Error
+      {
+        if value < i64::MAX as u64 {
+          Ok(EnumId(value as i64))
+        } else {
+          Err(de::Error::custom(format_args!("too big number {}, maximum allowed {}", value, i64::MAX)))
+        }
+      }
+
+      fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E>
+        where E: de::Error
+      {
+        Ok(EnumId(value))
+      }
+
+      fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+        where E: de::Error
+      {
+        value.parse().map(EnumId).map_err(de::Error::custom)
+      }
+    }
+
+    deserializer.deserialize_any(IdVisitor)
+  }
+}
+
 /// Represents one enumerated value, `value` in:
 ///
 /// ```yaml
@@ -985,9 +1037,9 @@ pub enum EnumValue {
 /// Enumeration definition
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(transparent)]
-pub struct Enum(pub IndexMap<Scalar, EnumValue>);
+pub struct Enum(pub IndexMap<EnumId, EnumValue>);
 impl Deref for Enum {
-  type Target = IndexMap<Scalar, EnumValue>;
+  type Target = IndexMap<EnumId, EnumValue>;
 
   fn deref(&self) -> &Self::Target { &self.0 }
 }
