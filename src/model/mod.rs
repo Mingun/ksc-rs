@@ -1113,6 +1113,23 @@ impl From<OwningNode> for Instance {
   }
 }
 
+/// Enumeration definition
+#[derive(Clone, Debug, PartialEq)]
+pub struct Enum(IndexMap<i64, EnumValueName>);
+impl Enum {
+  fn validate(spec: p::Enum) -> Result<Self, ModelError> {
+    let map: Result<_, ModelError> = spec.0.into_iter().map(|(k, v)| Ok((k.0, match v {
+      p::EnumValue::Name(name)  => EnumValueName::validate(name)?,
+      p::EnumValue::Bool(true)  => EnumValueName::valid("true"),
+      p::EnumValue::Bool(false) => EnumValueName::valid("false"),
+      p::EnumValue::Desc { id: p::Identifier::Name(name),  .. } => EnumValueName::validate(name)?,
+      p::EnumValue::Desc { id: p::Identifier::Bool(true),  .. } => EnumValueName::valid("true"),
+      p::EnumValue::Desc { id: p::Identifier::Bool(false), .. } => EnumValueName::valid("false"),
+    }))).collect();
+    Ok(Self(map?))
+  }
+}
+
 /// Defines a user-defined type
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct UserType {
@@ -1125,7 +1142,8 @@ pub struct UserType {
   pub instances: IndexMap<FieldName, Instance>,
   /// List of used-defined types, defined inside this type.
   pub types: IndexMap<TypeName, UserType>,
-  // pub enums: IndexMap<EnumName, Enum>,//TODO: Enums
+  /// List of enumerations defined inside this type.
+  pub enums: IndexMap<EnumName, Enum>,
   // pub params: IndexMap<ParamName, Param>,//TODO: Parameters
 }
 impl UserType {
@@ -1356,11 +1374,18 @@ impl UserType {
         UserType::validate(spec, defaults.clone())?,
       ))
     })?;
+    let enums = Self::check_duplicates(spec.enums, |(name, spec)| {
+      Ok((
+        EnumName::validate(name)?,
+        Enum::validate(spec)?,
+      ))
+    })?;
 
     Ok(Self {
       fields,
       instances,
       types,
+      enums,
     })
   }
 }
