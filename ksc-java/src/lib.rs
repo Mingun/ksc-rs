@@ -6,8 +6,8 @@ use heck::{ToLowerCamelCase, ToShoutySnakeCase, ToUpperCamelCase};
 use indexmap::IndexMap;
 use ksc::model::expressions::{OwningAttr, OwningEnumRef, OwningNode};
 use ksc::model::{
-  Attribute, AttributeName, Chunk, EnumName, EnumVariantName, Enumerable, FieldName, OptionalName,
-  Repeat, Root, SeqName, Terminator, TypeName, TypeRef, UserType, Variant,
+  Attribute, AttributeName, Chunk, Enum, EnumName, EnumVariantName, Enumerable, FieldName,
+  OptionalName, Repeat, Root, SeqName, Terminator, TypeName, TypeRef, UserType, Variant,
 };
 use ksc::parser::expressions::ContextVar;
 use num_traits::cast::ToPrimitive;
@@ -170,12 +170,16 @@ impl<'a> TypeGenerator<'a> {
 
     let classes = ty.types.iter().map(|(n, t)| TypeGenerator::new(t).translate(n, t, true));
 
+    let enums = ty.enums.iter().map(|(n, e)| self.translate_enum(n, e));
+
     quote! {
       #header
       public #static_ class #name implements PositionInfo {
         #(#fields)*
 
         public final Map<String, Span> _spans = new HashMap<>();
+
+        #(#enums)*
 
         #(#classes)*
 
@@ -411,6 +415,53 @@ impl<'a> TypeGenerator<'a> {
       OwningAttr::User(name) => {
         self.translate_field_name(name).to_tokens(tokens);
         tokens.append_all(quote!{ () });
+      }
+    }
+  }
+
+  fn translate_enum(&self, name: &EnumName, enum_: &Enum) -> TokenStream {
+    let java_name = self.translate_enum_name(name);
+    let elements = enum_.iter().map(|(id, variant)| {
+      let variant = self.translate_enum_value_name(&variant.name);
+      // SAFETY: Parsing are always successful because we generate a correct token
+      let id = Literal::from_str(&format!("{id}L")).unwrap();
+
+      quote!(#variant(#id))
+    });
+    quote! {
+      @Generated(id = "#name")
+      public interface #java_name extends KaitaiEnum {
+        public enum Known implements #java_name {
+          #(#elements),*;
+
+          private final long value;
+          private Known(long value) { this.value = value; }
+          @Override
+          public long value() { return value; }
+        }
+        public static final class Unknown implements #java_name {
+          private final long value;
+          private Unknown(long value) { this.value = value; }
+
+          @Override
+          public int ordinal() { return -1; }
+          @Override
+          public String name() { return null; }
+          @Override
+          public long value() { return value; }
+          @Override
+          public String toString() { return "#java_name("+value+")"; }
+
+          private static final HashMap<Long, Unknown> unknown = new HashMap<>();
+          public static #java_name resolve(final long value) {
+            for (final Known e : Known.values()) {
+              if (e.value() == value) {
+                return e;
+              }
+            }
+            return unknown.computeIfAbsent(value, Unknown::new);
+          }
+        }
       }
     }
   }
