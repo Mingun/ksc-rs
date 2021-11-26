@@ -127,56 +127,56 @@ impl OwningNode {
 }
 impl<'input> From<Node<'input>> for OwningNode {
   fn from(reference: Node<'input>) -> Self {
-    use Node::*;
+    use OwningNode::*;
 
     match reference {
-      Str(val)  => Self::Str(val),
-      Int(val)  => Self::Int(val),
-      Float(val)=> Self::Float(val),
-      Bool(val) => Self::Bool(val),
+      Node::Str(val)  => Str(val),
+      Node::Int(val)  => Int(val),
+      Node::Float(val)=> Float(val),
+      Node::Bool(val) => Bool(val),
 
       //TODO: Name already contains only valid symbols, but need to check that it is really exists
-      Attr(val) => Self::Attr(FieldName::valid(val)),
-      SpecialName(val) => Self::SpecialName(val),
+      Node::Attr(val) => Attr(FieldName::valid(val)),
+      Node::SpecialName(val) => SpecialName(val),
       //TODO: Names already contains only valid symbols, but need to check that they is really exists
-      EnumValue { scope, name, value } => Self::EnumValue {
+      Node::EnumValue { scope, name, value } => EnumValue {
         scope: scope.into(),
         name:  EnumName::valid(name),
         value: EnumValueName::valid(value),
       },
 
-      List(val) => Self::List(Self::validate_all(val)),
+      Node::List(val) => List(Self::validate_all(val)),
 
-      SizeOf { type_, bit } => Self::SizeOf { type_: type_.into(), bit },
+      Node::SizeOf { type_, bit } => SizeOf { type_: type_.into(), bit },
 
-      Call { callee, args } => Self::Call {
+      Node::Call { callee, args } => Call {
         callee: Box::new((*callee).into()),
         args: Self::validate_all(args),
       },
-      Cast { expr, to_type } => Self::Cast {
+      Node::Cast { expr, to_type } => Cast {
         expr: Box::new((*expr).into()),
         to_type: to_type.into(),
       },
-      Index { expr, index } => Self::Index {
+      Node::Index { expr, index } => Index {
         expr:  Box::new((*expr).into()),
         index: Box::new((*index).into()),
       },
-      Access { expr, attr } => Self::Access {
+      Node::Access { expr, attr } => Access {
         expr: Box::new((*expr).into()),
         //TODO: Name already contains only valid symbols, but need to check that it is really exists
         attr: FieldName::valid(attr),
       },
 
-      Unary { op, expr } => Self::Unary {
+      Node::Unary { op, expr } => Unary {
         op,
         expr: Box::new((*expr).into()),
       },
-      Binary { op, left, right } => Self::Binary {
+      Node::Binary { op, left, right } => Binary {
         op,
         left:  Box::new((*left).into()),
         right: Box::new((*right).into()),
       },
-      Branch { condition, if_true, if_false } => Self::Branch {
+      Node::Branch { condition, if_true, if_false } => Branch {
         condition: Box::new((*condition).into()),
         if_true:   Box::new((*if_true).into()),
         if_false:  Box::new((*if_false).into()),
