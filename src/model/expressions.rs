@@ -6,7 +6,7 @@ use std::convert::TryFrom;
 use std::hint::unreachable_unchecked;
 
 use bigdecimal::num_bigint::BigInt;
-use bigdecimal::num_traits::{One, Zero};
+use bigdecimal::num_traits::{One, Euclid, Zero};
 use bigdecimal::BigDecimal;
 use serde_yml::Number;
 
@@ -417,8 +417,9 @@ impl<T> OwningNode<T>
           (Div, Int(l), Int(r)) => Int(l / r),
           // Rust `%` uses modulo operation (negative result for negative `l`), but Kaitai Struct
           // uses remainder operation (always positive result): https://doc.kaitai.io/user_guide.html#_operators
-          // (Rem, Int(l), Int(r)) => Int(l.rem_euclid(r)),
+          (Rem, Int(l), Int(r)) => Int(l.rem_euclid(&r)),
 
+          //TODO: See if BigInt can support >> and << operators with BigInt shift
           // (Shl, Int(l), Int(r)) => Int(l << r),
           // (Shr, Int(l), Int(r)) => Int(l >> r),
 
@@ -735,6 +736,130 @@ mod evaluation {
   /// Checks that the binary operators behaves correctly
   mod binary {
     use super::*;
+
+    mod integer {
+      use super::*;
+      use pretty_assertions::assert_eq;
+
+      #[test]
+      fn sum() {
+        assert_eq!(OwningNode::parse("1 +  2"), Ok(Int(  3 .into())));
+        assert_eq!(OwningNode::parse("1 + -2"), Ok(Int((-1).into())));
+      }
+
+      #[test]
+      fn sub() {
+        assert_eq!(OwningNode::parse("1 -  2"), Ok(Int((-1).into())));
+        assert_eq!(OwningNode::parse("1 - -2"), Ok(Int(  3 .into())));
+      }
+
+      #[test]
+      fn mul() {
+        assert_eq!(OwningNode::parse(" 7 *  6"), Ok(Int(  42 .into())));
+        assert_eq!(OwningNode::parse(" 7 * -6"), Ok(Int((-42).into())));
+        assert_eq!(OwningNode::parse("-7 *  6"), Ok(Int((-42).into())));
+        assert_eq!(OwningNode::parse("-7 * -6"), Ok(Int(  42 .into())));
+      }
+
+      #[test]
+      fn div() {
+        assert_eq!(OwningNode::parse(" 7 /  6"), Ok(Int(  1 .into())));
+        assert_eq!(OwningNode::parse(" 7 / -6"), Ok(Int((-1).into())));
+        assert_eq!(OwningNode::parse("-7 /  6"), Ok(Int((-1).into())));
+        assert_eq!(OwningNode::parse("-7 / -6"), Ok(Int(  1 .into())));
+      }
+
+      #[test]
+      fn rem() {
+        assert_eq!(OwningNode::parse(" 5 %  3"), Ok(Int(2.into())));
+        assert_eq!(OwningNode::parse(" 5 % -3"), Ok(Int(1.into())));
+        assert_eq!(OwningNode::parse("-5 %  3"), Ok(Int(1.into())));
+        assert_eq!(OwningNode::parse("-5 % -3"), Ok(Int(2.into())));
+      }
+    }
+
+    mod float {
+      use super::*;
+      use pretty_assertions::assert_eq;
+
+      #[test]
+      fn sum() {
+        assert_eq!(OwningNode::parse("1.0 +  2"), Ok(Float(( 30, 1).into())));
+        assert_eq!(OwningNode::parse("1.0 + -2"), Ok(Float((-10, 1).into())));
+
+        assert_eq!(OwningNode::parse("1 +  2.0"), Ok(Float(( 30, 1).into())));
+        assert_eq!(OwningNode::parse("1 + -2.0"), Ok(Float((-10, 1).into())));
+
+        assert_eq!(OwningNode::parse("1.0 +  2.0"), Ok(Float((  30, 1).into())));
+        assert_eq!(OwningNode::parse("1.0 + -2.0"), Ok(Float(((-10, 1).into())));
+      }
+
+      #[test]
+      fn sub() {
+        assert_eq!(OwningNode::parse("1.0 -  2"), Ok(Float((-10, 1).into())));
+        assert_eq!(OwningNode::parse("1.0 - -2"), Ok(Float(( 30, 1).into())));
+
+        assert_eq!(OwningNode::parse("1 -  2.0"), Ok(Float((-10, 1).into())));
+        assert_eq!(OwningNode::parse("1 - -2.0"), Ok(Float(( 30, 1).into())));
+
+        assert_eq!(OwningNode::parse("1.0 -  2.0"), Ok(Float((-10, 1).into())));
+        assert_eq!(OwningNode::parse("1.0 - -2.0"), Ok(Float(( 30, 1).into())));
+      }
+
+      #[test]
+      fn mul() {
+        assert_eq!(OwningNode::parse(" 7.0 *  6"), Ok(Float(( 420, 1).into())));
+        assert_eq!(OwningNode::parse(" 7.0 * -6"), Ok(Float((-420, 1).into())));
+        assert_eq!(OwningNode::parse("-7.0 *  6"), Ok(Float((-420, 1).into())));
+        assert_eq!(OwningNode::parse("-7.0 * -6"), Ok(Float(( 420, 1).into())));
+
+        assert_eq!(OwningNode::parse(" 7 *  6.0"), Ok(Float(( 420, 1).into())));
+        assert_eq!(OwningNode::parse(" 7 * -6.0"), Ok(Float((-420, 1).into())));
+        assert_eq!(OwningNode::parse("-7 *  6.0"), Ok(Float((-420, 1).into())));
+        assert_eq!(OwningNode::parse("-7 * -6.0"), Ok(Float(( 420, 1).into())));
+
+        assert_eq!(OwningNode::parse(" 7.0 *  6.0"), Ok(Float(( 420, 1).into())));
+        assert_eq!(OwningNode::parse(" 7.0 * -6.0"), Ok(Float((-420, 1).into())));
+        assert_eq!(OwningNode::parse("-7.0 *  6.0"), Ok(Float((-420, 1).into())));
+        assert_eq!(OwningNode::parse("-7.0 * -6.0"), Ok(Float(( 420, 1).into())));
+      }
+
+      #[test]
+      fn div() {
+        assert_eq!(OwningNode::parse(" 7.0 /  6"), Ok(Float(( 10, 1).into())));
+        assert_eq!(OwningNode::parse(" 7.0 / -6"), Ok(Float((-10, 1).into())));
+        assert_eq!(OwningNode::parse("-7.0 /  6"), Ok(Float((-10, 1).into())));
+        assert_eq!(OwningNode::parse("-7.0 / -6"), Ok(Float(( 10, 1).into())));
+
+        assert_eq!(OwningNode::parse(" 7 /  6.0"), Ok(Float(( 10, 1).into())));
+        assert_eq!(OwningNode::parse(" 7 / -6.0"), Ok(Float((-10, 1).into())));
+        assert_eq!(OwningNode::parse("-7 /  6.0"), Ok(Float((-10, 1).into())));
+        assert_eq!(OwningNode::parse("-7 / -6.0"), Ok(Float(( 10, 1).into())));
+
+        assert_eq!(OwningNode::parse(" 7.0 /  6.0"), Ok(Float(( 10, 1).into())));
+        assert_eq!(OwningNode::parse(" 7.0 / -6.0"), Ok(Float((-10, 1).into())));
+        assert_eq!(OwningNode::parse("-7.0 /  6.0"), Ok(Float((-10, 1).into())));
+        assert_eq!(OwningNode::parse("-7.0 / -6.0"), Ok(Float(( 10, 1).into())));
+      }
+
+      #[test]
+      fn rem() {
+        assert!(OwningNode::parse(" 5.0 %  3").is_err());
+        assert!(OwningNode::parse(" 5.0 % -3").is_err());
+        assert!(OwningNode::parse("-5.0 %  3").is_err());
+        assert!(OwningNode::parse("-5.0 % -3").is_err());
+
+        assert!(OwningNode::parse(" 5 %  3.0").is_err());
+        assert!(OwningNode::parse(" 5 % -3.0").is_err());
+        assert!(OwningNode::parse("-5 %  3.0").is_err());
+        assert!(OwningNode::parse("-5 % -3.0").is_err());
+
+        assert!(OwningNode::parse(" 5.0 %  3.0").is_err());
+        assert!(OwningNode::parse(" 5.0 % -3.0").is_err());
+        assert!(OwningNode::parse("-5.0 %  3.0").is_err());
+        assert!(OwningNode::parse("-5.0 % -3.0").is_err());
+      }
+    }
 
     /// Checks that the `+` operator behaves correctly
     mod add {
