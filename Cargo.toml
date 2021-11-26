@@ -10,9 +10,9 @@ description = "Alternative [Kaitai Struct](https://kaitai.io) compiler, written 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+bigdecimal = "0.3"
 indexmap = { version = "1.7", features = ["serde-1"] }
 lazy_static = "1.4"
-ordered-float = "2.8"
 peg = "0.7"
 regex = "1.5"
 serde = { version = "1.0", features = ["derive"] }

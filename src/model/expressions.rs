@@ -4,7 +4,8 @@
 
 use std::convert::TryFrom;
 
-use ordered_float::OrderedFloat;
+use bigdecimal::BigDecimal;
+use bigdecimal::num_bigint::BigInt;
 use serde_yaml::Number;
 
 use crate::error::ModelError;
@@ -20,9 +21,9 @@ pub enum OwningNode {
   /// String constant
   Str(String),
   /// Integral constant
-  Int(u64),
+  Int(BigInt),
   /// Floating-point constant
-  Float(OrderedFloat<f64>),
+  Float(BigDecimal),
   /// Boolean constant
   Bool(bool),
 
@@ -223,6 +224,13 @@ from_int!(
   u16,
   u32,
   u64,
+  u128,
+
+  i8,
+  i16,
+  i32,
+  i64,
+  i128,
 );
 impl<'a> From<&'a str> for OwningNode {
   #[inline]
@@ -324,20 +332,17 @@ mod convert {
 
     #[test]
     fn from_zero() {
-      assert_eq!(OwningNode::try_from(Scalar::Number(0u64.into())), Ok(OwningNode::Int(0)));
+      assert_eq!(OwningNode::try_from(Scalar::Number(0u64.into())), Ok(OwningNode::Int(0.into())));
     }
 
     #[test]
     fn from_positive() {
-      assert_eq!(OwningNode::try_from(Scalar::Number(42u64.into())), Ok(OwningNode::Int(42)));
+      assert_eq!(OwningNode::try_from(Scalar::Number(42u64.into())), Ok(OwningNode::Int(42.into())));
     }
 
     #[test]
     fn from_negative() {
-      assert_eq!(OwningNode::try_from(Scalar::Number((-42i64).into())), Ok(OwningNode::Unary {
-        op: UnaryOp::Neg,
-        expr: Box::new(OwningNode::Int(42))
-      }));
+      assert_eq!(OwningNode::try_from(Scalar::Number((-42i64).into())), Ok(OwningNode::Int((-42).into())));
     }
   }
 
@@ -348,17 +353,17 @@ mod convert {
 
     #[test]
     fn from_zero() {
-      assert_eq!(OwningNode::try_from(Scalar::Number(0.0.into())), Ok(OwningNode::Float(0.0.into())));
+      assert_eq!(OwningNode::try_from(Scalar::Number(0.0.into())), Ok(OwningNode::Float(0.into())));
     }
 
     #[test]
     fn from_positive() {
-      assert_eq!(OwningNode::try_from(Scalar::Number(4.2.into())), Ok(OwningNode::Float(4.2.into())));
+      assert_eq!(OwningNode::try_from(Scalar::Number(4.2.into())), Ok(OwningNode::Float((42.into(), 1).into())));
     }
 
     #[test]
     fn from_negative() {
-      assert_eq!(OwningNode::try_from(Scalar::Number((-4.2).into())), Ok(OwningNode::Float((-4.2).into())));
+      assert_eq!(OwningNode::try_from(Scalar::Number((-4.2).into())), Ok(OwningNode::Float(((-42).into(), 1).into())));
     }
   }
 
@@ -367,8 +372,8 @@ mod convert {
     assert_eq!(OwningNode::try_from(Scalar::String("id".into())), Ok(OwningNode::Attr(FieldName::valid("id"))));
     assert_eq!(OwningNode::try_from(Scalar::String("1 + 2".into())), Ok(OwningNode::Binary {
       op: BinaryOp::Add,
-      left:  Box::new(OwningNode::Int(1)),
-      right: Box::new(OwningNode::Int(2)),
+      left:  Box::new(OwningNode::Int(1.into())),
+      right: Box::new(OwningNode::Int(2.into())),
     }));
   }
 }

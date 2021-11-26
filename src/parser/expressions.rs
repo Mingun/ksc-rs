@@ -5,7 +5,8 @@
 use std::char;
 use std::iter::FromIterator;
 
-use ordered_float::OrderedFloat;
+use bigdecimal::{BigDecimal, Num};
+use bigdecimal::num_bigint::BigInt;
 use serde_yaml::Number;
 
 // Re-export parsing functions from generated parser module
@@ -17,9 +18,9 @@ pub enum Node<'input> {
   /// String constant
   Str(String),
   /// Integral constant
-  Int(u64),
+  Int(BigInt),
   /// Floating-point constant
-  Float(OrderedFloat<f64>),
+  Float(BigDecimal),
   /// Boolean constant
   Bool(bool),
 
@@ -106,19 +107,16 @@ pub enum Node<'input> {
 impl<'input> From<Number> for Node<'input> {
   fn from(number: Number) -> Self {
     if let Some(n) = number.as_u64() {
-      return Node::Int(n);
+      return Node::Int(n.into());
     }
     if let Some(n) = number.as_i64() {
       // Can return only negative integers, because positive is handled above
-      return Node::Unary {
-        op: UnaryOp::Neg,
-        expr: Box::new(Node::Int((-n) as u64)),
-      };
+      return Node::Int(n.into());
     }
     if let Some(n) = number.as_f64() {
-      return Node::Float(n.into());
+      return Node::Float(n.try_into().unwrap());
     }
-    unreachable!("internal error: YAML number is not u64/i64/f64")
+    unreachable!("internal error: YAML number is not an u64/i64/f64")
   }
 }
 
@@ -137,6 +135,13 @@ from_int!(
   u16,
   u32,
   u64,
+  u128,
+
+  i8,
+  i16,
+  i32,
+  i64,
+  i128,
 );
 impl<'input, 'a> From<&'a str> for Node<'input> {
   #[inline]
@@ -355,8 +360,8 @@ fn to_char(number: &str, radix: u32) -> Result<char, &'static str> {
 }
 /// Helper function to convert parsed numbers from string to integer
 #[inline]
-fn to_u64(number: &str, radix: u32) -> Result<u64, &'static str> {
-  u64::from_str_radix(&number.replace('_', ""), radix)
+fn to_int(number: &str, radix: u32) -> Result<BigInt, &'static str> {
+  BigInt::from_str_radix(&number.replace('_', ""), radix)
       .map_err(|_| "integer literal must contain at least one digit")
 }
 /// Helper function to convert parsed escape characters mnemonics to characters itself
@@ -459,12 +464,12 @@ peg::parser! {
     rule quoted_oct() -> char  = s:$(oct()+) {? to_char(s, 8) };
     rule quoted_hex() -> char  = ['u'] s:$(hex()*<4>) {? to_char(s, 16) };
 
-    rule integer() -> u64
-      = n:$(['1'..='9'] ['0'..='9' | '_']*) {? to_u64(n, 10) }
-      / "0" ['b' | 'B'] n:$(bin()+) {? to_u64(n,  2) }
-      / "0" ['o' | 'O'] n:$(oct()+) {? to_u64(n,  8) }
-      / "0" ['x' | 'X'] n:$(hex()+) {? to_u64(n, 16) }
-      / "0" { 0 }
+    rule integer() -> BigInt
+      = n:$(['1'..='9'] ['0'..='9' | '_']*) {? to_int(n, 10) }
+      / "0" ['b' | 'B'] n:$(bin()+) {? to_int(n,  2) }
+      / "0" ['o' | 'O'] n:$(oct()+) {? to_int(n,  8) }
+      / "0" ['x' | 'X'] n:$(hex()+) {? to_int(n, 16) }
+      / "0" { 0.into() }
       ;
     rule oct() = ['0'..='7' | '_'];
     rule bin() = ['0'..='1' | '_'];
@@ -472,7 +477,7 @@ peg::parser! {
 
     rule digit() = ['0'..='9'];
 
-    rule float() -> f64 = n:$(//TODO: allow '_' in floats
+    rule float() -> BigDecimal = n:$(//TODO: allow '_' in floats
         digit()+ exponent()   // Ex.: 4E2, 4E+2, 4e-2
       / fixed() exponent()?   // Ex.: 4.E2, .4e+2, 4.2e-0
     ) {? n.replace('_', "").parse().map_err(|_| "float literal must contain at least one digit") };
@@ -585,7 +590,7 @@ peg::parser! {
       / n:special_name() !name_part()          { n }
       / e:enum_name()                          { e }
       / n:name()                               { Node::Attr(n) }
-      / f:float()                              { Node::Float(f.into()) }
+      / f:float()                              { Node::Float(f) }
       / i:integer()                            { Node::Int(i) }
       ;
 
@@ -633,7 +638,7 @@ peg::parser! {
 mod parse {
   // Colorful diffs in assertions
   use pretty_assertions::assert_eq;
-  use super::{Node, Scope, TypeName, TypeRef, UserTypeRef};
+  use super::{BigDecimal, BigInt, Node, Scope, TypeName, TypeRef, UserTypeRef};
   use super::Node::*;
   use super::UnaryOp::*;
   use super::BinaryOp::*;
@@ -653,16 +658,16 @@ mod parse {
 
     #[test]
     fn empty() {
-      assert_eq!(parse_single("#\n123"), Ok(Int(123)));
+      assert_eq!(parse_single("#\n123"), Ok(Int(123.into())));
     }
     #[test]
     fn following() {
-      assert_eq!(parse_single("123# comment"), Ok(Int(123)));
-      assert_eq!(parse_single("123\n# comment"), Ok(Int(123)));
+      assert_eq!(parse_single("123# comment"), Ok(Int(123.into())));
+      assert_eq!(parse_single("123\n# comment"), Ok(Int(123.into())));
     }
     #[test]
     fn leading() {
-      assert_eq!(parse_single("# comment\n123"), Ok(Int(123)));
+      assert_eq!(parse_single("# comment\n123"), Ok(Int(123.into())));
     }
     #[test]
     fn multi_line() {
@@ -674,7 +679,7 @@ mod parse {
       # and yet
       # another
       2
-      "#), Ok(Binary { op: Add, left: Int(1).into(), right: Int(2).into() }));
+      "#), Ok(Binary { op: Add, left: Int(1.into()).into(), right: Int(2.into()).into() }));
     }
   }
 
@@ -685,18 +690,18 @@ mod parse {
 
     #[test]
     fn positive() {
-      assert_eq!(parse_single("123"), Ok(Int(123)));
+      assert_eq!(parse_single("123"), Ok(Int(123.into())));
     }
 
     #[test]
     fn negative() {
-      assert_eq!(parse_single("-456"), Ok(Unary { op: Neg, expr: Box::new(Int(456)) }));
+      assert_eq!(parse_single("-456"), Ok(Unary { op: Neg, expr: Box::new(Int(456.into())) }));
     }
 
     #[test]
     fn with_underscores() {
-      assert_eq!(parse_single("100_500"), Ok(Int(100_500)));
-      assert_eq!(parse_single("100500_"), Ok(Int(100_500)));
+      assert_eq!(parse_single("100_500"), Ok(Int(100_500.into())));
+      assert_eq!(parse_single("100500_"), Ok(Int(100_500.into())));
     }
   }
 
@@ -707,19 +712,19 @@ mod parse {
 
     #[test]
     fn simple() {
-      assert_eq!(parse_single("0x1234"), Ok(Int(0x1234)));
-      assert_eq!(parse_single("0X1234"), Ok(Int(0x1234)));
+      assert_eq!(parse_single("0x1234"), Ok(Int(0x1234.into())));
+      assert_eq!(parse_single("0X1234"), Ok(Int(0x1234.into())));
     }
 
     #[test]
     fn with_underscores() {
-      assert_eq!(parse_single("0x_1234"), Ok(Int(0x1234)));
-      assert_eq!(parse_single("0x12_34"), Ok(Int(0x1234)));
-      assert_eq!(parse_single("0x1234_"), Ok(Int(0x1234)));
+      assert_eq!(parse_single("0x_1234"), Ok(Int(0x1234.into())));
+      assert_eq!(parse_single("0x12_34"), Ok(Int(0x1234.into())));
+      assert_eq!(parse_single("0x1234_"), Ok(Int(0x1234.into())));
 
-      assert_eq!(parse_single("0X_1234"), Ok(Int(0x1234)));
-      assert_eq!(parse_single("0X12_34"), Ok(Int(0x1234)));
-      assert_eq!(parse_single("0X1234_"), Ok(Int(0x1234)));
+      assert_eq!(parse_single("0X_1234"), Ok(Int(0x1234.into())));
+      assert_eq!(parse_single("0X12_34"), Ok(Int(0x1234.into())));
+      assert_eq!(parse_single("0X1234_"), Ok(Int(0x1234.into())));
     }
 
     #[test]
@@ -736,19 +741,19 @@ mod parse {
 
     #[test]
     fn simple() {
-      assert_eq!(parse_single("0o644"), Ok(Int(0o644)));
-      assert_eq!(parse_single("0O644"), Ok(Int(0o644)));
+      assert_eq!(parse_single("0o644"), Ok(Int(0o644.into())));
+      assert_eq!(parse_single("0O644"), Ok(Int(0o644.into())));
     }
 
     #[test]
     fn with_underscores() {
-      assert_eq!(parse_single("0o_0644"), Ok(Int(0o644)));
-      assert_eq!(parse_single("0o06_44"), Ok(Int(0o644)));
-      assert_eq!(parse_single("0o0644_"), Ok(Int(0o644)));
+      assert_eq!(parse_single("0o_0644"), Ok(Int(0o644.into())));
+      assert_eq!(parse_single("0o06_44"), Ok(Int(0o644.into())));
+      assert_eq!(parse_single("0o0644_"), Ok(Int(0o644.into())));
 
-      assert_eq!(parse_single("0O_0644"), Ok(Int(0o644)));
-      assert_eq!(parse_single("0O06_44"), Ok(Int(0o644)));
-      assert_eq!(parse_single("0O0644_"), Ok(Int(0o644)));
+      assert_eq!(parse_single("0O_0644"), Ok(Int(0o644.into())));
+      assert_eq!(parse_single("0O06_44"), Ok(Int(0o644.into())));
+      assert_eq!(parse_single("0O0644_"), Ok(Int(0o644.into())));
     }
 
     #[test]
@@ -765,19 +770,19 @@ mod parse {
 
     #[test]
     fn simple() {
-      assert_eq!(parse_single("0b10101010"), Ok(Int(0b10101010)));
-      assert_eq!(parse_single("0B10101010"), Ok(Int(0b10101010)));
+      assert_eq!(parse_single("0b10101010"), Ok(Int(0b10101010.into())));
+      assert_eq!(parse_single("0B10101010"), Ok(Int(0b10101010.into())));
     }
 
     #[test]
     fn with_underscores() {
-      assert_eq!(parse_single("0b_1010_1010"), Ok(Int(0b10101010)));
-      assert_eq!(parse_single("0b1010_1_010"), Ok(Int(0b10101010)));
-      assert_eq!(parse_single("0b1010_1010_"), Ok(Int(0b10101010)));
+      assert_eq!(parse_single("0b_1010_1010"), Ok(Int(0b10101010.into())));
+      assert_eq!(parse_single("0b1010_1_010"), Ok(Int(0b10101010.into())));
+      assert_eq!(parse_single("0b1010_1010_"), Ok(Int(0b10101010.into())));
 
-      assert_eq!(parse_single("0B_1010_1010"), Ok(Int(0b10101010)));
-      assert_eq!(parse_single("0B1010_1_010"), Ok(Int(0b10101010)));
-      assert_eq!(parse_single("0B1010_1010_"), Ok(Int(0b10101010)));
+      assert_eq!(parse_single("0B_1010_1010"), Ok(Int(0b10101010.into())));
+      assert_eq!(parse_single("0B1010_1_010"), Ok(Int(0b10101010.into())));
+      assert_eq!(parse_single("0B1010_1010_"), Ok(Int(0b10101010.into())));
     }
 
     #[test]
@@ -794,43 +799,55 @@ mod parse {
 
     #[test]
     fn simple() {
-      assert_eq!(parse_single("1.2345"), Ok(Float(1.2345.into())));
+      assert_eq!(parse_single("1.2345"), Ok(Float((12345.into(), 4).into())));
     }
 
     #[test]
     fn with_signless_exponent() {
-      assert_eq!(parse_single("123e4"), Ok(Float(123e+4.into())));
-      assert_eq!(parse_single("123E4"), Ok(Float(123e+4.into())));
+      assert_eq!(parse_single("123e4"), Ok(Float((123.into(), -4).into())));
+      assert_eq!(parse_single("123E4"), Ok(Float((123.into(), -4).into())));
     }
 
     #[test]
     fn with_positive_exponent() {
-      assert_eq!(parse_single("123e+4"), Ok(Float(123e+4.into())));
-      assert_eq!(parse_single("123E+4"), Ok(Float(123e+4.into())));
+      assert_eq!(parse_single("123e+4"), Ok(Float((123.into(), -4).into())));
+      assert_eq!(parse_single("123E+4"), Ok(Float((123.into(), -4).into())));
     }
 
     #[test]
     fn with_negative_exponent() {
-      assert_eq!(parse_single("123e-7"), Ok(Float(123e-7.into())));
-      assert_eq!(parse_single("123E-7"), Ok(Float(123e-7.into())));
+      assert_eq!(parse_single("123e-7"), Ok(Float((123.into(), 7).into())));
+      assert_eq!(parse_single("123E-7"), Ok(Float((123.into(), 7).into())));
     }
 
     #[test]
     fn non_integral_part_with_signless_exponent() {
-      assert_eq!(parse_single("1.2345e7"), Ok(Float(1.2345e+7.into())));
-      assert_eq!(parse_single("1.2345E7"), Ok(Float(1.2345e+7.into())));
+      assert_eq!(parse_single("1.2345e7"), Ok(Float((12345.into(), 4-7).into())));
+      assert_eq!(parse_single("1.2345E7"), Ok(Float((12345.into(), 4-7).into())));
     }
 
     #[test]
     fn non_integral_part_with_positive_exponent() {
-      assert_eq!(parse_single("123.45e+7"), Ok(Float(123.45e+7.into())));
-      assert_eq!(parse_single("123.45E+7"), Ok(Float(123.45e+7.into())));
+      assert_eq!(parse_single("123.45e+7"), Ok(Float((12345.into(), 2-7).into())));
+      assert_eq!(parse_single("123.45E+7"), Ok(Float((12345.into(), 2-7).into())));
     }
 
     #[test]
     fn non_integral_part_with_negative_exponent() {
-      assert_eq!(parse_single("123.45e-7"), Ok(Float(123.45e-7.into())));
-      assert_eq!(parse_single("123.45E-7"), Ok(Float(123.45e-7.into())));
+      assert_eq!(parse_single("123.45e-7"), Ok(Float((12345.into(), 2+7).into())));
+      assert_eq!(parse_single("123.45E-7"), Ok(Float((12345.into(), 2+7).into())));
+    }
+
+    #[test]
+    fn big_numbers() {
+      assert_eq!(
+        parse_single("1234567890_1234567890_1234567890_1234567890"),
+        Ok(Int(BigInt::parse_bytes(b"1234567890123456789012345678901234567890", 10).unwrap()))
+      );
+      assert_eq!(
+        parse_single("1e+10000"),
+        Ok(Float(BigDecimal::from((1.into(), -10000))))
+      );
     }
   }
 
@@ -971,12 +988,12 @@ mod parse {
           assert_eq!(parse_single($string), Ok(
             Unary {
               op: $op,
-              expr: Box::new(Unary { op: $op, expr: Box::new(Int(1)) })
+              expr: Box::new(Unary { op: $op, expr: Box::new(Int(1.into())) })
             }
           ));
         };
       }
-      assert_eq!(parse_single("++1"), Ok(Int(1)));
+      assert_eq!(parse_single("++1"), Ok(Int(1.into())));
       test!("--1" => Neg);
       test!("~~1" => Inv);
       test!("not not 1" => Not);
@@ -990,10 +1007,10 @@ mod parse {
             op: $op,
             left: Box::new(Binary {
               op: $op,
-              left:  Box::new(Int(1)),
-              right: Box::new(Int(2)),
+              left:  Box::new(Int(1.into())),
+              right: Box::new(Int(2.into())),
             }),
-            right: Box::new(Int(3))
+            right: Box::new(Int(3.into()))
           }));
         };
       }
@@ -1027,13 +1044,13 @@ mod parse {
           op: Div,
           left: Box::new(Binary {
             op: Add,
-            left: Box::new(Int(1)),
-            right: Box::new(Int(2))
+            left: Box::new(Int(1.into())),
+            right: Box::new(Int(2.into()))
           }),
           right: Box::new(Binary {
             op: Mul,
-            left: Box::new(Int(7)),
-            right: Box::new(Int(8))
+            left: Box::new(Int(7.into())),
+            right: Box::new(Int(8.into()))
           }),
         }
       ));
@@ -1042,37 +1059,37 @@ mod parse {
     #[test]
     fn comparison() {
       assert_eq!(parse_single("1 == 2"), Ok(
-        Binary { op: Eq, left: Box::new(Int(1)), right: Box::new(Int(2)) }
+        Binary { op: Eq, left: Box::new(Int(1.into())), right: Box::new(Int(2.into())) }
       ));
       assert_eq!(parse_single("1 != 2"), Ok(
-        Binary { op: Ne, left: Box::new(Int(1)), right: Box::new(Int(2)) }
+        Binary { op: Ne, left: Box::new(Int(1.into())), right: Box::new(Int(2.into())) }
       ));
       assert_eq!(parse_single("1 <= 2"), Ok(
-        Binary { op: Le, left: Box::new(Int(1)), right: Box::new(Int(2)) }
+        Binary { op: Le, left: Box::new(Int(1.into())), right: Box::new(Int(2.into())) }
       ));
       assert_eq!(parse_single("1 >= 2"), Ok(
-        Binary { op: Ge, left: Box::new(Int(1)), right: Box::new(Int(2)) }
+        Binary { op: Ge, left: Box::new(Int(1.into())), right: Box::new(Int(2.into())) }
       ));
       assert_eq!(parse_single("1 < 2" ), Ok(
-        Binary { op: Lt, left: Box::new(Int(1)), right: Box::new(Int(2)) }
+        Binary { op: Lt, left: Box::new(Int(1.into())), right: Box::new(Int(2.into())) }
       ));
       assert_eq!(parse_single("1 > 2" ), Ok(
-        Binary { op: Gt, left: Box::new(Int(1)), right: Box::new(Int(2)) }
+        Binary { op: Gt, left: Box::new(Int(1.into())), right: Box::new(Int(2.into())) }
       ));
     }
 
     #[test]
     fn indexing() {
       assert_eq!(parse_single("a[42]"), Ok(
-        Index { expr: Box::new(Attr("a")), index: Box::new(Int(42)) }
+        Index { expr: Box::new(Attr("a")), index: Box::new(Int(42.into())) }
       ));
       assert_eq!(parse_single("a[42 - 2]"), Ok(
         Index {
           expr: Box::new(Attr("a")),
           index: Box::new(Binary {
             op: Sub,
-            left:  Box::new(Int(42)),
-            right: Box::new(Int(2)),
+            left:  Box::new(Int(42.into())),
+            right: Box::new(Int(2.into())),
           })
         }
       ));
@@ -1147,9 +1164,9 @@ mod parse {
             }),
             attr: "to_i"
           }),
-          right: Box::new(Int(8000))
+          right: Box::new(Int(8000.into()))
         }),
-        right: Box::new(Int(8080))
+        right: Box::new(Int(8080.into()))
       }
     ));
   }
@@ -1157,7 +1174,7 @@ mod parse {
   #[test]
   fn list() {
     assert_eq!(parse_single("[1, 2, 0x1234]"), Ok(
-      List(vec![Int(1), Int(2), Int(0x1234)])
+      List(vec![Int(1.into()), Int(2.into()), Int(0x1234.into())])
     ));
   }
 
@@ -1236,7 +1253,7 @@ mod parse {
     fn int_as_type() {
       assert_eq!(parse_single("123.as<u4>"), Ok(
         Cast {
-          expr: Box::new(Int(123)),
+          expr: Box::new(Int(123.into())),
           to_type: TypeRef {
             name: TypeName {
               scope: Scope { absolute: false, path: vec![] },
@@ -1251,7 +1268,7 @@ mod parse {
     fn expr_as_type() {
       assert_eq!(parse_single("(123).as<u4>"), Ok(
         Cast {
-          expr: Box::new(Int(123)),
+          expr: Box::new(Int(123.into())),
           to_type: TypeRef {
             name: TypeName {
               scope: Scope { absolute: false, path: vec![] },
@@ -1490,32 +1507,32 @@ mod parse {
 
     #[test]
     fn access() {
-      assert_eq!(parse_single("123.to_s"  ), Ok(Access { expr: Box::new(Int(123)), attr: "to_s" }));
-      assert_eq!(parse_single("123. to_s" ), Ok(Access { expr: Box::new(Int(123)), attr: "to_s" }));
-      assert_eq!(parse_single("123.\nto_s"), Ok(Access { expr: Box::new(Int(123)), attr: "to_s" }));
+      assert_eq!(parse_single("123.to_s"  ), Ok(Access { expr: Box::new(Int(123.into())), attr: "to_s" }));
+      assert_eq!(parse_single("123. to_s" ), Ok(Access { expr: Box::new(Int(123.into())), attr: "to_s" }));
+      assert_eq!(parse_single("123.\nto_s"), Ok(Access { expr: Box::new(Int(123.into())), attr: "to_s" }));
       assert_eq!(parse_single("foo.bar"   ), Ok(Access { expr: Box::new(Attr("foo")), attr: "bar" }));
     }
 
     #[test]
     fn int_not_float() {
-      assert_eq!(parse_single("123.e"  ), Ok(Access { expr: Box::new(Int(123)), attr: "e" }));
-      assert_eq!(parse_single("123. e" ), Ok(Access { expr: Box::new(Int(123)), attr: "e" }));
-      assert_eq!(parse_single("123.\ne"), Ok(Access { expr: Box::new(Int(123)), attr: "e" }));
+      assert_eq!(parse_single("123.e"  ), Ok(Access { expr: Box::new(Int(123.into())), attr: "e" }));
+      assert_eq!(parse_single("123. e" ), Ok(Access { expr: Box::new(Int(123.into())), attr: "e" }));
+      assert_eq!(parse_single("123.\ne"), Ok(Access { expr: Box::new(Int(123.into())), attr: "e" }));
 
-      assert_eq!(parse_single("123.E"  ), Ok(Access { expr: Box::new(Int(123)), attr: "E" }));
-      assert_eq!(parse_single("123. E" ), Ok(Access { expr: Box::new(Int(123)), attr: "E" }));
-      assert_eq!(parse_single("123.\nE"), Ok(Access { expr: Box::new(Int(123)), attr: "E" }));
+      assert_eq!(parse_single("123.E"  ), Ok(Access { expr: Box::new(Int(123.into())), attr: "E" }));
+      assert_eq!(parse_single("123. E" ), Ok(Access { expr: Box::new(Int(123.into())), attr: "E" }));
+      assert_eq!(parse_single("123.\nE"), Ok(Access { expr: Box::new(Int(123.into())), attr: "E" }));
 
-      assert_eq!(parse_single("123._"  ), Ok(Access { expr: Box::new(Int(123)), attr: "_" }));
-      assert_eq!(parse_single("123. _" ), Ok(Access { expr: Box::new(Int(123)), attr: "_" }));
-      assert_eq!(parse_single("123.\n_"), Ok(Access { expr: Box::new(Int(123)), attr: "_" }));
+      assert_eq!(parse_single("123._"  ), Ok(Access { expr: Box::new(Int(123.into())), attr: "_" }));
+      assert_eq!(parse_single("123. _" ), Ok(Access { expr: Box::new(Int(123.into())), attr: "_" }));
+      assert_eq!(parse_single("123.\n_"), Ok(Access { expr: Box::new(Int(123.into())), attr: "_" }));
     }
 
     #[test]
     fn float_and_access() {
-      assert_eq!(parse_single("123.4.to_s"  ), Ok(Access { expr: Box::new(Float(123.4.into())), attr: "to_s" }));
-      assert_eq!(parse_single("123.4. to_s" ), Ok(Access { expr: Box::new(Float(123.4.into())), attr: "to_s" }));
-      assert_eq!(parse_single("123.4.\nto_s"), Ok(Access { expr: Box::new(Float(123.4.into())), attr: "to_s" }));
+      assert_eq!(parse_single("123.4.to_s"  ), Ok(Access { expr: Box::new(Float((1234.into(), 1).into())), attr: "to_s" }));
+      assert_eq!(parse_single("123.4. to_s" ), Ok(Access { expr: Box::new(Float((1234.into(), 1).into())), attr: "to_s" }));
+      assert_eq!(parse_single("123.4.\nto_s"), Ok(Access { expr: Box::new(Float((1234.into(), 1).into())), attr: "to_s" }));
     }
   }
 
@@ -1567,8 +1584,8 @@ mod parse {
           args: vec![
             Binary {
               op:    Add,
-              left:  Box::new(Int(1)),
-              right: Box::new(Int(2)),
+              left:  Box::new(Int(1.into())),
+              right: Box::new(Int(2.into())),
             },
             Attr("data"),
           ],
@@ -1584,8 +1601,8 @@ mod parse {
           args: vec![
             Binary {
               op:    Add,
-              left:  Box::new(Int(1)),
-              right: Box::new(Int(2)),
+              left:  Box::new(Int(1.into())),
+              right: Box::new(Int(2.into())),
             },
             Attr("data"),
           ],
@@ -1634,8 +1651,8 @@ mod parse {
             args: vec![
               Binary {
                 op:    Add,
-                left:  Box::new(Int(1)),
-                right: Box::new(Int(2)),
+                left:  Box::new(Int(1.into())),
+                right: Box::new(Int(2.into())),
               },
               Attr("data"),
             ],
@@ -1652,8 +1669,8 @@ mod parse {
             args: vec![
               Binary {
                 op:    Add,
-                left:  Box::new(Int(1)),
-                right: Box::new(Int(2)),
+                left:  Box::new(Int(1.into())),
+                right: Box::new(Int(2.into())),
               },
               Attr("data"),
             ],
@@ -1698,8 +1715,8 @@ mod parse {
             args: vec![
               Binary {
                 op:    Add,
-                left:  Box::new(Int(1)),
-                right: Box::new(Int(2)),
+                left:  Box::new(Int(1.into())),
+                right: Box::new(Int(2.into())),
               },
               Attr("data"),
             ],
@@ -1716,8 +1733,8 @@ mod parse {
             args: vec![
               Binary {
                 op:    Add,
-                left:  Box::new(Int(1)),
-                right: Box::new(Int(2)),
+                left:  Box::new(Int(1.into())),
+                right: Box::new(Int(2.into())),
               },
               Attr("data"),
             ],

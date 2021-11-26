@@ -165,7 +165,7 @@ macro_rules! usize_expr {
       fn validate(data: $from) -> Result<Self, ModelError> {
         Ok(match data {
           p::Expression::Expr(expr)   => Self(OwningNode::parse(&expr)?),
-          p::Expression::Value(value) => Self(OwningNode::Int(value)),
+          p::Expression::Value(value) => Self(OwningNode::Int(value.into())),
         })
       }
     }
@@ -394,7 +394,7 @@ impl From<u64> for Size {
   /// ```
   fn from(value: u64) -> Self {
     Self::Exact {
-      count: Count(OwningNode::Int(value)),
+      count: Count(OwningNode::Int(value.into())),
       until: None,
     }
   }
