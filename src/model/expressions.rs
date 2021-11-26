@@ -168,9 +168,25 @@ impl<'input> From<Node<'input>> for OwningNode {
         attr: FieldName::valid(attr),
       },
 
-      Node::Unary { op, expr } => Unary {
-        op,
-        expr: Box::new((*expr).into()),
+      Node::Unary { op, expr } => {
+        use UnaryOp::*;
+
+        match (op, (*expr).into()) {
+          // Remove doubled operators
+          (first, Unary { op, expr } ) if first == op => *expr,
+
+          // Constant evaluations
+          (Neg, Int(value)) => Int(-value),
+          (Neg, Float(value)) => Float(-value),
+
+          (Not, Bool(value)) => Bool(!value),
+          (Inv, Int(value))  => Int(!value),
+
+          //TODO: check that operator is compatible with operand types in generic path
+
+          // Generic path
+          (_, expr) => Unary { op, expr: Box::new(expr) },
+        }
       },
       Node::Binary { op, left, right } => Binary {
         op,
@@ -375,5 +391,33 @@ mod convert {
       left:  Box::new(OwningNode::Int(1.into())),
       right: Box::new(OwningNode::Int(2.into())),
     }));
+  }
+}
+
+#[cfg(test)]
+mod evaluation {
+  use super::*;
+  use OwningNode::*;
+
+  /// Check that the unary operators behaves correctly
+  mod unary {
+    // Colorful diffs in assertions - resolve ambiguous
+    use pretty_assertions::assert_eq;
+    use super::*;
+
+    #[test]
+    fn double_neg() {
+      assert_eq!(OwningNode::parse("-(-x)"), Ok(Attr(FieldName::valid("x"))));
+    }
+
+    #[test]
+    fn double_not() {
+      assert_eq!(OwningNode::parse("not not x"), Ok(Attr(FieldName::valid("x"))));
+    }
+
+    #[test]
+    fn double_inv() {
+      assert_eq!(OwningNode::parse("~~x"), Ok(Attr(FieldName::valid("x"))));
+    }
   }
 }
