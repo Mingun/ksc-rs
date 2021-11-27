@@ -335,6 +335,7 @@ mod convert {
   // Colorful diffs in assertions
   use pretty_assertions::assert_eq;
   use super::*;
+  use OwningNode::*;
 
   #[test]
   fn from_null() {
@@ -343,12 +344,12 @@ mod convert {
 
   #[test]
   fn from_true() {
-    assert_eq!(OwningNode::try_from(Scalar::Bool(true)), Ok(OwningNode::Bool(true)));
+    assert_eq!(OwningNode::try_from(Scalar::Bool(true)), Ok(Bool(true)));
   }
 
   #[test]
   fn from_false() {
-    assert_eq!(OwningNode::try_from(Scalar::Bool(false)), Ok(OwningNode::Bool(false)));
+    assert_eq!(OwningNode::try_from(Scalar::Bool(false)), Ok(Bool(false)));
   }
 
   mod integer {
@@ -358,17 +359,17 @@ mod convert {
 
     #[test]
     fn from_zero() {
-      assert_eq!(OwningNode::try_from(Scalar::Number(0u64.into())), Ok(OwningNode::Int(0.into())));
+      assert_eq!(OwningNode::try_from(Scalar::Number(0u64.into())), Ok(Int(0.into())));
     }
 
     #[test]
     fn from_positive() {
-      assert_eq!(OwningNode::try_from(Scalar::Number(42u64.into())), Ok(OwningNode::Int(42.into())));
+      assert_eq!(OwningNode::try_from(Scalar::Number(42u64.into())), Ok(Int(42.into())));
     }
 
     #[test]
     fn from_negative() {
-      assert_eq!(OwningNode::try_from(Scalar::Number((-42i64).into())), Ok(OwningNode::Int((-42).into())));
+      assert_eq!(OwningNode::try_from(Scalar::Number((-42i64).into())), Ok(Int((-42).into())));
     }
   }
 
@@ -379,27 +380,27 @@ mod convert {
 
     #[test]
     fn from_zero() {
-      assert_eq!(OwningNode::try_from(Scalar::Number(0.0.into())), Ok(OwningNode::Float(0.into())));
+      assert_eq!(OwningNode::try_from(Scalar::Number(0.0.into())), Ok(Float(0.into())));
     }
 
     #[test]
     fn from_positive() {
-      assert_eq!(OwningNode::try_from(Scalar::Number(4.2.into())), Ok(OwningNode::Float((42.into(), 1).into())));
+      assert_eq!(OwningNode::try_from(Scalar::Number(4.2.into())), Ok(Float((42.into(), 1).into())));
     }
 
     #[test]
     fn from_negative() {
-      assert_eq!(OwningNode::try_from(Scalar::Number((-4.2).into())), Ok(OwningNode::Float(((-42).into(), 1).into())));
+      assert_eq!(OwningNode::try_from(Scalar::Number((-4.2).into())), Ok(Float(((-42).into(), 1).into())));
     }
   }
 
   #[test]
   fn from_string() {
-    assert_eq!(OwningNode::try_from(Scalar::String("id".into())), Ok(OwningNode::Attr(FieldName::valid("id"))));
-    assert_eq!(OwningNode::try_from(Scalar::String("1 + 2".into())), Ok(OwningNode::Binary {
+    assert_eq!(OwningNode::try_from(Scalar::String("id".into())), Ok(Attr(FieldName::valid("id"))));
+    assert_eq!(OwningNode::try_from(Scalar::String("x + 2".into())), Ok(Binary {
       op: BinaryOp::Add,
-      left:  Box::new(OwningNode::Int(1.into())),
-      right: Box::new(OwningNode::Int(2.into())),
+      left:  Box::new(Attr(FieldName::valid("x"))),
+      right: Box::new(Int(2.into())),
     }));
   }
 }
