@@ -309,7 +309,14 @@ pub enum BinaryOp {
   Mul,
   /// `/`: Division of two numeric arguments.
   Div,
-  /// `%`: Remainder of division of two numeric arguments.
+  /// `%`: Nonnegative remainder of division of two numeric arguments.
+  ///
+  /// This operation is different from Rust [`%`] operator: [`-5 % 3` is `1`, not `-2`][operators].
+  /// Analogous in Rust for this operation is [`rem_euclid`]
+  ///
+  /// [`%`]: https://doc.rust-lang.org/nightly/std/ops/trait.Rem.html
+  /// [`rem_euclid`]: https://doc.rust-lang.org/nightly/std/primitive.i64.html#method.rem_euclid
+  /// [operators]: https://doc.kaitai.io/user_guide.html#_operators
   Rem,
 
   /// `<<`: The left shift operator.
