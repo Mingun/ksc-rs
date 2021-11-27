@@ -122,6 +122,35 @@ impl<'input> From<Number> for Node<'input> {
   }
 }
 
+macro_rules! from_int {
+  ($($ty:ty,)*) => {$(
+    impl<'input> From<$ty> for Node<'input> {
+      #[inline]
+      fn from(number: $ty) -> Self {
+        Self::Int(number.into())
+      }
+    }
+  )*};
+}
+from_int!(
+  u8,
+  u16,
+  u32,
+  u64,
+);
+impl<'input, 'a> From<&'a str> for Node<'input> {
+  #[inline]
+  fn from(string: &'a str) -> Self {
+    Self::Str(string.into())
+  }
+}
+impl<'input> From<String> for Node<'input> {
+  #[inline]
+  fn from(string: String) -> Self {
+    Self::Str(string)
+  }
+}
+
 /// A scope in which types and enums are defined, used to resolve references
 /// to them in the expressions.
 ///

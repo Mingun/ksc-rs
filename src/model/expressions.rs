@@ -208,6 +208,35 @@ impl TryFrom<Scalar> for OwningNode {
   }
 }
 
+macro_rules! from_int {
+  ($($ty:ty,)*) => {$(
+    impl From<$ty> for OwningNode {
+      #[inline]
+      fn from(number: $ty) -> Self {
+        Self::Int(number.into())
+      }
+    }
+  )*};
+}
+from_int!(
+  u8,
+  u16,
+  u32,
+  u64,
+);
+impl<'a> From<&'a str> for OwningNode {
+  #[inline]
+  fn from(string: &'a str) -> Self {
+    Self::Str(string.into())
+  }
+}
+impl From<String> for OwningNode {
+  #[inline]
+  fn from(string: String) -> Self {
+    Self::Str(string)
+  }
+}
+
 /// Owning counterpart of a [`Scope`].
 ///
 /// [`Scope`]: ./struct.Scope.html
