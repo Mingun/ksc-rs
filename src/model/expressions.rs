@@ -523,6 +523,7 @@ mod evaluation {
   use crate::model::{Package, PackageContext};
   use crate::parser::Ksy;
   use pretty_assertions::assert_eq;
+  use ModelError::*;
   use OwningNode::*;
 
   fn parse(expr: &str) -> Result<OwningNode, ModelError> {
@@ -552,6 +553,801 @@ mod evaluation {
     #[test]
     fn double_inv() {
       assert_eq!(parse("~~x"), Ok(Attr(FieldName::valid("x").into())));
+    }
+  }
+
+  /// Checks that the binary operators behaves correctly
+  mod binary {
+    use super::*;
+
+    /// Checks that the `+` operator behaves correctly
+    mod add {
+      use super::*;
+      use BinaryOp::Add;
+
+      /// Checks that adding to int behaves correctly
+      mod int {
+        use super::*;
+        use pretty_assertions::assert_eq;
+
+        #[test]
+        fn int() {
+          assert_eq!(parse(" 0 +  0"), Ok(Int(0.into())));
+          assert_eq!(parse(" 0 + 42"), Ok(Int(42.into())));
+          assert_eq!(parse("42 +  0"), Ok(Int(42.into())));
+          assert_eq!(parse("21 + 21"), Ok(Int(42.into())));
+        }
+
+        /// Adding floating-point should change type of expression to float
+        #[test]
+        fn float() {
+          assert_eq!(parse(" 0 +  0.0"), Ok(Float(0.into())));
+          assert_eq!(parse(" 0 + 42.0"), Ok(Float(42.into())));
+          assert_eq!(parse("42 +  0.0"), Ok(Float(42.into())));
+          assert_eq!(parse("21 + 21.0"), Ok(Float(42.into())));
+        }
+
+        /// Adding bool to the int should be an error
+        #[test]
+        #[ignore]//TODO: implement type checking
+        fn bool() {
+          assert_eq!(parse(" 0 +  true"), Err(Validation("".into())));
+          assert_eq!(parse(" 0 + false"), Err(Validation("".into())));
+          assert_eq!(parse("42 +  true"), Err(Validation("".into())));
+          assert_eq!(parse("42 + false"), Err(Validation("".into())));
+        }
+
+        /// Adding string to the int should be an error.
+        /// `.to_s` should be used to convert value to the string first
+        #[test]
+        #[ignore]//TODO: implement type checking
+        fn str() {
+          assert_eq!(parse(r#" 0 + '' "#), Err(Validation("".into())));
+          assert_eq!(parse(r#" 0 + 'a'"#), Err(Validation("".into())));
+          assert_eq!(parse(r#"42 + '' "#), Err(Validation("".into())));
+          assert_eq!(parse(r#"42 + 'a'"#), Err(Validation("".into())));
+
+          assert_eq!(parse(r#" 0 + "" "#), Err(Validation("".into())));
+          assert_eq!(parse(r#" 0 + "a""#), Err(Validation("".into())));
+          assert_eq!(parse(r#"42 + "" "#), Err(Validation("".into())));
+          assert_eq!(parse(r#"42 + "a""#), Err(Validation("".into())));
+        }
+
+        #[test]
+        fn field() {//TODO: result depends on the type of field - int and float are acceptable
+          assert_eq!(parse(" 0 + x"), Ok(Attr(FieldName::valid("x").into())));
+          assert_eq!(parse("42 + x"), Ok(Binary {
+            op: Add,
+            left:  Box::new(Int(42.into())),
+            right: Box::new(Attr(FieldName::valid("x").into())),
+          }));
+        }
+      }
+
+      /// Checks that adding to int behaves correctly
+      mod float {
+        use super::*;
+        use pretty_assertions::assert_eq;
+
+        #[test]
+        fn int() {
+          assert_eq!(parse(" 0.0 +  0"), Ok(Float(0.into())));
+          assert_eq!(parse(" 0.0 + 42"), Ok(Float(42.into())));
+          assert_eq!(parse("42.0 +  0"), Ok(Float(42.into())));
+          assert_eq!(parse("21.0 + 21"), Ok(Float(42.into())));
+        }
+
+        #[test]
+        fn float() {
+          assert_eq!(parse(" 0.0 +  0.0"), Ok(Float(0.into())));
+          assert_eq!(parse(" 0.0 + 42.0"), Ok(Float(42.into())));
+          assert_eq!(parse("42.0 +  0.0"), Ok(Float(42.into())));
+          assert_eq!(parse("21.0 + 21.0"), Ok(Float(42.into())));
+        }
+
+        /// Adding bool to the float should be an error
+        #[test]
+        #[ignore]//TODO: implement type checking
+        fn and_bool() {
+          assert_eq!(parse(" 0.0 +  true"), Err(Validation("".into())));
+          assert_eq!(parse(" 0.0 + false"), Err(Validation("".into())));
+          assert_eq!(parse("42.0 +  true"), Err(Validation("".into())));
+          assert_eq!(parse("42.0 + false"), Err(Validation("".into())));
+        }
+
+        /// Adding string to the float should be an error
+        #[test]
+        #[ignore]//TODO: implement type checking
+        fn str() {
+          assert_eq!(parse(r#" 0.0 + '' "#), Err(Validation("".into())));
+          assert_eq!(parse(r#" 0.0 + 'a'"#), Err(Validation("".into())));
+          assert_eq!(parse(r#"42.0 + '' "#), Err(Validation("".into())));
+          assert_eq!(parse(r#"42.0 + 'a'"#), Err(Validation("".into())));
+
+          assert_eq!(parse(r#" 0.0 + "" "#), Err(Validation("".into())));
+          assert_eq!(parse(r#" 0.0 + "a""#), Err(Validation("".into())));
+          assert_eq!(parse(r#"42.0 + "" "#), Err(Validation("".into())));
+          assert_eq!(parse(r#"42.0 + "a""#), Err(Validation("".into())));
+        }
+
+        #[test]
+        fn field() {//TODO: result depends on the type of field - float and int are acceptable
+          assert_eq!(parse(" 0.0 + x"), Ok(Attr(FieldName::valid("x").into())));
+          assert_eq!(parse("42.0 + x"), Ok(Binary {
+            op: Add,
+            left:  Box::new(Float(42.into())),
+            right: Box::new(Attr(FieldName::valid("x").into())),
+          }));
+        }
+      }
+
+      /// Checks that adding to bool behaves correctly
+      mod bool {
+        use super::*;
+        use pretty_assertions::assert_eq;
+
+        /// Adding int to the bool should be an error
+        #[test]
+        #[ignore]//TODO: implement type checking
+        fn int() {
+          assert_eq!(parse(" true +  0"), Err(Validation("".into())));
+          assert_eq!(parse(" true + 42"), Err(Validation("".into())));
+          assert_eq!(parse("false +  0"), Err(Validation("".into())));
+          assert_eq!(parse("false + 42"), Err(Validation("".into())));
+        }
+
+        /// Adding floating-point to the bool should be an error
+        #[test]
+        #[ignore]//TODO: implement type checking
+        fn float() {
+          assert_eq!(parse(" 0 +  0.0"), Ok(Float(0.into())));
+          assert_eq!(parse(" 0 + 42.0"), Ok(Float(42.into())));
+          assert_eq!(parse("42 +  0.0"), Ok(Float(42.into())));
+          assert_eq!(parse("21 + 21.0"), Ok(Float(42.into())));
+        }
+
+        /// Adding bool to the bool should be an error.
+        /// Suggestion to use the `and` operator should be emitted
+        #[test]
+        #[ignore]//TODO: implement type checking
+        fn bool() {
+          assert_eq!(parse(" true +  true"), Err(Validation("".into())));
+          assert_eq!(parse(" true + false"), Err(Validation("".into())));
+          assert_eq!(parse("false +  true"), Err(Validation("".into())));
+          assert_eq!(parse("false + false"), Err(Validation("".into())));
+        }
+
+        /// Adding string to the bool should be an error
+        #[test]
+        #[ignore]//TODO: implement type checking
+        fn str() {
+          assert_eq!(parse(r#" true + '' "#), Err(Validation("".into())));
+          assert_eq!(parse(r#" true + 'a'"#), Err(Validation("".into())));
+          assert_eq!(parse(r#"false + '' "#), Err(Validation("".into())));
+          assert_eq!(parse(r#"false + 'a'"#), Err(Validation("".into())));
+
+          assert_eq!(parse(r#" true + "" "#), Err(Validation("".into())));
+          assert_eq!(parse(r#" true + "a""#), Err(Validation("".into())));
+          assert_eq!(parse(r#"false + "" "#), Err(Validation("".into())));
+          assert_eq!(parse(r#"false + "a""#), Err(Validation("".into())));
+        }
+
+        /// Adding field to the bool should be an error.
+        /// Suggestion to use the `and` operator should be emitted
+        #[test]
+        #[ignore]//TODO: implement type checking
+        fn field() {//TODO: check for suggestion
+          assert_eq!(parse(" true + x"), Err(Validation("".into())));
+          assert_eq!(parse("false + x"), Err(Validation("".into())));
+        }
+      }
+
+      /// Checks that string concatenation with other types behaves correctly
+      mod str {
+        use super::*;
+        use pretty_assertions::assert_eq;
+
+        /// Adding int to the string should be an error
+        #[test]
+        #[ignore]//TODO: implement type checking
+        fn int() {
+          assert_eq!(parse(r#"''  + 42"#), Err(Validation("".into())));
+          assert_eq!(parse(r#"'a' + 42"#), Err(Validation("".into())));
+
+          assert_eq!(parse(r#"""  + 42"#), Err(Validation("".into())));
+          assert_eq!(parse(r#""a" + 42"#), Err(Validation("".into())));
+        }
+
+        /// Adding float to the string should be an error
+        #[test]
+        #[ignore]//TODO: implement type checking
+        fn float() {
+          assert_eq!(parse(r#"''  + 4.2"#), Err(Validation("".into())));
+          assert_eq!(parse(r#"'a' + 4.2"#), Err(Validation("".into())));
+
+          assert_eq!(parse(r#"""  + 4.2"#), Err(Validation("".into())));
+          assert_eq!(parse(r#""a" + 4.2"#), Err(Validation("".into())));
+        }
+
+        /// Adding bool to the string should be an error
+        #[test]
+        #[ignore]//TODO: implement type checking
+        fn bool() {
+          assert_eq!(parse(r#"''  +  true"#), Err(Validation("".into())));
+          assert_eq!(parse(r#"''  + false"#), Err(Validation("".into())));
+          assert_eq!(parse(r#"'a' +  true"#), Err(Validation("".into())));
+          assert_eq!(parse(r#"'a' + false"#), Err(Validation("".into())));
+
+          assert_eq!(parse(r#"""  +  true"#), Err(Validation("".into())));
+          assert_eq!(parse(r#"""  + false"#), Err(Validation("".into())));
+          assert_eq!(parse(r#""a" +  true"#), Err(Validation("".into())));
+          assert_eq!(parse(r#""a" + false"#), Err(Validation("".into())));
+        }
+
+        /// Adding string should produce concatenated string
+        #[test]
+        fn str() {
+          // single quotes
+          assert_eq!(parse(r#"''  + '' "#), Ok(Str("".into())));
+          assert_eq!(parse(r#"''  + 'a'"#), Ok(Str("a".into())));
+          assert_eq!(parse(r#"'a' + '' "#), Ok(Str("a".into())));
+          assert_eq!(parse(r#"'a' + 'b'"#), Ok(Str("ab".into())));
+
+          // double quotes
+          assert_eq!(parse(r#"""  + "" "#), Ok(Str("".into())));
+          assert_eq!(parse(r#"""  + "a""#), Ok(Str("a".into())));
+          assert_eq!(parse(r#""a" + "" "#), Ok(Str("a".into())));
+          assert_eq!(parse(r#""a" + "b""#), Ok(Str("ab".into())));
+
+          // mixed quotes - '' + ""
+          assert_eq!(parse(r#"''  + "" "#), Ok(Str("".into())));
+          assert_eq!(parse(r#"''  + "a""#), Ok(Str("a".into())));
+          assert_eq!(parse(r#"'a' + "" "#), Ok(Str("a".into())));
+          assert_eq!(parse(r#"'a' + "b""#), Ok(Str("ab".into())));
+
+          // mixed quotes - "" - ''
+          assert_eq!(parse(r#"""  + '' "#), Ok(Str("".into())));
+          assert_eq!(parse(r#"""  + 'a'"#), Ok(Str("a".into())));
+          assert_eq!(parse(r#""a" + '' "#), Ok(Str("a".into())));
+          assert_eq!(parse(r#""a" + 'b'"#), Ok(Str("ab".into())));
+        }
+
+        #[test]
+        fn field() {//TODO: result depends on the type of field
+          assert_eq!(parse(r#"''  + x"#), Ok(Attr(FieldName::valid("x").into())));
+          assert_eq!(parse(r#"'a' + x"#), Ok(Binary {
+            op: Add,
+            left:  Box::new(Str("a".into())),
+            right: Box::new(Attr(FieldName::valid("x").into())),
+          }));
+
+          assert_eq!(parse(r#"""  + x"#), Ok(Attr(FieldName::valid("x").into())));
+          assert_eq!(parse(r#""a" + x"#), Ok(Binary {
+            op: Add,
+            left:  Box::new(Str("a".into())),
+            right: Box::new(Attr(FieldName::valid("x").into())),
+          }));
+        }
+      }
+    }
+
+    /// Checks that the `!=` operator behaves correctly
+    mod eq {
+      use super::*;
+      use BinaryOp::Eq;
+
+      /// Checks that compare to int behaves correctly
+      mod int {
+        use super::*;
+        use pretty_assertions::assert_eq;
+
+        #[test]
+        fn int() {
+          assert_eq!(parse(" 0 ==  0"), Ok(Bool(true)));
+          assert_eq!(parse(" 0 == 42"), Ok(Bool(false)));
+          assert_eq!(parse("42 ==  0"), Ok(Bool(false)));
+          assert_eq!(parse("21 == 21"), Ok(Bool(true)));
+        }
+
+        #[test]
+        fn float() {
+          assert_eq!(parse(" 0 ==  0.0"), Ok(Bool(true)));
+          assert_eq!(parse(" 0 == 42.0"), Ok(Bool(false)));
+          assert_eq!(parse("42 ==  0.0"), Ok(Bool(false)));
+          assert_eq!(parse("21 == 21.0"), Ok(Bool(true)));
+        }
+
+        /// Compare bool with int should be an error
+        #[test]
+        #[ignore]//TODO: implement type checking
+        fn bool() {
+          assert_eq!(parse(" 0 ==  true"), Err(Validation("".into())));
+          assert_eq!(parse(" 0 == false"), Err(Validation("".into())));
+          assert_eq!(parse("42 ==  true"), Err(Validation("".into())));
+          assert_eq!(parse("42 == false"), Err(Validation("".into())));
+        }
+
+        /// Compare string with int should be an error
+        #[test]
+        #[ignore]//TODO: implement type checking
+        fn str() {
+          assert_eq!(parse(r#" 0 == '' "#), Err(Validation("".into())));
+          assert_eq!(parse(r#" 0 == 'a'"#), Err(Validation("".into())));
+          assert_eq!(parse(r#"42 == '' "#), Err(Validation("".into())));
+          assert_eq!(parse(r#"42 == 'a'"#), Err(Validation("".into())));
+
+          assert_eq!(parse(r#" 0 == "" "#), Err(Validation("".into())));
+          assert_eq!(parse(r#" 0 == "a""#), Err(Validation("".into())));
+          assert_eq!(parse(r#"42 == "" "#), Err(Validation("".into())));
+          assert_eq!(parse(r#"42 == "a""#), Err(Validation("".into())));
+        }
+
+        #[test]
+        fn field() {//TODO: result depends on the type of field
+          assert_eq!(parse("42 == x"), Ok(Binary {
+            op: Eq,
+            left:  Box::new(Int(42.into())),
+            right: Box::new(Attr(FieldName::valid("x").into())),
+          }));
+        }
+      }
+
+      mod float {
+        use super::*;
+        use pretty_assertions::assert_eq;
+
+        #[test]
+        fn int() {
+          assert_eq!(parse(" 0.0 ==  0"), Ok(Bool(true)));
+          assert_eq!(parse(" 0.0 == 42"), Ok(Bool(false)));
+          assert_eq!(parse("42.0 ==  0"), Ok(Bool(false)));
+          assert_eq!(parse("21.0 == 21"), Ok(Bool(true)));
+        }
+
+        #[test]
+        fn float() {
+          assert_eq!(parse(" 0.0 ==  0.0"), Ok(Bool(true)));
+          assert_eq!(parse(" 0.0 == 42.0"), Ok(Bool(false)));
+          assert_eq!(parse("42.0 ==  0.0"), Ok(Bool(false)));
+          assert_eq!(parse("21.0 == 21.0"), Ok(Bool(true)));
+        }
+
+        /// Adding bool to the float should be an error
+        #[test]
+        #[ignore]//TODO: implement type checking
+        fn bool() {
+          assert_eq!(parse(" 0.0 ==  true"), Err(Validation("".into())));
+          assert_eq!(parse(" 0.0 == false"), Err(Validation("".into())));
+          assert_eq!(parse("42.0 ==  true"), Err(Validation("".into())));
+          assert_eq!(parse("42.0 == false"), Err(Validation("".into())));
+        }
+
+        /// Adding string to the float should be an error
+        #[test]
+        #[ignore]//TODO: implement type checking
+        fn str() {
+          assert_eq!(parse(r#" 0.0 == '' "#), Err(Validation("".into())));
+          assert_eq!(parse(r#" 0.0 == 'a'"#), Err(Validation("".into())));
+          assert_eq!(parse(r#"42.0 == '' "#), Err(Validation("".into())));
+          assert_eq!(parse(r#"42.0 == 'a'"#), Err(Validation("".into())));
+
+          assert_eq!(parse(r#" 0.0 == "" "#), Err(Validation("".into())));
+          assert_eq!(parse(r#" 0.0 == "a""#), Err(Validation("".into())));
+          assert_eq!(parse(r#"42.0 == "" "#), Err(Validation("".into())));
+          assert_eq!(parse(r#"42.0 == "a""#), Err(Validation("".into())));
+        }
+
+        #[test]
+        fn field() {//TODO: result depends on the type of field
+          assert_eq!(parse(r#"42.0 == x"#), Ok(Binary {
+            op: Eq,
+            left:  Box::new(Float(42.into())),
+            right: Box::new(Attr(FieldName::valid("x").into())),
+          }));
+        }
+      }
+
+      /// Checks that adding to int behaves correctly
+      mod bool {
+        use super::*;
+        use pretty_assertions::assert_eq;
+
+        /// Adding int to the bool should be an error
+        #[test]
+        #[ignore]//TODO: implement type checking
+        fn int() {
+          assert_eq!(parse(" true == 42"), Err(Validation("".into())));
+          assert_eq!(parse("false == 42"), Err(Validation("".into())));
+        }
+
+        /// Adding floating-point to the bool should be an error
+        #[test]
+        #[ignore]//TODO: implement type checking
+        fn float() {
+          assert_eq!(parse(" true == 42.0"), Err(Validation("".into())));
+          assert_eq!(parse("false == 42.0"), Err(Validation("".into())));
+        }
+
+        #[test]
+        fn bool() {
+          assert_eq!(parse(" true ==  true"), Ok(Bool(true)));
+          assert_eq!(parse(" true == false"), Ok(Bool(false)));
+          assert_eq!(parse("false ==  true"), Ok(Bool(false)));
+          assert_eq!(parse("false == false"), Ok(Bool(true)));
+        }
+
+        /// Adding string to the bool should be an error
+        #[test]
+        #[ignore]//TODO: implement type checking
+        fn str() {
+          assert_eq!(parse(r#" true == '' "#), Err(Validation("".into())));
+          assert_eq!(parse(r#" true == 'a'"#), Err(Validation("".into())));
+          assert_eq!(parse(r#"false == '' "#), Err(Validation("".into())));
+          assert_eq!(parse(r#"false == 'a'"#), Err(Validation("".into())));
+
+          assert_eq!(parse(r#" true == "" "#), Err(Validation("".into())));
+          assert_eq!(parse(r#" true == "a""#), Err(Validation("".into())));
+          assert_eq!(parse(r#"false == "" "#), Err(Validation("".into())));
+          assert_eq!(parse(r#"false == "a""#), Err(Validation("".into())));
+        }
+
+        #[test]
+        fn field() {//TODO: result depends on the type of field
+          assert_eq!(parse("true == x"), Ok(Binary {
+            op: Eq,
+            left:  Box::new(Bool(true)),
+            right: Box::new(Attr(FieldName::valid("x").into())),
+          }));
+          assert_eq!(parse("false == x"), Ok(Binary {
+            op: Eq,
+            left:  Box::new(Bool(false)),
+            right: Box::new(Attr(FieldName::valid("x").into())),
+          }));
+        }
+      }
+
+      mod str {
+        use super::*;
+        use pretty_assertions::assert_eq;
+
+        #[test]
+        #[ignore]//TODO: implement type checking
+        fn int() {
+          assert_eq!(parse(r#"''  == 42"#), Err(Validation("".into())));
+          assert_eq!(parse(r#"'a' == 42"#), Err(Validation("".into())));
+
+          assert_eq!(parse(r#"""  == 42"#), Err(Validation("".into())));
+          assert_eq!(parse(r#""a" == 42"#), Err(Validation("".into())));
+        }
+
+        #[test]
+        #[ignore]//TODO: implement type checking
+        fn float() {
+          assert_eq!(parse(r#"''  == 4.2"#), Err(Validation("".into())));
+          assert_eq!(parse(r#"'a' == 4.2"#), Err(Validation("".into())));
+
+          assert_eq!(parse(r#"""  == 4.2"#), Err(Validation("".into())));
+          assert_eq!(parse(r#""a" == 4.2"#), Err(Validation("".into())));
+        }
+
+        #[test]
+        #[ignore]//TODO: implement type checking
+        fn bool() {
+          assert_eq!(parse(r#"''  ==  true"#), Err(Validation("".into())));
+          assert_eq!(parse(r#"''  == false"#), Err(Validation("".into())));
+          assert_eq!(parse(r#"'a' ==  true"#), Err(Validation("".into())));
+          assert_eq!(parse(r#"'a' == false"#), Err(Validation("".into())));
+
+          assert_eq!(parse(r#"""  ==  true"#), Err(Validation("".into())));
+          assert_eq!(parse(r#"""  == false"#), Err(Validation("".into())));
+          assert_eq!(parse(r#""a" ==  true"#), Err(Validation("".into())));
+          assert_eq!(parse(r#""a" == false"#), Err(Validation("".into())));
+        }
+
+        #[test]
+        fn str() {
+          // single quotes
+          assert_eq!(parse(r#"''  == '' "#), Ok(Bool(true)));
+          assert_eq!(parse(r#"''  == 'a'"#), Ok(Bool(false)));
+          assert_eq!(parse(r#"'a' == '' "#), Ok(Bool(false)));
+          assert_eq!(parse(r#"'a' == 'b'"#), Ok(Bool(false)));
+
+          // double quotes
+          assert_eq!(parse(r#"""  == "" "#), Ok(Bool(true)));
+          assert_eq!(parse(r#"""  == "a""#), Ok(Bool(false)));
+          assert_eq!(parse(r#""a" == "" "#), Ok(Bool(false)));
+          assert_eq!(parse(r#""a" == "b""#), Ok(Bool(false)));
+
+          // mixed quotes - '' == ""
+          assert_eq!(parse(r#"''  == "" "#), Ok(Bool(true)));
+          assert_eq!(parse(r#"''  == "a""#), Ok(Bool(false)));
+          assert_eq!(parse(r#"'a' == "" "#), Ok(Bool(false)));
+          assert_eq!(parse(r#"'a' == "b""#), Ok(Bool(false)));
+
+          // mixed quotes - "" == ''
+          assert_eq!(parse(r#"""  == '' "#), Ok(Bool(true)));
+          assert_eq!(parse(r#"""  == 'a'"#), Ok(Bool(false)));
+          assert_eq!(parse(r#""a" == '' "#), Ok(Bool(false)));
+          assert_eq!(parse(r#""a" == 'b'"#), Ok(Bool(false)));
+        }
+
+        #[test]
+        fn field() {//TODO: result depends on the type of field
+          assert_eq!(parse(r#"'a' == x"#), Ok(Binary {
+            op: Eq,
+            left:  Box::new(Str("a".into())),
+            right: Box::new(Attr(FieldName::valid("x").into())),
+          }));
+
+          assert_eq!(parse(r#""a" == x"#), Ok(Binary {
+            op: Eq,
+            left:  Box::new(Str("a".into())),
+            right: Box::new(Attr(FieldName::valid("x").into())),
+          }));
+        }
+      }
+    }
+
+    /// Checks that the `!=` operator behaves correctly
+    mod ne {
+      use super::*;
+      use BinaryOp::Ne;
+
+      /// Checks that compare to int behaves correctly
+      mod int {
+        use super::*;
+        use pretty_assertions::assert_eq;
+
+        #[test]
+        fn int() {
+          assert_eq!(parse(" 0 !=  0"), Ok(Bool(false)));
+          assert_eq!(parse(" 0 != 42"), Ok(Bool(true)));
+          assert_eq!(parse("42 !=  0"), Ok(Bool(true)));
+          assert_eq!(parse("21 != 21"), Ok(Bool(false)));
+        }
+
+        #[test]
+        fn float() {
+          assert_eq!(parse(" 0 !=  0.0"), Ok(Bool(false)));
+          assert_eq!(parse(" 0 != 42.0"), Ok(Bool(true)));
+          assert_eq!(parse("42 !=  0.0"), Ok(Bool(true)));
+          assert_eq!(parse("21 != 21.0"), Ok(Bool(false)));
+        }
+
+        /// Compare bool with int should be an error
+        #[test]
+        #[ignore]//TODO: implement type checking
+        fn bool() {
+          assert_eq!(parse(" 0 !=  true"), Err(Validation("".into())));
+          assert_eq!(parse(" 0 != false"), Err(Validation("".into())));
+          assert_eq!(parse("42 !=  true"), Err(Validation("".into())));
+          assert_eq!(parse("42 != false"), Err(Validation("".into())));
+        }
+
+        /// Compare string with int should be an error
+        #[test]
+        #[ignore]//TODO: implement type checking
+        fn str() {
+          assert_eq!(parse(r#" 0 != '' "#), Err(Validation("".into())));
+          assert_eq!(parse(r#" 0 != 'a'"#), Err(Validation("".into())));
+          assert_eq!(parse(r#"42 != '' "#), Err(Validation("".into())));
+          assert_eq!(parse(r#"42 != 'a'"#), Err(Validation("".into())));
+
+          assert_eq!(parse(r#" 0 != "" "#), Err(Validation("".into())));
+          assert_eq!(parse(r#" 0 != "a""#), Err(Validation("".into())));
+          assert_eq!(parse(r#"42 != "" "#), Err(Validation("".into())));
+          assert_eq!(parse(r#"42 != "a""#), Err(Validation("".into())));
+        }
+
+        #[test]
+        fn field() {//TODO: result depends on the type of field
+          assert_eq!(parse("42 != x"), Ok(Binary {
+            op: Ne,
+            left:  Box::new(Int(42.into())),
+            right: Box::new(Attr(FieldName::valid("x").into())),
+          }));
+        }
+      }
+
+      /// Checks that compare to int behaves correctly
+      mod float {
+        use super::*;
+        use pretty_assertions::assert_eq;
+
+        #[test]
+        fn int() {
+          assert_eq!(parse(" 0.0 !=  0"), Ok(Bool(false)));
+          assert_eq!(parse(" 0.0 != 42"), Ok(Bool(true)));
+          assert_eq!(parse("42.0 !=  0"), Ok(Bool(true)));
+          assert_eq!(parse("21.0 != 21"), Ok(Bool(false)));
+        }
+
+        #[test]
+        fn float() {
+          assert_eq!(parse(" 0.0 !=  0.0"), Ok(Bool(false)));
+          assert_eq!(parse(" 0.0 != 42.0"), Ok(Bool(true)));
+          assert_eq!(parse("42.0 !=  0.0"), Ok(Bool(true)));
+          assert_eq!(parse("21.0 != 21.0"), Ok(Bool(false)));
+        }
+
+        /// Compare bool with float should be an error
+        #[test]
+        #[ignore]//TODO: implement type checking
+        fn bool() {
+          assert_eq!(parse(" 0.0 !=  true"), Err(Validation("".into())));
+          assert_eq!(parse(" 0.0 != false"), Err(Validation("".into())));
+          assert_eq!(parse("42.0 !=  true"), Err(Validation("".into())));
+          assert_eq!(parse("42.0 != false"), Err(Validation("".into())));
+        }
+
+        /// Compare bool with string should be an error
+        #[test]
+        #[ignore]//TODO: implement type checking
+        fn str() {
+          assert_eq!(parse(r#" 0.0 != '' "#), Err(Validation("".into())));
+          assert_eq!(parse(r#" 0.0 != 'a'"#), Err(Validation("".into())));
+          assert_eq!(parse(r#"42.0 != '' "#), Err(Validation("".into())));
+          assert_eq!(parse(r#"42.0 != 'a'"#), Err(Validation("".into())));
+
+          assert_eq!(parse(r#" 0.0 != "" "#), Err(Validation("".into())));
+          assert_eq!(parse(r#" 0.0 != "a""#), Err(Validation("".into())));
+          assert_eq!(parse(r#"42.0 != "" "#), Err(Validation("".into())));
+          assert_eq!(parse(r#"42.0 != "a""#), Err(Validation("".into())));
+        }
+
+        #[test]
+        fn field() {//TODO: result depends on the type of field
+          assert_eq!(parse(r#"42.0 != x"#), Ok(Binary {
+            op: Ne,
+            left:  Box::new(Float(42.into())),
+            right: Box::new(Attr(FieldName::valid("x").into())),
+          }));
+        }
+      }
+
+      /// Checks that compare to bool behaves correctly
+      mod bool {
+        use super::*;
+        use pretty_assertions::assert_eq;
+
+        /// Compare bool with int should be an error
+        #[test]
+        #[ignore]//TODO: implement type checking
+        fn int() {
+          assert_eq!(parse(" true != 42"), Err(Validation("".into())));
+          assert_eq!(parse("false != 42"), Err(Validation("".into())));
+        }
+
+        /// Compare bool with floating-point number should be an error
+        #[test]
+        #[ignore]//TODO: implement type checking
+        fn float() {
+          assert_eq!(parse(" true != 42.0"), Err(Validation("".into())));
+          assert_eq!(parse("false != 42.0"), Err(Validation("".into())));
+        }
+
+        #[test]
+        fn bool() {
+          assert_eq!(parse(" true !=  true"), Ok(Bool(false)));
+          assert_eq!(parse(" true != false"), Ok(Bool(true)));
+          assert_eq!(parse("false !=  true"), Ok(Bool(true)));
+          assert_eq!(parse("false != false"), Ok(Bool(false)));
+        }
+
+        /// Compare bool with string should be an error
+        #[test]
+        #[ignore]//TODO: implement type checking
+        fn str() {
+          assert_eq!(parse(r#" true != '' "#), Err(Validation("".into())));
+          assert_eq!(parse(r#" true != 'a'"#), Err(Validation("".into())));
+          assert_eq!(parse(r#"false != '' "#), Err(Validation("".into())));
+          assert_eq!(parse(r#"false != 'a'"#), Err(Validation("".into())));
+
+          assert_eq!(parse(r#" true != "" "#), Err(Validation("".into())));
+          assert_eq!(parse(r#" true != "a""#), Err(Validation("".into())));
+          assert_eq!(parse(r#"false != "" "#), Err(Validation("".into())));
+          assert_eq!(parse(r#"false != "a""#), Err(Validation("".into())));
+        }
+
+        #[test]
+        fn field() {//TODO: result depends on the type of field
+          assert_eq!(parse("true != x"), Ok(Binary {
+            op: Ne,
+            left:  Box::new(Bool(true)),
+            right: Box::new(Attr(FieldName::valid("x").into())),
+          }));
+
+          assert_eq!(parse("false != x"), Ok(Binary {
+            op: Ne,
+            left:  Box::new(Bool(false)),
+            right: Box::new(Attr(FieldName::valid("x").into())),
+          }));
+        }
+      }
+
+      mod str {
+        use super::*;
+        use pretty_assertions::assert_eq;
+
+        /// Compare string with int should be an error
+        #[test]
+        #[ignore]//TODO: implement type checking
+        fn int() {
+          assert_eq!(parse(r#"''  != 42"#), Err(Validation("".into())));
+          assert_eq!(parse(r#"'a' != 42"#), Err(Validation("".into())));
+
+          assert_eq!(parse(r#"""  != 42"#), Err(Validation("".into())));
+          assert_eq!(parse(r#""a" != 42"#), Err(Validation("".into())));
+        }
+
+        /// Compare string with floating-point number should be an error
+        #[test]
+        #[ignore]//TODO: implement type checking
+        fn float() {
+          assert_eq!(parse(r#"''  != 4.2"#), Err(Validation("".into())));
+          assert_eq!(parse(r#"'a' != 4.2"#), Err(Validation("".into())));
+
+          assert_eq!(parse(r#"""  != 4.2"#), Err(Validation("".into())));
+          assert_eq!(parse(r#""a" != 4.2"#), Err(Validation("".into())));
+        }
+
+        /// Compare string with bool should be an error
+        #[test]
+        #[ignore]//TODO: implement type checking
+        fn bool() {
+          assert_eq!(parse(r#"''  !=  true"#), Err(Validation("".into())));
+          assert_eq!(parse(r#"''  != false"#), Err(Validation("".into())));
+          assert_eq!(parse(r#"'a' !=  true"#), Err(Validation("".into())));
+          assert_eq!(parse(r#"'a' != false"#), Err(Validation("".into())));
+
+          assert_eq!(parse(r#"""  !=  true"#), Err(Validation("".into())));
+          assert_eq!(parse(r#"""  != false"#), Err(Validation("".into())));
+          assert_eq!(parse(r#""a" !=  true"#), Err(Validation("".into())));
+          assert_eq!(parse(r#""a" != false"#), Err(Validation("".into())));
+        }
+
+        #[test]
+        fn str() {
+          // single quotes
+          assert_eq!(parse(r#"''  != '' "#), Ok(Bool(false)));
+          assert_eq!(parse(r#"''  != 'a'"#), Ok(Bool(true)));
+          assert_eq!(parse(r#"'a' != '' "#), Ok(Bool(true)));
+          assert_eq!(parse(r#"'a' != 'b'"#), Ok(Bool(true)));
+
+          // double quotes
+          assert_eq!(parse(r#"""  != "" "#), Ok(Bool(false)));
+          assert_eq!(parse(r#"""  != "a""#), Ok(Bool(true)));
+          assert_eq!(parse(r#""a" != "" "#), Ok(Bool(true)));
+          assert_eq!(parse(r#""a" != "b""#), Ok(Bool(true)));
+
+          // mixed quotes - '' != ""
+          assert_eq!(parse(r#"''  != "" "#), Ok(Bool(false)));
+          assert_eq!(parse(r#"''  != "a""#), Ok(Bool(true)));
+          assert_eq!(parse(r#"'a' != "" "#), Ok(Bool(true)));
+          assert_eq!(parse(r#"'a' != "b""#), Ok(Bool(true)));
+
+          // mixed quotes - "" != ''
+          assert_eq!(parse(r#"""  != '' "#), Ok(Bool(false)));
+          assert_eq!(parse(r#"""  != 'a'"#), Ok(Bool(true)));
+          assert_eq!(parse(r#""a" != '' "#), Ok(Bool(true)));
+          assert_eq!(parse(r#""a" != 'b'"#), Ok(Bool(true)));
+        }
+
+        #[test]
+        fn field() {//TODO: result depends on the type of field
+          assert_eq!(parse(r#"'a' != x"#), Ok(Binary {
+            op: Ne,
+            left:  Box::new(Str("a".into())),
+            right: Box::new(Attr(FieldName::valid("x").into())),
+          }));
+
+          assert_eq!(parse(r#""a" != x"#), Ok(Binary {
+            op: Ne,
+            left:  Box::new(Str("a".into())),
+            right: Box::new(Attr(FieldName::valid("x").into())),
+          }));
+        }
+      }
     }
   }
 
