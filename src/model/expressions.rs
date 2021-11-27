@@ -421,6 +421,7 @@ mod convert {
 mod evaluation {
   use super::*;
   use pretty_assertions::assert_eq;
+  use ModelError::*;
   use OwningNode::*;
 
   /// Check that the unary operators behaves correctly
@@ -441,6 +442,281 @@ mod evaluation {
     #[test]
     fn double_inv() {
       assert_eq!(OwningNode::parse("~~x"), Ok(Attr(FieldName::valid("x"))));
+    }
+  }
+
+  /// Checks that the binary operators behaves correctly
+  mod binary {
+    use super::*;
+
+    /// Checks that the `+` operator behaves correctly
+    mod add {
+      use super::*;
+      use BinaryOp::Add;
+
+      /// Checks that adding to int behaves correctly
+      mod int {
+        use super::*;
+        use pretty_assertions::assert_eq;
+
+        #[test]
+        fn and_int() {
+          assert_eq!(OwningNode::parse(r#" 0 +  0"#), Ok(Int(0.into())));
+          assert_eq!(OwningNode::parse(r#" 0 + 42"#), Ok(Int(42.into())));
+          assert_eq!(OwningNode::parse(r#"42 +  0"#), Ok(Int(42.into())));
+          assert_eq!(OwningNode::parse(r#"21 + 21"#), Ok(Int(42.into())));
+        }
+
+        /// Adding floating-point should change type of expression to float
+        #[test]
+        fn and_float() {
+          assert_eq!(OwningNode::parse(r#" 0 +  0.0"#), Ok(Float(0.into())));
+          assert_eq!(OwningNode::parse(r#" 0 + 42.0"#), Ok(Float(42.into())));
+          assert_eq!(OwningNode::parse(r#"42 +  0.0"#), Ok(Float(42.into())));
+          assert_eq!(OwningNode::parse(r#"21 + 21.0"#), Ok(Float(42.into())));
+        }
+
+        /// Adding bool to the int should be an error
+        #[test]
+        #[ignore]//TODO: implement type checking
+        fn and_bool() {
+          assert_eq!(OwningNode::parse(r#" 0 +  true"#), Err(Validation("".into())));
+          assert_eq!(OwningNode::parse(r#" 0 + false"#), Err(Validation("".into())));
+          assert_eq!(OwningNode::parse(r#"42 +  true"#), Err(Validation("".into())));
+          assert_eq!(OwningNode::parse(r#"42 + false"#), Err(Validation("".into())));
+        }
+
+        /// Adding string to the int should be an error
+        #[test]
+        #[ignore]//TODO: implement type checking
+        fn and_str() {
+          assert_eq!(OwningNode::parse(r#" 0 + '' "#), Err(Validation("".into())));
+          assert_eq!(OwningNode::parse(r#" 0 + 'a'"#), Err(Validation("".into())));
+          assert_eq!(OwningNode::parse(r#"42 + '' "#), Err(Validation("".into())));
+          assert_eq!(OwningNode::parse(r#"42 + 'a'"#), Err(Validation("".into())));
+
+          assert_eq!(OwningNode::parse(r#" 0 + "" "#), Err(Validation("".into())));
+          assert_eq!(OwningNode::parse(r#" 0 + "a""#), Err(Validation("".into())));
+          assert_eq!(OwningNode::parse(r#"42 + "" "#), Err(Validation("".into())));
+          assert_eq!(OwningNode::parse(r#"42 + "a""#), Err(Validation("".into())));
+        }
+
+        #[test]
+        fn add_field() {//TODO: result depends on the type of field - int and float are acceptable
+          assert_eq!(OwningNode::parse(r#" 0 + x"#), Ok(Attr(FieldName::valid("x"))));
+          assert_eq!(OwningNode::parse(r#"42 + x"#), Ok(Binary {
+            op: Add,
+            left:  Box::new(Int(42.into())),
+            right: Box::new(Attr(FieldName::valid("x"))),
+          }));
+        }
+      }
+
+      /// Checks that adding to int behaves correctly
+      mod float {
+        use super::*;
+        use pretty_assertions::assert_eq;
+
+        #[test]
+        fn and_int() {
+          assert_eq!(OwningNode::parse(r#" 0.0 +  0"#), Ok(Float(0.into())));
+          assert_eq!(OwningNode::parse(r#" 0.0 + 42"#), Ok(Float(42.into())));
+          assert_eq!(OwningNode::parse(r#"42.0 +  0"#), Ok(Float(42.into())));
+          assert_eq!(OwningNode::parse(r#"21.0 + 21"#), Ok(Float(42.into())));
+        }
+
+        #[test]
+        fn and_float() {
+          assert_eq!(OwningNode::parse(r#" 0.0 +  0.0"#), Ok(Float(0.into())));
+          assert_eq!(OwningNode::parse(r#" 0.0 + 42.0"#), Ok(Float(42.into())));
+          assert_eq!(OwningNode::parse(r#"42.0 +  0.0"#), Ok(Float(42.into())));
+          assert_eq!(OwningNode::parse(r#"21.0 + 21.0"#), Ok(Float(42.into())));
+        }
+
+        /// Adding bool to the float should be an error
+        #[test]
+        #[ignore]//TODO: implement type checking
+        fn and_bool() {
+          assert_eq!(OwningNode::parse(r#" 0.0 +  true"#), Err(Validation("".into())));
+          assert_eq!(OwningNode::parse(r#" 0.0 + false"#), Err(Validation("".into())));
+          assert_eq!(OwningNode::parse(r#"42.0 +  true"#), Err(Validation("".into())));
+          assert_eq!(OwningNode::parse(r#"42.0 + false"#), Err(Validation("".into())));
+        }
+
+        /// Adding string to the float should be an error
+        #[test]
+        #[ignore]//TODO: implement type checking
+        fn and_str() {
+          assert_eq!(OwningNode::parse(r#" 0.0 + '' "#), Err(Validation("".into())));
+          assert_eq!(OwningNode::parse(r#" 0.0 + 'a'"#), Err(Validation("".into())));
+          assert_eq!(OwningNode::parse(r#"42.0 + '' "#), Err(Validation("".into())));
+          assert_eq!(OwningNode::parse(r#"42.0 + 'a'"#), Err(Validation("".into())));
+
+          assert_eq!(OwningNode::parse(r#" 0.0 + "" "#), Err(Validation("".into())));
+          assert_eq!(OwningNode::parse(r#" 0.0 + "a""#), Err(Validation("".into())));
+          assert_eq!(OwningNode::parse(r#"42.0 + "" "#), Err(Validation("".into())));
+          assert_eq!(OwningNode::parse(r#"42.0 + "a""#), Err(Validation("".into())));
+        }
+
+        #[test]
+        fn add_field() {//TODO: result depends on the type of field - float and int are acceptable
+          assert_eq!(OwningNode::parse(r#" 0.0 + x"#), Ok(Attr(FieldName::valid("x"))));
+          assert_eq!(OwningNode::parse(r#"42.0 + x"#), Ok(Binary {
+            op: Add,
+            left:  Box::new(Float(42.into())),
+            right: Box::new(Attr(FieldName::valid("x"))),
+          }));
+        }
+      }
+
+      /// Checks that adding to int behaves correctly
+      mod bool {
+        use super::*;
+        use pretty_assertions::assert_eq;
+
+        /// Adding int to the bool should be an error
+        #[test]
+        #[ignore]//TODO: implement type checking
+        fn and_int() {
+          assert_eq!(OwningNode::parse(r#" true +  0"#), Err(Validation("".into())));
+          assert_eq!(OwningNode::parse(r#" true + 42"#), Err(Validation("".into())));
+          assert_eq!(OwningNode::parse(r#"false +  0"#), Err(Validation("".into())));
+          assert_eq!(OwningNode::parse(r#"false + 42"#), Err(Validation("".into())));
+        }
+
+        /// Adding floating-point to the bool should be an error
+        #[test]
+        #[ignore]//TODO: implement type checking
+        fn and_float() {
+          assert_eq!(OwningNode::parse(r#" 0 +  0.0"#), Ok(Float(0.into())));
+          assert_eq!(OwningNode::parse(r#" 0 + 42.0"#), Ok(Float(42.into())));
+          assert_eq!(OwningNode::parse(r#"42 +  0.0"#), Ok(Float(42.into())));
+          assert_eq!(OwningNode::parse(r#"21 + 21.0"#), Ok(Float(42.into())));
+        }
+
+        /// Adding bool to the bool should be an error and suggestion of using the `and`
+        /// operator is expected
+        #[test]
+        #[ignore]//TODO: implement type checking
+        fn and_bool() {
+          assert_eq!(OwningNode::parse(r#" true +  true"#), Err(Validation("".into())));
+          assert_eq!(OwningNode::parse(r#" true + false"#), Err(Validation("".into())));
+          assert_eq!(OwningNode::parse(r#"false +  true"#), Err(Validation("".into())));
+          assert_eq!(OwningNode::parse(r#"false + false"#), Err(Validation("".into())));
+        }
+
+        /// Adding string to the bool should be an error
+        #[test]
+        #[ignore]//TODO: implement type checking
+        fn and_str() {
+          assert_eq!(OwningNode::parse(r#" true + '' "#), Err(Validation("".into())));
+          assert_eq!(OwningNode::parse(r#" true + 'a'"#), Err(Validation("".into())));
+          assert_eq!(OwningNode::parse(r#"false + '' "#), Err(Validation("".into())));
+          assert_eq!(OwningNode::parse(r#"false + 'a'"#), Err(Validation("".into())));
+
+          assert_eq!(OwningNode::parse(r#" true + "" "#), Err(Validation("".into())));
+          assert_eq!(OwningNode::parse(r#" true + "a""#), Err(Validation("".into())));
+          assert_eq!(OwningNode::parse(r#"false + "" "#), Err(Validation("".into())));
+          assert_eq!(OwningNode::parse(r#"false + "a""#), Err(Validation("".into())));
+        }
+
+        /// Adding bool should be an error and suggestion of using the `and`
+        /// operator is expected
+        #[test]
+        #[ignore]//TODO: implement type checking
+        fn add_field() {//TODO: result depends on the type of field
+          assert_eq!(OwningNode::parse(r#" true + x"#), Err(Validation("".into())));
+          assert_eq!(OwningNode::parse(r#"false + x"#), Err(Validation("".into())));
+        }
+      }
+
+      /// Checks that string concatenation with other types behaves correctly
+      mod str {
+        use super::*;
+        use pretty_assertions::assert_eq;
+
+        /// Adding int to the string should be an error
+        #[test]
+        #[ignore]//TODO: implement type checking
+        fn and_int() {
+          assert_eq!(OwningNode::parse(r#"''  + 42"#), Err(Validation("".into())));
+          assert_eq!(OwningNode::parse(r#"'a' + 42"#), Err(Validation("".into())));
+
+          assert_eq!(OwningNode::parse(r#"""  + 42"#), Err(Validation("".into())));
+          assert_eq!(OwningNode::parse(r#""a" + 42"#), Err(Validation("".into())));
+        }
+
+        /// Adding float to the string should be an error
+        #[test]
+        #[ignore]//TODO: implement type checking
+        fn and_float() {
+          assert_eq!(OwningNode::parse(r#"''  + 4.2"#), Err(Validation("".into())));
+          assert_eq!(OwningNode::parse(r#"'a' + 4.2"#), Err(Validation("".into())));
+
+          assert_eq!(OwningNode::parse(r#"""  + 4.2"#), Err(Validation("".into())));
+          assert_eq!(OwningNode::parse(r#""a" + 4.2"#), Err(Validation("".into())));
+        }
+
+        /// Adding bool to the string should be an error
+        #[test]
+        #[ignore]//TODO: implement type checking
+        fn and_bool() {
+          assert_eq!(OwningNode::parse(r#"''  +  true"#), Err(Validation("".into())));
+          assert_eq!(OwningNode::parse(r#"''  + false"#), Err(Validation("".into())));
+          assert_eq!(OwningNode::parse(r#"'a' +  true"#), Err(Validation("".into())));
+          assert_eq!(OwningNode::parse(r#"'a' + false"#), Err(Validation("".into())));
+
+          assert_eq!(OwningNode::parse(r#"""  +  true"#), Err(Validation("".into())));
+          assert_eq!(OwningNode::parse(r#"""  + false"#), Err(Validation("".into())));
+          assert_eq!(OwningNode::parse(r#""a" +  true"#), Err(Validation("".into())));
+          assert_eq!(OwningNode::parse(r#""a" + false"#), Err(Validation("".into())));
+        }
+
+        /// Adding string should produce concatenated string
+        #[test]
+        fn and_str() {
+          // single quotes
+          assert_eq!(OwningNode::parse(r#"''  + '' "#), Ok(Str("".into())));
+          assert_eq!(OwningNode::parse(r#"''  + 'a'"#), Ok(Str("a".into())));
+          assert_eq!(OwningNode::parse(r#"'a' + '' "#), Ok(Str("a".into())));
+          assert_eq!(OwningNode::parse(r#"'a' + 'b'"#), Ok(Str("ab".into())));
+
+          // double quotes
+          assert_eq!(OwningNode::parse(r#"""  + "" "#), Ok(Str("".into())));
+          assert_eq!(OwningNode::parse(r#"""  + "a""#), Ok(Str("a".into())));
+          assert_eq!(OwningNode::parse(r#""a" + "" "#), Ok(Str("a".into())));
+          assert_eq!(OwningNode::parse(r#""a" + "b""#), Ok(Str("ab".into())));
+
+          // mixed quotes - '' + ""
+          assert_eq!(OwningNode::parse(r#"''  + "" "#), Ok(Str("".into())));
+          assert_eq!(OwningNode::parse(r#"''  + "a""#), Ok(Str("a".into())));
+          assert_eq!(OwningNode::parse(r#"'a' + "" "#), Ok(Str("a".into())));
+          assert_eq!(OwningNode::parse(r#"'a' + "b""#), Ok(Str("ab".into())));
+
+          // mixed quotes - "" - ''
+          assert_eq!(OwningNode::parse(r#"""  + '' "#), Ok(Str("".into())));
+          assert_eq!(OwningNode::parse(r#"""  + 'a'"#), Ok(Str("a".into())));
+          assert_eq!(OwningNode::parse(r#""a" + '' "#), Ok(Str("a".into())));
+          assert_eq!(OwningNode::parse(r#""a" + 'b'"#), Ok(Str("ab".into())));
+        }
+
+        #[test]
+        fn and_field() {//TODO: result depends on the type of field
+          assert_eq!(OwningNode::parse(r#"''  + x"#), Ok(Attr(FieldName::valid("x"))));
+          assert_eq!(OwningNode::parse(r#"'a' + x"#), Ok(Binary {
+            op: Add,
+            left:  Box::new(Str("a".into())),
+            right: Box::new(Attr(FieldName::valid("x"))),
+          }));
+
+          assert_eq!(OwningNode::parse(r#"""  + x"#), Ok(Attr(FieldName::valid("x"))));
+          assert_eq!(OwningNode::parse(r#""a" + x"#), Ok(Binary {
+            op: Add,
+            left:  Box::new(Str("a".into())),
+            right: Box::new(Attr(FieldName::valid("x"))),
+          }));
+        }
+      }
     }
   }
 
