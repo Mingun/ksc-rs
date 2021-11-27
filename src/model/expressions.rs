@@ -193,11 +193,21 @@ impl<'input> From<Node<'input>> for OwningNode {
         left:  Box::new((*left).into()),
         right: Box::new((*right).into()),
       },
-      Node::Branch { condition, if_true, if_false } => Branch {
-        condition: Box::new((*condition).into()),
-        if_true:   Box::new((*if_true).into()),
-        if_false:  Box::new((*if_false).into()),
-      },
+      Node::Branch { condition, if_true, if_false } => {
+        let condition = (*condition).into();
+        let if_true   = (*if_true).into();
+        let if_false  = (*if_false).into();
+
+        match condition {
+          Bool(true)  => if_true,
+          Bool(false) => if_false,
+          _ => Branch {
+            condition: Box::new(condition),
+            if_true:   Box::new(if_true),
+            if_false:  Box::new(if_false),
+          },
+        }
+      }
     }
   }
 }
@@ -396,6 +406,8 @@ mod convert {
 
 #[cfg(test)]
 mod evaluation {
+  // Colorful diffs in assertions
+  use pretty_assertions::assert_eq;
   use super::*;
   use OwningNode::*;
 
@@ -419,5 +431,16 @@ mod evaluation {
     fn double_inv() {
       assert_eq!(OwningNode::parse("~~x"), Ok(Attr(FieldName::valid("x"))));
     }
+  }
+
+  #[test]
+  fn branch() {
+    assert_eq!(OwningNode::parse("true  ? a : b"), Ok(Attr(FieldName::valid("a"))));
+    assert_eq!(OwningNode::parse("false ? a : b"), Ok(Attr(FieldName::valid("b"))));
+    assert_eq!(OwningNode::parse("condition ? a : b"), Ok(Branch {
+      condition: Box::new(Attr(FieldName::valid("condition"))),
+      if_true:   Box::new(Attr(FieldName::valid("a"))),
+      if_false:  Box::new(Attr(FieldName::valid("b"))),
+    }));
   }
 }
