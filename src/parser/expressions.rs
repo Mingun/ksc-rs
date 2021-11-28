@@ -136,13 +136,21 @@ from_int!(
   u32,
   u64,
   u128,
+  usize,
 
   i8,
   i16,
   i32,
   i64,
   i128,
+  isize,
 );
+impl<'input> From<bool> for Node<'input> {
+  #[inline]
+  fn from(value: bool) -> Self {
+    Self::Bool(value)
+  }
+}
 impl<'input, 'a> From<&'a str> for Node<'input> {
   #[inline]
   fn from(string: &'a str) -> Self {
@@ -153,6 +161,12 @@ impl<'input> From<String> for Node<'input> {
   #[inline]
   fn from(string: String) -> Self {
     Self::Str(string)
+  }
+}
+impl<'input> From<SpecialName> for Node<'input> {
+  #[inline]
+  fn from(value: SpecialName) -> Self {
+    Self::SpecialName(value)
   }
 }
 

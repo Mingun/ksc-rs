@@ -251,13 +251,21 @@ from_int!(
   u32,
   u64,
   u128,
+  usize,
 
   i8,
   i16,
   i32,
   i64,
   i128,
+  isize,
 );
+impl From<bool> for OwningNode {
+  #[inline]
+  fn from(value: bool) -> Self {
+    Self::Bool(value)
+  }
+}
 impl<'a> From<&'a str> for OwningNode {
   #[inline]
   fn from(string: &'a str) -> Self {
