@@ -5,6 +5,7 @@
 use std::convert::TryFrom;
 
 use bigdecimal::num_bigint::BigInt;
+use bigdecimal::num_traits::{One, Zero};
 use bigdecimal::BigDecimal;
 use serde_yml::Number;
 
@@ -202,10 +203,49 @@ impl OwningNode {
           (_, expr) => Unary { op, expr: Box::new(expr) },
         }
       }
-      Node::Binary { op, left, right } => Binary {
-        op,
-        left:  Box::new(Self::validate(*left, ctx)?),
-        right: Box::new(Self::validate(*right, ctx)?),
+      Node::Binary { op, left, right } => {
+        use BinaryOp::*;
+
+        let left  = Self::validate(*left, ctx)?;
+        let right = Self::validate(*right, ctx)?;
+
+        match (op, left, right) {
+          //TODO: Check types before simplification
+          (Add, Str(l), r) if l.is_empty() => r,
+          (Add, l, Str(r)) if r.is_empty() => l,
+
+          (Add, Int(l), r) if l.is_zero() => r,
+          (Add, l, Int(r)) if r.is_zero() => l,
+          (Sub, Int(l), r) if l.is_zero() => Unary { op: UnaryOp::Neg, expr: Box::new(r) },
+          (Sub, l, Int(r)) if r.is_zero() => l,
+
+          (Add, Float(l), r) if l.is_zero() => r,
+          (Add, l, Float(r)) if r.is_zero() => l,
+          (Sub, Float(l), r) if l.is_zero() => Unary { op: UnaryOp::Neg, expr: Box::new(r) },
+          (Sub, l, Float(r)) if r.is_zero() => l,
+
+          //----------------------------------------------------------------------------------------
+          (Mul, Int(l), _) if l.is_zero() => Int(0.into()),// 0 * x = 0
+          (Mul, _, Int(r)) if r.is_zero() => Int(0.into()),// x * 0 = 0
+
+          (Mul, Float(l), _) if l.is_zero() => Int(0.into()),// 0 * x = 0
+          (Mul, _, Float(r)) if r.is_zero() => Int(0.into()),// x * 0 = 0
+
+          (Mul, Int(l), r) if l.is_one() => r,// 1 * x = x
+          (Mul, l, Int(r)) if r.is_one() => l,// x * 1 = x
+          (Div, l, Int(r)) if r.is_one() => l,// x / 1 = x
+
+          (Mul, Float(l), r) if l.is_one() => r,// 1 * x = x
+          (Mul, l, Float(r)) if r.is_one() => l,// x * 1 = x
+          (Div, l, Float(r)) if r.is_one() => l,// x / 1 = x
+
+          //========================================================================================
+          (_, l, r) => Binary {
+            op,
+            left:  Box::new(l),
+            right: Box::new(r),
+          },
+        }
       },
       Node::Branch { condition, if_true, if_false } => {
         let condition = Self::validate(*condition, ctx)?;
