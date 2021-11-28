@@ -864,6 +864,13 @@ pub struct Attribute {
   #[serde(skip_serializing_if = "Option::is_none")]
   pub eos_error: Option<bool>,// TODO: add default to meta.eos_error
 
+  /// Expression that enforces parent type that will be accessible via [`_parent`]
+  /// contextual variable in the expressions within fields of this type.
+  ///
+  /// [`_parent`]: ./expressions/enum.SpecialName.html#variant.Parent
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub parent: Option<Expression<bool>>,
+
   /// Additional arbitrary values.
   #[serde(flatten)]
   pub other: IndexMap<UserName, Value>,
@@ -1102,6 +1109,13 @@ pub struct TypeSpec {
   /// data stream at all.
   #[serde(skip_serializing_if = "Option::is_none")]
   pub instances: Option<IndexMap<Name, Instance>>,
+
+  /// Expression that used to represent type as a string (typically by calling the
+  /// `toString()` / `inspect` / `__repr__` / similar method or property).
+  ///
+  /// Usually used for debugging purposes / internal dumping mechanism.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub to_string: Option<Expression<String>>,
 
   /// Additional arbitrary values.
   #[serde(flatten)]
