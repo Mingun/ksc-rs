@@ -120,13 +120,6 @@ impl OwningNode {
   pub fn parse(expr: &str) -> Result<Self, ModelError> {
     Ok(Self::validate(parse_single(expr)?))
   }
-  /// Performs validation of all nodes in an argument
-  ///
-  /// # Parameters
-  /// - `nodes`: List of nodes for validation
-  pub fn validate_all(nodes: Vec<Node>) -> Vec<Self> {
-    nodes.into_iter().map(Self::validate).collect()
-  }
   /// Performs a semantic validation of raw parsed expression
   pub fn validate(node: Node) -> Self {
     use OwningNode::*;
@@ -210,6 +203,13 @@ impl OwningNode {
         }
       }
     }
+  }
+  /// Performs validation of all nodes in an argument
+  ///
+  /// # Parameters
+  /// - `nodes`: List of nodes for validation
+  pub fn validate_all(nodes: Vec<Node>) -> Vec<Self> {
+    nodes.into_iter().map(Self::validate).collect()
   }
 }
 impl From<Number> for OwningNode {
