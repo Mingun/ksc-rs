@@ -115,7 +115,7 @@ pub struct UserTypeRef {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProcessAlgo {
   /// Name of process routine
-  pub name: String,
+  pub path: Vec<String>,
   /// Optional arguments for type
   pub args: Vec<OwningNode>,
 }
@@ -123,7 +123,7 @@ impl ProcessAlgo {
   fn validate(algo: p::ProcessAlgo) -> Result<Self, ModelError> {
     let r = parse_process(&algo.0)?;
     Ok(Self {
-      name: r.name.into(),
+      path: r.path.into_iter().map(|n| n.into()).collect(),
       args: OwningNode::validate_all(r.args),
     })
   }

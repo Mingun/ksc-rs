@@ -356,7 +356,7 @@ pub enum AttrType<'input> {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct ProcessAlgo<'input> {
   /// Name of process routine
-  pub name: &'input str,
+  pub path: Vec<&'input str>,
   /// Optional arguments for routine
   pub args: Vec<Node<'input>>,
 }
@@ -458,10 +458,8 @@ peg::parser! {
     ///
     /// [`process`]: ../../parser/struct.Attribute.html#structfield.process
     pub rule parse_process() -> ProcessAlgo<'input>
-        //TODO: Original KSC do not allow spaces before "(" and after ")"
-        // https://github.com/kaitai-io/kaitai_struct/issues/792
-      = name:name() args:("(" _ args:args() _ ")" { args })? EOS() {
-        ProcessAlgo { name, args: args.unwrap_or_default() }
+      = _ path:(name() ** (_ "." _)) args:(_ "(" _ args:args() _ ")" { args })? _ EOS() {
+        ProcessAlgo { path, args: args.unwrap_or_default() }
       };
 
     /// Whitespace rule
@@ -682,11 +680,13 @@ mod parse {
   use super::BinaryOp::*;
   use super::Node::*;
   use super::UnaryOp::*;
-  use super::{AttrType, BigDecimal, BigInt, BitOrder, Node, Scope, TypeName, TypeRef};
+  use super::*;
+  use peg::error::ParseError;
+  use peg::str::LineCol;
   use pretty_assertions::assert_eq;
 
   /// Wrapper, for use with https://github.com/fasterthanlime/pegviz
-  fn parse_single(input: &str) -> Result<Node, peg::error::ParseError<peg::str::LineCol>> {
+  fn parse_single(input: &str) -> Result<Node, ParseError<LineCol>> {
     println!("[PEG_INPUT_START]\n{}\n[PEG_TRACE_START]", input);
     let result = super::parse_single(input);
     println!("[PEG_TRACE_STOP]");
@@ -1567,9 +1567,9 @@ mod parse {
     use super::*;
 
     /// Wrapper, for use with https://github.com/fasterthanlime/pegviz
-    fn parse(input: &str) -> Result<AttrType, peg::error::ParseError<peg::str::LineCol>> {
+    fn parse(input: &str) -> Result<AttrType, ParseError<LineCol>> {
       println!("[PEG_INPUT_START]\n{}\n[PEG_TRACE_START]", input);
-      let result = super::super::parse_type_ref(input);
+      let result = parse_type_ref(input);
       println!("[PEG_TRACE_STOP]");
       result
     }
@@ -1823,6 +1823,72 @@ mod parse {
           }));
         }
       }
+    }
+  }
+
+  /// Tests for parsing of attributes' type reference definitions
+  mod process {
+    use super::*;
+    use pretty_assertions::assert_eq;
+
+    /// Wrapper, for use with https://github.com/fasterthanlime/pegviz
+    fn parse(input: &str) -> Result<ProcessAlgo, ParseError<LineCol>> {
+      println!("[PEG_INPUT_START]\n{}\n[PEG_TRACE_START]", input);
+      let result = parse_process(input);
+      println!("[PEG_TRACE_STOP]");
+      result
+    }
+
+    #[test]
+    fn simple() {
+      assert_eq!(parse("zlib"), Ok(ProcessAlgo {
+        path: vec!["zlib"],
+        args: vec![],
+      }));
+    }
+
+    #[test]
+    fn with_params() {
+      assert_eq!(parse("xor(0xAA)"), Ok(ProcessAlgo {
+        path: vec!["xor"],
+        args: vec![0xAA.into()],
+      }));
+      assert_eq!(parse(" xor ( 0xAA ) "), Ok(ProcessAlgo {
+        path: vec!["xor"],
+        args: vec![0xAA.into()],
+      }));
+      assert_eq!(parse("custom(7, true, [0x20, 0x30, 0x40])"), Ok(ProcessAlgo {
+        path: vec!["custom"],
+        args: vec![
+          7.into(),
+          true.into(),
+          Node::List(vec![
+            0x20.into(),
+            0x30.into(),
+            0x40.into(),
+          ]),
+        ],
+      }));
+    }
+
+    #[test]
+    fn with_namespace() {
+      assert_eq!(parse("namespace.zlib"), Ok(ProcessAlgo {
+        path: vec!["namespace", "zlib"],
+        args: vec![],
+      }));
+      assert_eq!(parse(" namespace . zlib "), Ok(ProcessAlgo {
+        path: vec!["namespace", "zlib"],
+        args: vec![],
+      }));
+      assert_eq!(parse("namespace.xor(0xAA)"), Ok(ProcessAlgo {
+        path: vec!["namespace", "xor"],
+        args: vec![0xAA.into()],
+      }));
+      assert_eq!(parse(" namespace . xor ( 0xAA ) "), Ok(ProcessAlgo {
+        path: vec!["namespace", "xor"],
+        args: vec![0xAA.into()],
+      }));
     }
   }
 }
