@@ -620,6 +620,13 @@ pub struct Attribute {
   #[serde(skip_serializing_if = "Option::is_none")]
   pub eos_error: Option<bool>,// TODO: add default to meta.eos_error
 
+  /// Expression that enforces parent type that will be accessible via [`_parent`]
+  /// contextual variable in the expressions within fields of this type.
+  ///
+  /// [`_parent`]: crate::parser::expressions::SpecialName::Parent
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub parent: Option<Expression<bool>>,
+
   /// Rules for validation of parsed values. For attributes with repetitions
   /// validation performed for each element of a collection.
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -945,6 +952,34 @@ mod repeat {
       repeat: None,
       repeat_expr: None,
       repeat_until: Some(Condition::Value(false)),
+      ..Default::default()
+    });
+  }
+}
+
+#[cfg(test)]
+mod parent {
+  use super::*;
+  use pretty_assertions::assert_eq;
+
+  #[test]
+  fn none() {
+    let attr: Attribute = serde_yml::from_str("
+      parent: false
+    ").unwrap();
+    assert_eq!(attr, Attribute {
+      parent: Some(Expression::Value(false)),
+      ..Default::default()
+    });
+  }
+
+  #[test]
+  fn some() {
+    let attr: Attribute = serde_yml::from_str("
+      parent: _parent._parent
+    ").unwrap();
+    assert_eq!(attr, Attribute {
+      parent: Some(Expression::Expr("_parent._parent".into())),
       ..Default::default()
     });
   }
