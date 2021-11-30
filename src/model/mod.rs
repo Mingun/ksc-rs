@@ -5,11 +5,12 @@
 //! [`parser`]: ./parser/index.html
 
 use std::convert::{TryFrom, TryInto};
+use std::cmp;
 use std::fmt::Display;
 use std::hash::Hash;
 use std::ops::Deref;
 
-use bigdecimal::num_bigint::BigUint;
+use bigdecimal::num_bigint::{BigInt, BigUint};
 use indexmap::{indexmap, IndexMap};
 use indexmap::map::Entry;
 use lazy_static::lazy_static;
@@ -663,6 +664,25 @@ pub struct Chunk {
   pub size: Size,
 }
 impl Chunk {
+  /// Calculates actual size that chunk occupies in the stream
+  fn sizeof(&self) -> SizeOf {
+    use SizeOf::*;
+
+    let size = self.type_ref.sizeof();
+    match &self.size {
+      Size::Natural => size,
+      //TODO: evaluate constant conditions and check that count is non-negative
+      Size::Exact { count: Count(OwningNode::Int(count)), .. } => {
+        let (_, count) = cmp::max(count.clone(), BigInt::default()).into_parts();
+        Sized(count)
+      },
+      Size::Eos(_) | Size::Until(_) | Size::Exact { .. } => match size {
+        Unknown         => Unknown,
+        Unsized(min, _) => Unsized(min, None),
+        Sized(size)     => Unsized(size.into(), None),
+      },
+    }
+  }
   fn validate(type_ref: Option<p::TypeRef>,
               props: helpers::TypeProps,
               mut size: helpers::Size,
@@ -1264,5 +1284,378 @@ mod duplicate {
         size: 2
     "#).unwrap();
     let _ = Root::try_from(ksy).expect_err("duplicated fields must raise error");
+  }
+}
+
+/// Tests for `_sizeof` property / `sizeof<>` property
+#[cfg(test)]
+mod sizeof {
+  // Colorful diffs in assertions
+  use pretty_assertions::assert_eq;
+  use super::*;
+  use SizeOf::*;
+
+  const BE: ByteOrder = ByteOrder::Fixed(p::Endian::Be);
+  const LE: ByteOrder = ByteOrder::Fixed(p::Endian::Le);
+
+  /// Tests calculation of size of the built-in types
+  #[test]
+  fn builtin() {
+    macro_rules! check_size {
+      ($variant:ident == $size:literal) => {
+        let type_ref = TypeRef::Enum { base: Enumerable::$variant(BE), enum_: None };
+        assert_eq!(type_ref.sizeof(), Sized($size.into()));
+
+        let type_ref = TypeRef::Enum { base: Enumerable::$variant(LE), enum_: None };
+        assert_eq!(type_ref.sizeof(), Sized($size.into()));
+      };
+    }
+
+    let type_ref = TypeRef::Enum { base: Enumerable::U8, enum_: None };
+    assert_eq!(type_ref.sizeof(), Sized(1usize.into()));
+
+    let type_ref = TypeRef::Enum { base: Enumerable::I8, enum_: None };
+    assert_eq!(type_ref.sizeof(), Sized(1usize.into()));
+
+    check_size!(U16 == 2usize);
+    check_size!(I16 == 2usize);
+
+    check_size!(U32 == 4usize);
+    check_size!(I32 == 4usize);
+
+    check_size!(U64 == 8usize);
+    check_size!(I64 == 8usize);
+
+    //---------------------------------------------------------------------------------------------
+
+    let type_ref = TypeRef::F32(BE);
+    assert_eq!(type_ref.sizeof(), Sized(4usize.into()));
+
+    let type_ref = TypeRef::F32(LE);
+    assert_eq!(type_ref.sizeof(), Sized(4usize.into()));
+
+    let type_ref = TypeRef::F64(BE);
+    assert_eq!(type_ref.sizeof(), Sized(8usize.into()));
+
+    let type_ref = TypeRef::F64(LE);
+    assert_eq!(type_ref.sizeof(), Sized(8usize.into()));
+
+    //---------------------------------------------------------------------------------------------
+
+    let type_ref = TypeRef::Bytes;
+    assert_eq!(type_ref.sizeof(), Unsized(0usize.into(), None));
+
+    let type_ref = TypeRef::String("UTF-8".into());
+    assert_eq!(type_ref.sizeof(), Unsized(0usize.into(), None));
+
+    let type_ref = TypeRef::Fixed(b"12345".to_vec());
+    assert_eq!(type_ref.sizeof(), Sized(5usize.into()));
+  }
+
+  mod chunk {
+    // Colorful diffs in assertions - resolve ambiguous
+    use pretty_assertions::assert_eq;
+    use super::*;
+
+    macro_rules! limited_check_size {
+      ($fn:ident, $variant:ident == $size:expr) => {
+        assert_eq!(
+          chunk_size(TypeRef::Enum { base: Enumerable::$variant(BE), enum_: None }),
+          Sized($size.into()),
+        );
+        assert_eq!(
+          chunk_size(TypeRef::Enum { base: Enumerable::$variant(LE), enum_: None }),
+          Sized($size.into()),
+        );
+      };
+    }
+    macro_rules! limited {
+      ($fn:ident, $count:expr) => {
+        assert_eq!(
+          $fn(TypeRef::Enum { base: Enumerable::U8, enum_: None }),
+          Sized($count.into()),
+        );
+        assert_eq!(
+          $fn(TypeRef::Enum { base: Enumerable::I8, enum_: None }),
+          Sized($count.into()),
+        );
+
+        limited_check_size!($fn, U16 == $count * 2);
+        limited_check_size!($fn, I16 == $count * 2);
+
+        limited_check_size!($fn, U32 == $count * 4);
+        limited_check_size!($fn, I32 == $count * 4);
+
+        limited_check_size!($fn, U64 == $count * 8);
+        limited_check_size!($fn, I64 == $count * 8);
+
+        //---------------------------------------------------------------------------------------------
+
+        assert_eq!($fn(TypeRef::F32(BE)), Sized(($count * 4).into()));
+        assert_eq!($fn(TypeRef::F32(LE)), Sized(($count * 4).into()));
+
+        assert_eq!($fn(TypeRef::F64(BE)), Sized(($count * 8).into()));
+        assert_eq!($fn(TypeRef::F64(LE)), Sized(($count * 8).into()));
+
+        //---------------------------------------------------------------------------------------------
+
+        assert_eq!($fn(TypeRef::Fixed(b"12345".to_vec())), Sized(($count * 5).into()));
+      };
+    }
+
+    macro_rules! unlimited_check_size {
+      ($fn:ident, $variant:ident == $size:literal) => {
+        assert_eq!(
+          $fn(TypeRef::Enum { base: Enumerable::$variant(BE), enum_: None }),
+          Unsized($size.into(), None),
+        );
+        assert_eq!(
+          $fn(TypeRef::Enum { base: Enumerable::$variant(LE), enum_: None }),
+          Unsized($size.into(), None),
+        );
+      };
+    }
+    macro_rules! unlimited {
+      ($fn:ident) => {
+        assert_eq!(
+          $fn(TypeRef::Enum { base: Enumerable::U8, enum_: None }),
+          Unsized(1usize.into(), None),
+        );
+        assert_eq!(
+          $fn(TypeRef::Enum { base: Enumerable::I8, enum_: None }),
+          Unsized(1usize.into(), None),
+        );
+
+        unlimited_check_size!($fn, U16 == 2usize);
+        unlimited_check_size!($fn, I16 == 2usize);
+
+        unlimited_check_size!($fn, U32 == 4usize);
+        unlimited_check_size!($fn, I32 == 4usize);
+
+        unlimited_check_size!($fn, U64 == 8usize);
+        unlimited_check_size!($fn, I64 == 8usize);
+
+        //---------------------------------------------------------------------------------------------
+
+        assert_eq!($fn(TypeRef::F32(BE)), Unsized(4usize.into(), None));
+        assert_eq!($fn(TypeRef::F32(LE)), Unsized(4usize.into(), None));
+
+        assert_eq!($fn(TypeRef::F64(BE)), Unsized(8usize.into(), None));
+        assert_eq!($fn(TypeRef::F64(LE)), Unsized(8usize.into(), None));
+
+        //---------------------------------------------------------------------------------------------
+
+        assert_eq!($fn(TypeRef::Bytes),                    Unsized(0usize.into(), None));
+        assert_eq!($fn(TypeRef::String("UTF-8".into())),   Unsized(0usize.into(), None));
+        assert_eq!($fn(TypeRef::Fixed(b"12345".to_vec())), Unsized(5usize.into(), None));
+      };
+    }
+
+    /// Natural-sized chunks should return `sizeof` of their type.
+    ///
+    /// Corresponds to:
+    /// ```yaml
+    /// type: ...
+    /// ```
+    #[test]
+    fn natural() {
+      fn chunk_size(type_ref: TypeRef) -> SizeOf {
+        let chunk = Chunk {
+          type_ref,
+          size: Size::Natural,
+        };
+        chunk.sizeof()
+      }
+
+      limited!(chunk_size, 1usize);
+      assert_eq!(chunk_size(TypeRef::Bytes),                  Unsized(0usize.into(), None));
+      assert_eq!(chunk_size(TypeRef::String("UTF-8".into())), Unsized(0usize.into(), None));
+    }
+
+    /// All chunks that extends to the end-of-stream have unlimited size, but at least
+    /// the size of the type because otherwise parsing will fail
+    ///
+    /// Corresponds to:
+    /// ```yaml
+    /// size-eos: true
+    /// ```
+    #[test]
+    fn eos() {
+      fn chunk_size(type_ref: TypeRef) -> SizeOf {
+        let chunk = Chunk {
+          type_ref,
+          size: Size::Eos(None),
+        };
+        chunk.sizeof()
+      }
+
+      unlimited!(chunk_size);
+    }
+
+    /// Corresponds to:
+    /// ```yaml
+    /// size-eos: true
+    /// terminator: 0
+    /// ```
+    #[test]
+    fn eos_until() {
+      fn chunk_size(type_ref: TypeRef) -> SizeOf {
+        let chunk = Chunk {
+          type_ref,
+          size: Size::Eos(Some(0x00.into())),
+        };
+        chunk.sizeof()
+      }
+
+      unlimited!(chunk_size);
+    }
+
+    /// Corresponds to:
+    /// ```yaml
+    /// terminator: 0
+    /// ```
+    #[test]
+    fn until() {
+      fn chunk_size(type_ref: TypeRef) -> SizeOf {
+        let chunk = Chunk {
+          type_ref,
+          size: Size::Until(0x00.into()),
+        };
+        chunk.sizeof()
+      }
+
+      unlimited!(chunk_size);
+    }
+
+    /// Exact-sized chunks occupies that amount of space that defined in their `size`,
+    /// no matter how much underlying type is occupy
+    mod exact {
+      // Colorful diffs in assertions - resolve ambiguous
+      use pretty_assertions::assert_eq;
+      use super::*;
+
+
+      macro_rules! constant {
+        ($fn:ident, $count:expr) => {
+          assert_eq!(
+            $fn(TypeRef::Enum { base: Enumerable::U8, enum_: None }),
+            Sized($count.into()),
+          );
+          assert_eq!(
+            $fn(TypeRef::Enum { base: Enumerable::I8, enum_: None }),
+            Sized($count.into()),
+          );
+
+          limited_check_size!($fn, U16 == $count);
+          limited_check_size!($fn, I16 == $count);
+
+          limited_check_size!($fn, U32 == $count);
+          limited_check_size!($fn, I32 == $count);
+
+          limited_check_size!($fn, U64 == $count);
+          limited_check_size!($fn, I64 == $count);
+
+          //---------------------------------------------------------------------------------------------
+
+          assert_eq!($fn(TypeRef::F32(BE)), Sized($count.into()));
+          assert_eq!($fn(TypeRef::F32(LE)), Sized($count.into()));
+
+          assert_eq!($fn(TypeRef::F64(BE)), Sized($count.into()));
+          assert_eq!($fn(TypeRef::F64(LE)), Sized($count.into()));
+
+          //---------------------------------------------------------------------------------------------
+
+          assert_eq!($fn(TypeRef::Bytes),                    Sized($count.into()));
+          assert_eq!($fn(TypeRef::String("UTF-8".into())),   Sized($count.into()));
+          assert_eq!($fn(TypeRef::Fixed(b"12345".to_vec())), Sized($count.into()));
+        };
+      }
+
+      /// Corresponds to:
+      /// ```yaml
+      /// size: constant
+      /// ```
+      #[test]
+      fn constant() {
+        const COUNT: usize = 42;
+
+        fn chunk_size(type_ref: TypeRef) -> SizeOf {
+          let chunk = Chunk {
+            type_ref,
+            size: Size::Exact {
+              count: Count(COUNT.into()),
+              until: None,
+            },
+          };
+          chunk.sizeof()
+        }
+
+        constant!(chunk_size, COUNT);
+      }
+
+      /// Corresponds to:
+      /// ```yaml
+      /// size: constant
+      /// terminal: 0
+      /// ```
+      #[test]
+      fn constant_until() {
+        const COUNT: usize = 42;
+
+        fn chunk_size(type_ref: TypeRef) -> SizeOf {
+          let chunk = Chunk {
+            type_ref,
+            size: Size::Exact {
+              count: Count(COUNT.into()),
+              until: Some(0x00.into()),
+            },
+          };
+          chunk.sizeof()
+        }
+
+        constant!(chunk_size, COUNT);
+      }
+
+      /// Corresponds to:
+      /// ```yaml
+      /// size: expression
+      /// ```
+      #[test]
+      fn expression() {
+        fn chunk_size(type_ref: TypeRef) -> SizeOf {
+          let chunk = Chunk {
+            type_ref,
+            size: Size::Exact {
+              count: Count(OwningNode::Attr(FieldName::valid("x"))),
+              until: None,
+            },
+          };
+          chunk.sizeof()
+        }
+
+        unlimited!(chunk_size);
+      }
+
+      /// Corresponds to:
+      /// ```yaml
+      /// size: expression
+      /// terminator: 0
+      /// ```
+      #[test]
+      fn expression_until() {
+        fn chunk_size(type_ref: TypeRef) -> SizeOf {
+          let chunk = Chunk {
+            type_ref,
+            size: Size::Exact {
+              count: Count(OwningNode::Attr(FieldName::valid("x"))),
+              until: Some(0x00.into()),
+            },
+          };
+          chunk.sizeof()
+        }
+
+        unlimited!(chunk_size);
+      }
+    }
   }
 }
