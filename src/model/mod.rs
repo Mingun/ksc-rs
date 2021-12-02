@@ -10,6 +10,8 @@ use std::fmt::Display;
 use std::hash::Hash;
 use std::ops::{Add, Deref};
 
+#[cfg(not(feature = "compatible"))]
+use bigdecimal::Signed;
 use bigdecimal::num_bigint::{BigInt, BigUint};
 use indexmap::{indexmap, IndexMap};
 use indexmap::map::Entry;
@@ -265,8 +267,22 @@ impl Repeat {
     match (repeat, repeat_expr, repeat_until) {
       (None,        None,        None) => Ok(Self::None),
       (Some(Eos),   None,        None) => Ok(Self::Eos),
-      (Some(Expr),  Some(count), None) => Ok(Self::Count(Count::validate(count)?)),
-      (Some(Until), None, Some(until)) => Ok(Self::Until(Condition::validate(until)?)),
+      (Some(Expr),  Some(count), None) => match Count::validate(count)? {
+        #[cfg(not(feature = "compatible"))]
+        Count(OwningNode::Int(count)) if !count.is_positive() => Err(Validation(
+          format!("`repeat-expr` should be positive, but it value is `{}`", count).into()
+        )),
+        //TODO: Warn if only one iteration will be done
+        count => Ok(Self::Count(count)),
+      },
+      (Some(Until), None, Some(until)) => match Condition::validate(until)? {
+        #[cfg(not(feature = "compatible"))]
+        Condition(OwningNode::Bool(false)) => Err(Validation(
+          "`repeat-until` key is always `false` which generates an infinity loop".into()
+        )),
+        // Condition(OwningNode::Bool(true))  => //TODO: Warn that only one iteration will be done
+        until => Ok(Self::Until(until)),
+      },
 
       // (None, Some(count), None) => Ok(Self::Count(Count::validate(count)?)),//TODO https://github.com/kaitai-io/kaitai_struct/issues/776
       // (None, None, Some(until)) => Ok(Self::Until(Condition::validate(until)?)),//TODO https://github.com/kaitai-io/kaitai_struct/issues/776
@@ -1367,6 +1383,370 @@ mod duplicate {
         size: 2
     "#).unwrap();
     let _ = Root::try_from(ksy).expect_err("duplicated fields must raise error");
+  }
+}
+
+#[cfg(test)]
+mod repeat {
+  use super::*;
+  use ModelError::*;
+
+  mod expr {
+    // Colorful diffs in assertions - resolve ambiguous
+    use pretty_assertions::assert_eq;
+    use super::*;
+
+    /// ```yaml
+    /// repeat: expr
+    /// ```
+    #[test]
+    fn no_repeat_expr() {
+      let rep = Repeat::validate(
+        Some(p::Repeat::Expr),
+        None,
+        None,
+      );
+      assert_eq!(rep, Err(Validation("missed `repeat-expr`".into())));
+    }
+
+    /// ```yaml
+    /// repeat: expr
+    /// repeat-expr: -42
+    /// ```
+    #[test]
+    fn negative() {
+      let rep = Repeat::validate(
+        Some(p::Repeat::Expr),
+        Some(p::Count::Expr("-42".into())),
+        None,
+      );
+
+      #[cfg(feature = "compatible")]
+      assert_eq!(rep, Ok(Repeat::Count(Count(OwningNode::Int((-42).into())))));
+
+      #[cfg(not(feature = "compatible"))]
+      assert_eq!(rep, Err(Validation("`repeat-expr` should be positive, but it value is `-42`".into())));
+    }
+
+    /// ```yaml
+    /// repeat: expr
+    /// repeat-expr: 0
+    /// ```
+    #[test]
+    fn zero() {
+      let rep = Repeat::validate(
+        Some(p::Repeat::Expr),
+        Some(p::Count::Value(0)),
+        None,
+      );
+
+      #[cfg(feature = "compatible")]
+      assert_eq!(rep, Ok(Repeat::Count(Count(OwningNode::Int(0.into())))));
+
+      #[cfg(not(feature = "compatible"))]
+      assert_eq!(rep, Err(Validation("`repeat-expr` should be positive, but it value is `0`".into())));
+    }
+
+    /// ```yaml
+    /// repeat: expr
+    /// repeat-expr: 42
+    /// ```
+    #[test]
+    fn positive() {
+      let rep = Repeat::validate(
+        Some(p::Repeat::Expr),
+        Some(p::Count::Value(42)),
+        None,
+      );
+      assert_eq!(rep, Ok(Repeat::Count(Count(OwningNode::Int(42.into())))));
+    }
+
+    /// ```yaml
+    /// repeat: expr
+    /// repeat-expr: expr
+    /// ```
+    #[test]
+    fn variable() {
+      let rep = Repeat::validate(
+        Some(p::Repeat::Expr),
+        Some(p::Count::Expr("expr".into())),
+        None,
+      );
+      assert_eq!(rep, Ok(Repeat::Count(Count(OwningNode::Attr(FieldName::valid("expr"))))));
+    }
+
+    /// ```yaml
+    /// repeat: expr
+    /// repeat-until: until
+    /// ```
+    #[test]
+    fn repeat_until() {
+      let rep = Repeat::validate(
+        Some(p::Repeat::Expr),
+        None,
+        Some(p::Condition::Expr("until".into())),
+      );
+      assert_eq!(rep, Err(Validation("missed `repeat-expr`".into())));
+    }
+
+    mod only_repeat_expr {
+      // Colorful diffs in assertions - resolve ambiguous
+      use pretty_assertions::assert_eq;
+      use super::*;
+
+      /// ```yaml
+      /// repeat-expr: -42
+      /// ```
+      #[test]
+      fn negative() {
+        let rep = Repeat::validate(
+          None,
+          Some(p::Count::Expr("-42".into())),
+          None,
+        );
+        assert_eq!(rep, Err(Validation("missed `repeat: expr`".into())));
+      }
+
+      /// ```yaml
+      /// repeat-expr: 0
+      /// ```
+      #[test]
+      fn zero() {
+        let rep = Repeat::validate(
+          None,
+          Some(p::Count::Value(0)),
+          None,
+        );
+        assert_eq!(rep, Err(Validation("missed `repeat: expr`".into())));
+      }
+
+      /// ```yaml
+      /// repeat-expr: 42
+      /// ```
+      #[test]
+      fn positive() {
+        let rep = Repeat::validate(
+          None,
+          Some(p::Count::Value(42)),
+          None,
+        );
+        assert_eq!(rep, Err(Validation("missed `repeat: expr`".into())));
+      }
+
+      /// ```yaml
+      /// repeat-expr: expr
+      /// ```
+      #[test]
+      fn variable() {
+        let rep = Repeat::validate(
+          None,
+          Some(p::Count::Expr("expr".into())),
+          None,
+        );
+        assert_eq!(rep, Err(Validation("missed `repeat: expr`".into())));
+      }
+    }
+  }
+
+  mod until {
+    // Colorful diffs in assertions - resolve ambiguous
+    use pretty_assertions::assert_eq;
+    use super::*;
+
+    /// ```yaml
+    /// repeat: until
+    /// ```
+    #[test]
+    fn no_repeat_until() {
+      let rep = Repeat::validate(
+        Some(p::Repeat::Until),
+        None,
+        None,
+      );
+      assert_eq!(rep, Err(Validation("missed `repeat-until`".into())));
+    }
+
+    /// ```yaml
+    /// repeat: until
+    /// repeat-until: true
+    /// ```
+    #[test]
+    fn true_() {
+      let rep = Repeat::validate(
+        Some(p::Repeat::Until),
+        None,
+        Some(p::Condition::Value(true)),
+      );
+      assert_eq!(rep, Ok(Repeat::Until(Condition(OwningNode::Bool(true)))));
+    }
+
+    /// ```yaml
+    /// repeat: until
+    /// repeat-until: false
+    /// ```
+    #[test]
+    fn false_() {
+      let rep = Repeat::validate(
+        Some(p::Repeat::Until),
+        None,
+        Some(p::Condition::Value(false)),
+      );
+
+      #[cfg(feature = "compatible")]
+      assert_eq!(rep, Ok(Repeat::Until(Condition(OwningNode::Bool(false)))));
+
+      #[cfg(not(feature = "compatible"))]
+      assert_eq!(rep, Err(Validation("`repeat-until` key is always `false` which generates an infinity loop".into())));
+    }
+
+    /// ```yaml
+    /// repeat: until
+    /// repeat-until: until
+    /// ```
+    #[test]
+    fn variable() {
+      let rep = Repeat::validate(
+        Some(p::Repeat::Until),
+        None,
+        Some(p::Condition::Expr("until".into())),
+      );
+      assert_eq!(rep, Ok(Repeat::Until(Condition(OwningNode::Attr(FieldName::valid("until"))))));
+    }
+
+    /// ```yaml
+    /// repeat: until
+    /// repeat-expr: expr
+    /// ```
+    #[test]
+    fn repeat_expr() {
+      let rep = Repeat::validate(
+        Some(p::Repeat::Until),
+        Some(p::Count::Expr("expr".into())),
+        None,
+      );
+      assert_eq!(rep, Err(Validation("missed `repeat-until`".into())));
+    }
+
+    mod only_repeat_until {
+      // Colorful diffs in assertions - resolve ambiguous
+      use pretty_assertions::assert_eq;
+      use super::*;
+
+      /// ```yaml
+      /// repeat-until: true
+      /// ```
+      #[test]
+      fn true_() {
+        let rep = Repeat::validate(
+          None,
+          None,
+          Some(p::Condition::Value(true)),
+        );
+        assert_eq!(rep, Err(Validation("missed `repeat: until`".into())));
+      }
+
+      /// ```yaml
+      /// repeat-until: false
+      /// ```
+      #[test]
+      fn false_() {
+        let rep = Repeat::validate(
+          None,
+          None,
+          Some(p::Condition::Value(false)),
+        );
+        assert_eq!(rep, Err(Validation("missed `repeat: until`".into())));
+      }
+
+      /// ```yaml
+      /// repeat-until: until
+      /// ```
+      #[test]
+      fn variable() {
+        let rep = Repeat::validate(
+          None,
+          None,
+          Some(p::Condition::Expr("until".into())),
+        );
+        assert_eq!(rep, Err(Validation("missed `repeat: until`".into())));
+      }
+    }
+  }
+
+  mod eos {
+    // Colorful diffs in assertions - resolve ambiguous
+    use pretty_assertions::assert_eq;
+    use super::*;
+
+    /// ```yaml
+    /// repeat: eos
+    /// ```
+    #[test]
+    fn only_eos() {
+      let rep = Repeat::validate(
+        Some(p::Repeat::Eos),
+        None,
+        None,
+      );
+      assert_eq!(rep, Ok(Repeat::Eos));
+    }
+
+    /// ```yaml
+    /// repeat: eos
+    /// repeat-expr: expr
+    /// ```
+    #[test]
+    fn repeat_expr() {
+      let rep = Repeat::validate(
+        Some(p::Repeat::Eos),
+        Some(p::Count::Expr("expr".into())),
+        None,
+      );
+      assert_eq!(rep, Err(Validation("`repeat-expr` requires `repeat: expr`".into())));
+    }
+
+    /// ```yaml
+    /// repeat: eos
+    /// repeat-until: until
+    /// ```
+    #[test]
+    fn repeat_until() {
+      let rep = Repeat::validate(
+        Some(p::Repeat::Eos),
+        None,
+        Some(p::Condition::Expr("until".into())),
+      );
+      assert_eq!(rep, Err(Validation("`repeat-until` requires `repeat: until`".into())));
+    }
+
+    /// ```yaml
+    /// repeat: eos
+    /// repeat-expr: expr
+    /// repeat-until: until
+    /// ```
+    #[test]
+    fn repeat_expr_until() {
+      let rep = Repeat::validate(
+        Some(p::Repeat::Eos),
+        Some(p::Count::Expr("expr".into())),
+        Some(p::Condition::Expr("until".into())),
+      );
+      assert_eq!(rep, Err(Validation("either `repeat-expr` or `repeat-until` must be specified".into())));
+    }
+  }
+
+  /// ```yaml
+  /// repeat-expr: expr
+  /// repeat-until: until
+  /// ```
+  #[test]
+  fn repeat_expr_until() {
+    let rep = Repeat::validate(
+      None,
+      Some(p::Count::Expr("expr".into())),
+      Some(p::Condition::Expr("until".into())),
+    );
+    pretty_assertions::assert_eq!(rep, Err(Validation("either `repeat-expr` or `repeat-until` must be specified".into())));
   }
 }
 

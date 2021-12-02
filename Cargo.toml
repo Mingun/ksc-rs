@@ -21,3 +21,9 @@ serde_yaml = "0.8"
 [dev-dependencies]
 pretty_assertions = "1.0"
 test-generator = "0.3"
+
+[features]
+# When enabled, the compiler will preserve compatibility with the original compiler
+# (https://github.com/kaitai-io/kaitai_struct_compiler), otherwise in some cases it
+# will work differently. See readme.md for full list of differencies
+compatible = []

@@ -6,7 +6,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
+  ksc:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
@@ -16,3 +16,13 @@ jobs:
       run: cargo build --verbose
     - name: Run tests
       run: cargo test --verbose
+  ksc-compatible:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        submodules: true
+    - name: Build
+      run: cargo build --verbose --features compatible
+    - name: Run tests
+      run: cargo test --verbose --features compatible
