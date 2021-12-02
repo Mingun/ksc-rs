@@ -9,6 +9,7 @@ use std::fmt::Display;
 use std::hash::Hash;
 use std::ops::Deref;
 
+use bigdecimal::num_bigint::BigUint;
 use indexmap::{indexmap, IndexMap};
 use indexmap::map::Entry;
 use lazy_static::lazy_static;
@@ -317,21 +318,68 @@ impl From<u8> for Terminator {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Size {
   /// Size not defined explicitly, natural size should be used for reading
-  /// field. Corresponds to not defined size. Variant contains Calculated
-  /// size of type in bytes.
-  Natural(usize),
+  /// field. Corresponds to not defined size. To get a real size use the
+  /// [`sizeof()`] method.
+  ///
+  /// [`sizeof()`]: ./enum.TypeRef.html#method.sizeof
+  Natural,
   /// Read all remaining bytes in a stream. Optionally terminator
   /// can define actually available slice for parsing. In that case
   /// only bytes in range `[0; terminator]` will be used to parse data.
   /// All remaining bytes will be unavailable.
   ///
-  /// Corresponds to `size-eos: true`.
+  /// ```text
+  ///          /====\ - actually used data
+  /// Stream: [<type>                   <         ]
+  ///         0                         until    eos
+  ///          \_available for parsing_/         /
+  ///           \____________sizeof() of chunk__/
+  ///            \________________stream size__/
+  /// ```
+  ///
+  /// - `Eos(None)` corresponds to
+  ///   ```yaml
+  ///   size-eos: true
+  ///   ```
+  /// - `Eos(Some(...))` corresponds to
+  ///   ```yaml
+  ///   size-eos: true
+  ///   terminator: ...
+  ///   ```
   Eos(Option<Terminator>),
   /// Read all bytes in a stream until terminator byte is reached.
+  ///
+  /// ```text
+  ///          /====\ - actually used data
+  /// Stream: [<type>                   ]_________|
+  ///         0                         until    eos
+  ///          \_available for parsing_/         /
+  ///           \__sizeof() of chunk__/         /
+  ///            \________________stream size__/
+  /// ```
   ///
   /// Corresponds to `terminator: x`.
   Until(Terminator),
   /// Read exactly specified count of bytes (can be fixed or variable).
+  ///
+  /// ```text
+  ///          /====\ - actually used data
+  /// Stream: [<type>                   <                     ]_________|
+  ///         0                         until             count        eos
+  ///          \_available for parsing_/                     /         /
+  ///           \________________________sizeof() of chunk__/         /
+  ///            \______________________________________stream size__/
+  /// ```
+  ///
+  /// - `Exact { count: ..., until: None }` corresponds to
+  ///   ```yaml
+  ///   size: ...
+  ///   ```
+  /// - `Exact { count: ..., until: Some(...) }` corresponds to
+  ///   ```yaml
+  ///   size: ...
+  ///   terminator: ...
+  ///   ```
   Exact {
     /// Number of bytes which sub-stream occupies in the parent stream.
     ///
@@ -353,9 +401,9 @@ impl Size {
   ///   is not required; compiler won't complain about that
   /// - `size`:
   ///   Size parameters from parser
-  fn validate(type_size: NaturalSize, size: helpers::Size) -> Result<Self, ModelError> {
+  fn validate(type_size: SizeOf, size: helpers::Size) -> Result<Self, ModelError> {
     use ModelError::*;
-    use NaturalSize::*;
+    use SizeOf::*;
 
     let terminator = match (size.terminator, size.consume, size.include, size.eos_error) {
       (None, None, None, None) => None,
@@ -379,8 +427,8 @@ impl Size {
       (None,       false,    None) => match type_size {
         // For unknown sized types use all remaining input
         Unknown => Ok(Self::Eos(None)),
-        Unsized => Err(Validation("`size`, `size-eos: true` or `terminator` must be specified".into())),
-        Sized(size) => Ok(Self::Natural(size)),
+        Unsized(_, _) => Err(Validation("`size`, `size-eos: true` or `terminator` must be specified".into())),
+        Sized(_) => Ok(Self::Natural),
       },
     }
   }
@@ -401,14 +449,17 @@ impl From<u64> for Size {
 }
 
 /// Natural size of the type.
-pub enum NaturalSize {
+#[derive(Clone, Debug, PartialEq)]
+pub enum SizeOf {
   /// Type has specific size. That includes all built-in sized types
   /// (all types, except byte arrays and strings).
-  Sized(usize),
+  Sized(BigUint),
   /// Type has no natural size. it occupies all the space provided.
   /// Some explicit size definition (as `size`, `size-eos` or `terminator`)
   /// is required.
-  Unsized,
+  ///
+  /// The value contained represents the minimum and the maximum size of the type
+  Unsized(BigUint, Option<BigUint>),
   /// Size of type is unknown. That variant is used for external types
   /// and for local user types until compiler will be smart enough to
   /// calculate their sizes.
@@ -444,7 +495,7 @@ pub enum Enumerable {
   Bits(usize),
 }
 impl Enumerable {
-  /// Returns size of type in bytes.
+  /// Returns the size of the type in bytes.
   pub fn size(&self) -> usize {
     use Enumerable::*;
 
@@ -493,21 +544,21 @@ pub enum TypeRef {
   Fixed(Vec<u8>),
 }
 impl TypeRef {
-  /// Return natural size of type in bytes, or `None`, if type is unsized
-  /// (byte arrays and strings) or size is unknown (user types).
-  pub fn natural_size(&self) -> NaturalSize {
+  /// Returns the size of the type in bytes, `Unsized`, if type is unsized
+  /// (byte arrays and strings) and `Unknown` if size not calculated yet.
+  pub fn sizeof(&self) -> SizeOf {
     use TypeRef::*;
-    use NaturalSize::*;
+    use SizeOf::*;
 
     match self {
-      Enum { base, .. } => Sized(base.size()),
+      Enum { base, .. } => Sized(base.size().into()),
 
-      F32(_) => Sized(4),
-      F64(_) => Sized(8),
+      F32(_) => Sized(4usize.into()),
+      F64(_) => Sized(8usize.into()),
 
-      Fixed(contents) => Sized(contents.len()),
+      Fixed(contents) => Sized(contents.len().into()),
 
-      Bytes | String(_) => Unsized,
+      Bytes | String(_) => Unsized(0usize.into(), None),
       User(_) => Unknown,// TODO: Get size of user type
     }
   }
@@ -598,7 +649,9 @@ impl TypeRef {
   }
 }
 
-/// A pack of reference to type and size of occupied space in stream
+/// An untyped space of some size that holds data which may be interpret as a specified type.
+/// The size of space can be determined or by the underlying type, or by the direct specification
+/// in the KSY `size` or `size-eos` attribute.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Chunk {
   /// Reference to type of this attribute. Type can be fixed or calculated
@@ -623,7 +676,7 @@ impl Chunk {
     }
 
     let type_ref = TypeRef::validate(type_ref, props)?;
-    let size = Size::validate(type_ref.natural_size(), size)?;
+    let size = Size::validate(type_ref.sizeof(), size)?;
     Ok(Self { type_ref, size })
   }
 }
@@ -931,48 +984,52 @@ mod size {
             fields: indexmap![
               SeqName::Named(Name::valid("field")) => Chunk {
                 type_ref: $base,
-                size: Size::Natural($size),
+                size: Size::Natural,
               }.into(),
             ],
             ..Default::default()
           }
         });
+        match &root.type_.fields[&SeqName::Named(FieldName::valid("field"))].chunk {
+          Variant::Fixed(chunk) => assert_eq!(chunk.type_ref.sizeof(), SizeOf::Sized($size.into())),
+          _ => assert!(false),
+        }
       };
     }
-    test!(u1, 1, TypeRef::Enum { base: U8, enum_: None });
-    test!(u2, 2, TypeRef::Enum { base: U16(Fixed(Be)), enum_: None });
-    test!(u4, 4, TypeRef::Enum { base: U32(Fixed(Be)), enum_: None });
-    test!(u8, 8, TypeRef::Enum { base: U64(Fixed(Be)), enum_: None });
+    test!(u1, 1usize, TypeRef::Enum { base: U8, enum_: None });
+    test!(u2, 2usize, TypeRef::Enum { base: U16(Fixed(Be)), enum_: None });
+    test!(u4, 4usize, TypeRef::Enum { base: U32(Fixed(Be)), enum_: None });
+    test!(u8, 8usize, TypeRef::Enum { base: U64(Fixed(Be)), enum_: None });
 
-    test!(s1, 1, TypeRef::Enum { base: I8, enum_: None });
-    test!(s2, 2, TypeRef::Enum { base: I16(Fixed(Be)), enum_: None });
-    test!(s4, 4, TypeRef::Enum { base: I32(Fixed(Be)), enum_: None });
-    test!(s8, 8, TypeRef::Enum { base: I64(Fixed(Be)), enum_: None });
+    test!(s1, 1usize, TypeRef::Enum { base: I8, enum_: None });
+    test!(s2, 2usize, TypeRef::Enum { base: I16(Fixed(Be)), enum_: None });
+    test!(s4, 4usize, TypeRef::Enum { base: I32(Fixed(Be)), enum_: None });
+    test!(s8, 8usize, TypeRef::Enum { base: I64(Fixed(Be)), enum_: None });
 
-    test!(f4, 4, TypeRef::F32(Fixed(Be)));
-    test!(f8, 8, TypeRef::F64(Fixed(Be)));
+    test!(f4, 4usize, TypeRef::F32(Fixed(Be)));
+    test!(f8, 8usize, TypeRef::F64(Fixed(Be)));
     //----------------------
-    test!(u2be, 2, TypeRef::Enum { base: U16(Fixed(Be)), enum_: None });
-    test!(u4be, 4, TypeRef::Enum { base: U32(Fixed(Be)), enum_: None });
-    test!(u8be, 8, TypeRef::Enum { base: U64(Fixed(Be)), enum_: None });
+    test!(u2be, 2usize, TypeRef::Enum { base: U16(Fixed(Be)), enum_: None });
+    test!(u4be, 4usize, TypeRef::Enum { base: U32(Fixed(Be)), enum_: None });
+    test!(u8be, 8usize, TypeRef::Enum { base: U64(Fixed(Be)), enum_: None });
 
-    test!(s2be, 2, TypeRef::Enum { base: I16(Fixed(Be)), enum_: None });
-    test!(s4be, 4, TypeRef::Enum { base: I32(Fixed(Be)), enum_: None });
-    test!(s8be, 8, TypeRef::Enum { base: I64(Fixed(Be)), enum_: None });
+    test!(s2be, 2usize, TypeRef::Enum { base: I16(Fixed(Be)), enum_: None });
+    test!(s4be, 4usize, TypeRef::Enum { base: I32(Fixed(Be)), enum_: None });
+    test!(s8be, 8usize, TypeRef::Enum { base: I64(Fixed(Be)), enum_: None });
 
-    test!(f4be, 4, TypeRef::F32(Fixed(Be)));
-    test!(f8be, 8, TypeRef::F64(Fixed(Be)));
+    test!(f4be, 4usize, TypeRef::F32(Fixed(Be)));
+    test!(f8be, 8usize, TypeRef::F64(Fixed(Be)));
     //----------------------
-    test!(u2le, 2, TypeRef::Enum { base: U16(Fixed(Le)), enum_: None });
-    test!(u4le, 4, TypeRef::Enum { base: U32(Fixed(Le)), enum_: None });
-    test!(u8le, 8, TypeRef::Enum { base: U64(Fixed(Le)), enum_: None });
+    test!(u2le, 2usize, TypeRef::Enum { base: U16(Fixed(Le)), enum_: None });
+    test!(u4le, 4usize, TypeRef::Enum { base: U32(Fixed(Le)), enum_: None });
+    test!(u8le, 8usize, TypeRef::Enum { base: U64(Fixed(Le)), enum_: None });
 
-    test!(s2le, 2, TypeRef::Enum { base: I16(Fixed(Le)), enum_: None });
-    test!(s4le, 4, TypeRef::Enum { base: I32(Fixed(Le)), enum_: None });
-    test!(s8le, 8, TypeRef::Enum { base: I64(Fixed(Le)), enum_: None });
+    test!(s2le, 2usize, TypeRef::Enum { base: I16(Fixed(Le)), enum_: None });
+    test!(s4le, 4usize, TypeRef::Enum { base: I32(Fixed(Le)), enum_: None });
+    test!(s8le, 8usize, TypeRef::Enum { base: I64(Fixed(Le)), enum_: None });
 
-    test!(f4le, 4, TypeRef::F32(Fixed(Le)));
-    test!(f8le, 8, TypeRef::F64(Fixed(Le)));
+    test!(f4le, 4usize, TypeRef::F32(Fixed(Le)));
+    test!(f8le, 8usize, TypeRef::F64(Fixed(Le)));
   }
 }
 
