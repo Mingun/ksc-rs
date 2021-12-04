@@ -8,7 +8,7 @@ use std::convert::{TryFrom, TryInto};
 use std::cmp;
 use std::fmt::Display;
 use std::hash::Hash;
-use std::ops::Deref;
+use std::ops::{Add, Deref};
 
 use bigdecimal::num_bigint::{BigInt, BigUint};
 use indexmap::{indexmap, IndexMap};
@@ -230,6 +230,22 @@ impl<T, U: TryInto<T>> TryFrom<p::Variant<U>> for Variant<T>
           cases: new_cases
         })
       },
+    }
+  }
+}
+impl Variant<Chunk> {
+  /// Calculates combined size of all chunks in this container.
+  /// The calculated size is most common size of all variants.
+  fn sizeof(&self) -> SizeOf {
+    match self {
+      Variant::Fixed(chunk) => chunk.sizeof(),
+      Variant::Choice { cases, .. } => cases.values().fold(
+        Option::<SizeOf>::None,
+        |acc, chunk| Some(match acc {
+          None => chunk.sizeof(),
+          Some(size) => size.or(chunk.sizeof()),
+        })
+      ).unwrap_or(SizeOf::Unknown),
     }
   }
 }
@@ -465,6 +481,53 @@ pub enum SizeOf {
   /// and for local user types until compiler will be smart enough to
   /// calculate their sizes.
   Unknown,
+}
+impl SizeOf {
+  fn or(self, other: Self) -> Self {
+    use std::cmp::{min, max};
+    use SizeOf::*;
+
+    match (self, other) {
+      (Unknown, _) => Unknown,
+      (_, Unknown) => Unknown,
+
+      (Unsized(l, Some(lm)), Unsized(r, Some(rm))) => Unsized(min(l, r), Some(max(lm, rm))),
+      (Unsized(l,        _), Unsized(r,        _)) => Unsized(min(l, r), None),
+
+      (Unsized(l, Some(lm)), Sized(r)) => Unsized(min(l, r.clone()), Some(max(lm, r))),
+      (Unsized(l,        _), Sized(r)) => Unsized(min(l, r), None),
+
+      (Sized(l), Unsized(r, Some(rm))) => Unsized(min(l.clone(), r), Some(max(l, rm))),
+      (Sized(l), Unsized(r,        _)) => Unsized(min(l, r), None),
+
+      (Sized(l), Sized(r)) if l == r => Sized(l),
+      (Sized(l), Sized(r)) if l <  r => Unsized(l, Some(r)),
+      (Sized(l), Sized(r))           => Unsized(r, Some(l)),
+    }
+  }
+}
+impl Add for SizeOf {
+  type Output = Self;
+
+  fn add(self, rhs: Self) -> Self::Output {
+    use SizeOf::*;
+
+    match (self, rhs) {
+      (Unknown, _) => Unknown,
+      (_, Unknown) => Unknown,
+
+      (Unsized(l, Some(lm)), Unsized(r, Some(rm))) => Unsized(l + r, Some(rm + lm)),
+      (Unsized(l,        _), Unsized(r,        _)) => Unsized(l + r, None),
+
+      (Unsized(l, Some(lm)), Sized(r)) => Unsized(l + r.clone(), Some(lm + r)),
+      (Unsized(l,        _), Sized(r)) => Unsized(l + r, None),
+
+      (Sized(l), Unsized(r, Some(rm))) => Unsized(l.clone() + r, Some(l + rm)),
+      (Sized(l), Unsized(r,        _)) => Unsized(l + r, None),
+
+      (Sized(l), Sized(r)) => Sized(l + r),
+    }
+  }
 }
 
 /// Byte order, used for reading built-in numeric types
@@ -1297,6 +1360,352 @@ mod sizeof {
 
   const BE: ByteOrder = ByteOrder::Fixed(p::Endian::Be);
   const LE: ByteOrder = ByteOrder::Fixed(p::Endian::Le);
+
+  #[test]
+  fn add() {
+    // Unknown + ...
+    assert_eq!(
+      Unknown + Unknown,
+      Unknown
+    );
+    assert_eq!(
+      Unknown + Sized(42usize.into()),
+      Unknown
+    );
+    assert_eq!(
+      Unknown + Unsized(42usize.into(), None),
+      Unknown
+    );
+    assert_eq!(
+      Unknown + Unsized(42usize.into(), Some(100usize.into())),
+      Unknown
+    );
+
+    // Sized + ...
+    assert_eq!(
+      Sized(10usize.into()) + Unknown,
+      Unknown
+    );
+    assert_eq!(// 10 + 42 = 52
+      Sized(10usize.into()) + Sized(42usize.into()),
+      Sized(52usize.into())
+    );
+    assert_eq!(// 10 + (42..) = (52..)
+      Sized(10usize.into()) + Unsized(42usize.into(), None),
+      Unsized(52usize.into(), None)
+    );
+    assert_eq!(// 10 + (42..=100) = (52..=110)
+      Sized(10usize.into()) + Unsized(42usize.into(), Some(100usize.into())),
+      Unsized(52usize.into(), Some(110usize.into()))
+    );
+
+    // Unsized + ...
+    assert_eq!(
+      Unsized(10usize.into(), None) + Unknown,
+      Unknown
+    );
+    assert_eq!(// (10..) + 42 = (52..)
+      Unsized(10usize.into(), None) + Sized(42usize.into()),
+      Unsized(52usize.into(), None)
+    );
+    assert_eq!(// (10..) + (42..) = (52..)
+      Unsized(10usize.into(), None) + Unsized(42usize.into(), None),
+      Unsized(52usize.into(), None)
+    );
+    assert_eq!(// (10..) + (42..=100) = (52..)
+      Unsized(10usize.into(), None) + Unsized(42usize.into(), Some(100usize.into())),
+      Unsized(52usize.into(), None)
+    );
+
+    // Unsized + ...
+    assert_eq!(
+      Unsized(10usize.into(), Some(50usize.into())) + Unknown,
+      Unknown
+    );
+    assert_eq!(// (10..=50) + 42 = (52..=92)
+      Unsized(10usize.into(), Some(50usize.into())) + Sized(42usize.into()),
+      Unsized(52usize.into(), Some(92usize.into()))
+    );
+    assert_eq!(// (10..=50) + (42..) = (52..)
+      Unsized(10usize.into(), Some(50usize.into())) + Unsized(42usize.into(), None),
+      Unsized(52usize.into(), None)
+    );
+    assert_eq!(// (10..=50) + (42..=100) = (52..=150)
+      Unsized(10usize.into(), Some(50usize.into())) + Unsized(42usize.into(), Some(100usize.into())),
+      Unsized(52usize.into(), Some(150usize.into()))
+    );
+  }
+
+  #[test]
+  fn or() {
+    // Unknown .or ...
+    assert_eq!(
+      SizeOf::or(
+        Unknown,
+        Unknown
+      ),
+      Unknown
+    );
+    assert_eq!(
+      SizeOf::or(
+        Unknown,
+        Sized(42usize.into())
+      ),
+      Unknown
+    );
+    assert_eq!(
+      SizeOf::or(
+        Unknown,
+        Unsized(42usize.into(), None)
+      ),
+      Unknown
+    );
+    assert_eq!(
+      SizeOf::or(
+        Unknown,
+        Unsized(42usize.into(), Some(100usize.into()))
+      ),
+      Unknown
+    );
+
+    //-------------------------------------------------------------------------
+    // Sized .or ...
+    assert_eq!(
+      SizeOf::or(
+        Sized(10usize.into()),
+        Unknown
+      ),
+      Unknown
+    );
+    assert_eq!(// 10 .or 42 = 10..=42
+      SizeOf::or(
+        Sized(10usize.into()),
+        Sized(42usize.into())
+      ),
+      Unsized(10usize.into(), Some(42usize.into()))
+    );
+    assert_eq!(// 42 .or 10 = 10..=42
+      SizeOf::or(
+        Sized(42usize.into()),
+        Sized(10usize.into())
+      ),
+      Unsized(10usize.into(), Some(42usize.into()))
+    );
+
+    assert_eq!(// 10 .or (42..) = (10..)
+      SizeOf::or(
+        Sized(10usize.into()),
+        Unsized(42usize.into(), None)
+      ),
+      Unsized(10usize.into(), None)
+    );
+    assert_eq!(// 42 .or (10..) = (10..)
+      SizeOf::or(
+        Sized(42usize.into()),
+        Unsized(10usize.into(), None)
+      ),
+      Unsized(10usize.into(), None)
+    );
+
+    assert_eq!(// 10 .or (42..=50) = (10..=50)
+      SizeOf::or(
+        Sized(10usize.into()),
+        Unsized(42usize.into(), Some(50usize.into()))
+      ),
+      Unsized(10usize.into(), Some(50usize.into()))
+    );
+    assert_eq!(// 42 .or (10..=50) = (10..=50)
+      SizeOf::or(
+        Sized(42usize.into()),
+        Unsized(10usize.into(), Some(50usize.into()))
+      ),
+      Unsized(10usize.into(), Some(50usize.into()))
+    );
+    assert_eq!(// 50 .or (10..=42) = (10..=50)
+      SizeOf::or(
+        Sized(50usize.into()),
+        Unsized(10usize.into(), Some(42usize.into()))
+      ),
+      Unsized(10usize.into(), Some(50usize.into()))
+    );
+
+    //-------------------------------------------------------------------------
+    // Unsized .or ...
+    assert_eq!(
+      SizeOf::or(
+        Unsized(10usize.into(), None),
+        Unknown
+      ),
+      Unknown
+    );
+
+    assert_eq!(// (10..) .or 42 = (10..)
+      SizeOf::or(
+        Unsized(10usize.into(), None),
+        Sized(42usize.into())
+      ),
+      Unsized(10usize.into(), None)
+    );
+    assert_eq!(// (42..) .or 10 = (10..)
+      SizeOf::or(
+        Unsized(42usize.into(), None),
+        Sized(10usize.into())
+      ),
+      Unsized(10usize.into(), None)
+    );
+
+    assert_eq!(// (10..) .or (42..) = (10..)
+      SizeOf::or(
+        Unsized(10usize.into(), None),
+        Unsized(42usize.into(), None)
+      ),
+      Unsized(10usize.into(), None)
+    );
+    assert_eq!(// (42..) .or (10..) = (10..)
+      SizeOf::or(
+        Unsized(42usize.into(), None),
+        Unsized(10usize.into(), None)
+      ),
+      Unsized(10usize.into(), None)
+    );
+
+    assert_eq!(// (10..) .or (42..=50) = (10..)
+      SizeOf::or(
+        Unsized(10usize.into(), None),
+        Unsized(42usize.into(), Some(50usize.into()))
+      ),
+      Unsized(10usize.into(), None)
+    );
+    assert_eq!(// (42..) .or (10..=50) = (10..)
+      SizeOf::or(
+        Unsized(42usize.into(), None),
+        Unsized(10usize.into(), Some(50usize.into()))
+      ),
+      Unsized(10usize.into(), None)
+    );
+    assert_eq!(// (50..) .or (10..=42) = (10..)
+      SizeOf::or(
+        Unsized(50usize.into(), None),
+        Unsized(10usize.into(), Some(42usize.into()))
+      ),
+      Unsized(10usize.into(), None)
+    );
+
+    //-------------------------------------------------------------------------
+    // Unsized .or ...
+    assert_eq!(
+      SizeOf::or(
+        Unsized(10usize.into(), Some(50usize.into())),
+        Unknown
+      ),
+      Unknown
+    );
+
+    assert_eq!(// (42..=50) .or 10 = (10..=50)
+      SizeOf::or(
+        Unsized(42usize.into(), Some(50usize.into())),
+        Sized(10usize.into())
+      ),
+      Unsized(10usize.into(), Some(50usize.into()))
+    );
+    assert_eq!(// (10..=50) .or 42 = (10..=50)
+      SizeOf::or(
+        Unsized(10usize.into(), Some(50usize.into())),
+        Sized(42usize.into())
+      ),
+      Unsized(10usize.into(), Some(50usize.into()))
+    );
+    assert_eq!(// (10..=42) .or 50 = (10..=50)
+      SizeOf::or(
+        Unsized(10usize.into(), Some(42usize.into())),
+        Sized(50usize.into())
+      ),
+      Unsized(10usize.into(), Some(50usize.into()))
+    );
+
+    assert_eq!(// (42..=50) .or (10..) = (10..)
+      SizeOf::or(
+        Unsized(42usize.into(), Some(50usize.into())),
+        Unsized(10usize.into(), None)
+      ),
+      Unsized(10usize.into(), None)
+    );
+    assert_eq!(// (10..=50) .or (42..) = (10..)
+      SizeOf::or(
+        Unsized(10usize.into(), Some(50usize.into())),
+        Unsized(42usize.into(), None)
+      ),
+      Unsized(10usize.into(), None)
+    );
+    assert_eq!(// (10..=42) .or (50..) = (10..)
+      SizeOf::or(
+        Unsized(10usize.into(), Some(42usize.into())),
+        Unsized(50usize.into(), None)
+      ),
+      Unsized(10usize.into(), None)
+    );
+
+    // [    ]
+    //         (    )
+    // [            ]
+    assert_eq!(// (10..=42) .or (50..=100) = (10..=100)
+      SizeOf::or(
+        Unsized(10usize.into(), Some(42usize.into())),
+        Unsized(50usize.into(), Some(100usize.into()))
+      ),
+      Unsized(10usize.into(), Some(100usize.into()))
+    );
+    // [       ]
+    //      (       )
+    // [            ]
+    assert_eq!(// (10..=50) .or (42..=100) = (10..=100)
+      SizeOf::or(
+        Unsized(10usize.into(), Some(50usize.into())),
+        Unsized(42usize.into(), Some(100usize.into()))
+      ),
+      Unsized(10usize.into(), Some(100usize.into()))
+    );
+    // [            ]
+    //      (  )
+    // [            ]
+    assert_eq!(// (10..=100) .or (42..=50) = (10..=100)
+      SizeOf::or(
+        Unsized(10usize.into(), Some(100usize.into())),
+        Unsized(42usize.into(), Some(50usize.into()))
+      ),
+      Unsized(10usize.into(), Some(100usize.into()))
+    );
+    //      [  ]
+    // (            )
+    // [            ]
+    assert_eq!(// (42..=50) .or (10..=100) = (10..=100)
+      SizeOf::or(
+        Unsized(42usize.into(), Some(50usize.into())),
+        Unsized(10usize.into(), Some(100usize.into()))
+      ),
+      Unsized(10usize.into(), Some(100usize.into()))
+    );
+    //      [       ]
+    // (       )
+    // [            ]
+    assert_eq!(// (42..=100) .or (10..=50) = (10..=100)
+      SizeOf::or(
+        Unsized(42usize.into(), Some(100usize.into())),
+        Unsized(10usize.into(), Some(50usize.into()))
+      ),
+      Unsized(10usize.into(), Some(100usize.into()))
+    );
+    //         [    ]
+    // (    )
+    // [            ]
+    assert_eq!(// (50..=100) .or (10..=42) = (10..=100)
+      SizeOf::or(
+        Unsized(50usize.into(), Some(100usize.into())),
+        Unsized(10usize.into(), Some(42usize.into()))
+      ),
+      Unsized(10usize.into(), Some(100usize.into()))
+    );
+  }
 
   /// Tests calculation of size of the built-in types
   #[test]
