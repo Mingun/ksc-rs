@@ -14,7 +14,7 @@ use std::hash::{Hash, Hasher};
 use std::ops::{Deref, DerefMut};
 
 use indexmap::IndexMap;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_yaml::{Value, Number};
 
 use crate::identifiers::*;
@@ -30,7 +30,7 @@ pub mod expressions;
 ///   - 1st string
 ///   - 2nd string
 /// ```
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(untagged)]
 pub enum OneOrMany<T> {
   /// Single value
@@ -49,7 +49,7 @@ impl<T> From<OneOrMany<T>> for Vec<T> {
 
 /// Generic variant wrapper, that allow or fixed value, or describe a set
 /// of possible choices selected based on some expression.
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(untagged)]
 pub enum Variant<T> {
   /// Statically specified value.
@@ -65,7 +65,7 @@ pub enum Variant<T> {
 }
 
 /// Generic expression, that used in `T` type contexts.
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(untagged)]
 pub enum Expression<T> {
   /// Expression, that should evaluate to `T` value.
@@ -87,19 +87,35 @@ pub enum Expression<T> {
 /// - [KSY file](./struct.Ksy.html)
 ///
 /// Pattern: `^[a-z][a-z0-9_]*$`.
-#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[serde(transparent)]
-pub struct Name(pub(crate) String);
+pub struct Name(pub String);
 
 /// Path to enum name, used to describe `type` in attributes and parameters.
 ///
 /// Pattern: `^([a-z][a-z0-9_]*::)*[a-z][a-z0-9_]*$`.
-#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[serde(from = "String")]
-pub struct Path(pub(crate) Vec<Name>);
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[serde(from = "String", into = "String")]
+pub struct Path(pub Vec<Name>);
 impl From<String> for Path {
   fn from(path: String) -> Self {
     Self(path.split("::").map(|s| Name(s.to_owned())).collect())
+  }
+}
+impl From<Path> for String {
+  fn from(path: Path) -> Self {
+    let mut string = String::new();
+    let mut iter = path.0.into_iter();
+
+    if let Some(first) = iter.next() {
+      string.push_str(&first.0);
+      for s in iter {
+        string.push_str("::");
+        string.push_str(&s.0);
+      }
+    }
+
+    string
   }
 }
 
@@ -113,30 +129,30 @@ impl From<String> for Path {
 /// User-defined attributes can contains any data and completely ignored by compiler.
 ///
 /// Pattern: `^-.*$`.
-#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[serde(transparent)]
-pub struct UserName(String);
+pub struct UserName(pub String);
 
 /// Algorithm for process byte stream before run actual parsing code.
 ///
 /// Pattern: `^zlib|(xor|rol|ror)\(.*\)$`.
-#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[serde(transparent)]
-pub struct ProcessAlgo(pub(crate) String);
+pub struct ProcessAlgo(pub String);
 
 /// Relative or absolute path to another `.ksy` file to import
 /// (**without** the `.ksy` extension).
 ///
 /// Pattern: `^(.*/)?[a-z][a-z0-9_]*$`.
-#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[serde(transparent)]
-pub struct Import(Name);
+pub struct Import(pub Name);
 
 /// Identifier, used for:
 ///
 /// - name of KSY file
 /// - enumeration value
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(untagged)]
 pub enum Identifier {
   /// Identifier represented as a string.
@@ -152,7 +168,7 @@ pub enum Identifier {
 }
 
 /// Represents any valid scalar YAML value.
-#[derive(Clone, Debug, Deserialize, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, PartialOrd)]
 #[serde(rename_all = "kebab-case", untagged)]
 pub enum Scalar {
   /// Represents a YAML null value.
@@ -200,12 +216,13 @@ impl Display for Scalar {
 //-------------------------------------------------------------------------------------------------
 
 /// Documentation for types, parameters, enum values and attributes.
-#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub struct Doc {
   /// Used to give a more detailed description of a user-defined type.
   /// In most languages, it will be used as a docstring compatible with
   /// tools like Javadoc, Doxygen, JSDoc, etc.
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub doc: Option<String>,
   /// Used to provide reference to original documentation (if the ksy file
   /// is actually an implementation of some documented format).
@@ -214,6 +231,7 @@ pub struct Doc {
   /// 1. URL as text,
   /// 2. arbitrary string, or
   /// 3. URL as text + space + arbitrary string
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub doc_ref: Option<DocRef>,
 }
 /// List of references to original documentation.
@@ -222,7 +240,7 @@ pub type DocRef = OneOrMany<String>;//TODO: enum { Url, Text, UrlAndText }
 pub type XRef = OneOrMany<Scalar>;
 
 /// Collections of references in various knowledge bases.
-#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 pub struct XRefs {
   /// Article name at [Forensics Wiki][wiki], which is a CC-BY-SA-licensed wiki with
   /// information on digital forensics, file formats and tools.
@@ -230,6 +248,7 @@ pub struct XRefs {
   /// Full link name could be generated as `https://forensicswiki.xyz/page/` + this value
   ///
   /// [wiki]: https://forensicswiki.xyz/page/Main_Page
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub forensicswiki: Option<OneOrMany<MediaWiki>>,
   /// ISO/IEC standard number, reference to a standard accepted and published by
   /// [ISO] (International Organization for Standardization).
@@ -238,6 +257,7 @@ pub struct XRefs {
   /// so value should be citing everything except for "ISO/IEC", i.e. `15948:2004`
   ///
   /// [ISO]: https://www.iso.org/
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub iso: Option<OneOrMany<Iso>>,
   /// Article name at ["Just Solve the File Format Problem" wiki][wiki], a wiki that
   /// collects information on many file formats.
@@ -245,6 +265,7 @@ pub struct XRefs {
   /// Full link name could be generated as `http://fileformats.archiveteam.org/wiki/` + this value
   ///
   /// [wiki]: http://fileformats.archiveteam.org/wiki/Main_Page
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub justsolve: Option<OneOrMany<MediaWiki>>,
   /// Identifier in [Digital Formats][formats] database of [US Library of Congress][loc].
   ///
@@ -252,6 +273,7 @@ pub struct XRefs {
   ///
   /// [formats]: https://www.loc.gov/preservation/digital/formats/fdd/browse_list.shtml
   /// [loc]: https://www.loc.gov/
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub loc: Option<OneOrMany<Loc>>,
   /// MIME type (IANA media type), a string typically used in various Internet protocols
   /// to specify format of binary payload.
@@ -261,6 +283,7 @@ pub struct XRefs {
   /// Value must specify full MIME type (both parts), e.g. `image/png`.
   ///
   /// [registry]: https://www.iana.org/assignments/media-types/media-types.xhtml
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub mime: Option<OneOrMany<MimeType>>,
   /// Format identifier in [PRONOM Technical Registry][registry] of
   /// [UK National Archives][archives], which is a massive file formats database
@@ -268,6 +291,7 @@ pub struct XRefs {
   ///
   /// [registry]: https://www.nationalarchives.gov.uk/PRONOM/Default.aspx
   /// [archives]: https://www.nationalarchives.gov.uk/
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub pronom: Option<OneOrMany<Pronom>>,
   /// Reference to [RFC](https://en.wikipedia.org/wiki/Request_for_Comments),
   /// "Request for Comments" documents maintained by ISOC (Internet Society).
@@ -276,11 +300,13 @@ pub struct XRefs {
   /// for example, many networking / interoperability protocols are specified in RFCs.
   ///
   /// Value should be just raw RFC number, without any prefixes, e.g. `1234`
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub rfc: Option<OneOrMany<Rfc>>,
   /// Item identifier at Wikidata, a global knowledge base.
   ///
   /// Value typically follows `Qxxx` pattern, where `xxx` is a number
   /// generated by Wikidata, e.g. `Q535473`.
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub wikidata: Option<OneOrMany<Wikidata>>,
 
   /// References to any other formats.
@@ -291,7 +317,7 @@ pub struct XRefs {
 //-------------------------------------------------------------------------------------------------
 
 /// Variants of endianness of integer attribute types
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub enum ByteOrder {
   /// Little-Endian
@@ -301,7 +327,7 @@ pub enum ByteOrder {
 }
 
 /// Variants of bit order of bit-sized integers
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub enum BitOrder {
   /// Little-Endian
@@ -313,7 +339,7 @@ pub enum BitOrder {
 /// Represent one element of array content for [`contents`] key.
 ///
 /// [`contents`]: ./struct.Attribute.html#structfield.contents
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(untagged)]
 pub enum StringOrByte {
   /// Data for `contents` key, expressed as string in UTF-8 encoding.
@@ -332,7 +358,7 @@ impl StringOrByte {
 }
 
 /// Represents fixed byte content
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(untagged)]
 pub enum Contents {//TODO: Заменить на OneOrMany<StringOrByte>
   /// Byte content as single UTF-8 encoded string
@@ -355,7 +381,7 @@ impl From<Contents> for Vec<u8> {
   }
 }
 /// List of all built-in types
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[allow(non_camel_case_types)]
 pub enum Builtin {
   /// 1-byte unsigned integer.
@@ -485,7 +511,7 @@ pub enum Builtin {
   strz,
 }
 /// Reference to type definition
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(untagged)]
 pub enum TypeRef {
   /// Reference to built-in type
@@ -501,7 +527,7 @@ pub enum TypeRef {
 pub type Type = Variant<TypeRef>;
 
 /// Attribute repetition variants
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub enum Repeat {
   /// Repeat until the end of the current stream.
@@ -522,7 +548,7 @@ pub type Position = Expression<u64>;
 pub type Condition = Expression<bool>;
 
 /// Version of the Kaitai Struct Compiler (KSC).
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(untagged)]
 pub enum Version {
   /// Version, represented as string, for example `1.0-alpha`.
@@ -532,7 +558,7 @@ pub enum Version {
 }
 
 /// Default values for attributes and user-defined keys for types.
-#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub struct Defaults {
   /// Sets a default string encoding for fields of the type.
@@ -543,17 +569,20 @@ pub struct Defaults {
   /// If set, `str` and `strz` data types will have their encoding by default set to this value.
   ///
   /// [iana]: https://www.iana.org/assignments/character-sets/character-sets.xhtml
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub encoding: Option<String>,// TODO: encoding-rs encodings
   /// Default endianness for all numeric fields in the type.
   ///
   /// If set, primitive data types like `u4` would be treated as aliases to `u4le` / `u4be`
   /// (depending on the setting); if not set, attempt to use abbreviated types like `u4`
   /// (i.e. without full endianness qualifier) will yield compile-time error.
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub endian: Option<Variant<ByteOrder>>,
   /// Default bit endianness for all bitwise fields in the type.
   ///
   /// If set, primitive bitwise types (`bX`) would be treated as aliases to `bXle` / `bXbe`
   /// (depending on the setting); if not set, the default big-endian will be used.
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub bit_endian: Option<BitOrder>,
 
   /// Additional arbitrary values.
@@ -564,7 +593,7 @@ pub struct Defaults {
 /// Meta-information relevant the user-defined type or KSY file in whole.
 /// It also can be used to assign some defaults and provide some configuration
 /// options for compiler.
-#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 pub struct MetaSpec {//TODO: json: разделить информацию в схеме
   /// Default values for all attributes in this file.
   #[serde(flatten)]
@@ -573,19 +602,25 @@ pub struct MetaSpec {//TODO: json: разделить информацию в с
   ///
   /// It would be converted to suit general formatting rules of a language
   /// and used as the name of class.
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub id: Option<Identifier>,
   /// Free-form text string that is a longer title of this `.ksy` file.
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub title: Option<String>,
   /// Free-form text string that describes applications that's associated with
   /// this particular format.
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub application: Option<OneOrMany<String>>,
   /// Roughly identify which files can be parsed with this format by filename extension.
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub file_extension: Option<OneOrMany<String>>,
   /// Список ссылок на нормативные документы, описывающие формат
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub xref: Option<XRefs>,
   /// A string which matches one of the identifiers within the [SPDX license list][licenses].
   ///
   /// [licenses]: https://spdx.org/licenses/
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub license: Option<String>,//TODO: Add SPDX validation
 
   /// List of relative or absolute paths to another `.ksy` files to import
@@ -593,20 +628,22 @@ pub struct MetaSpec {//TODO: json: разделить информацию в с
   ///
   /// The top-level type of the imported file will be accessible in the current spec under
   /// the name specified in the top-level `/meta/id` of the imported file.
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub imports: Option<Vec<Import>>,
 
   /// A string which contains a minimum version of Kaitai Struct Compiler (KSC) required
   /// to interpret this `.ksy` file. Prevents this `.ksy` file from being read by older
   /// versions of KSC which may not understand newer syntax of this `.ksy` file.
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub ks_version: Option<Version>,
   /// Advise the Kaitai Struct Compiler (KSC) to use debug mode.
-  #[serde(default)]
-  pub ks_debug: bool,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub ks_debug: Option<bool>,
   /// Advise the Kaitai Struct Compiler (KSC) to ignore missing types in the `.ksy` file,
   /// and assume that these types are already provided externally by the environment the
   /// classes are generated for.
-  #[serde(default)]
-  pub ks_opaque_types: bool,//TODO: Удалить. Нужно всегда явно импортировать нужные типы
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub ks_opaque_types: Option<bool>,//TODO: Удалить. Нужно всегда явно импортировать нужные типы
 }
 
 /// Attribute specification describes how to read and write one particular attribute —
@@ -641,7 +678,7 @@ pub struct MetaSpec {//TODO: json: разделить информацию в с
 /// ```
 ///
 /// [type]: ./struct.TypeSpec.html
-#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub struct Attribute {
   /// Contains a string used to identify one attribute among others.
@@ -649,6 +686,7 @@ pub struct Attribute {
   /// If not specified, then that attribute will not be accessible,
   /// unless debug mode is enabled. In that case attribute give a some unspecified
   /// unique (in that type) name.
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub id: Option<Name>,
 
   /// Documentation for an attribute.
@@ -658,6 +696,7 @@ pub struct Attribute {
   /// Specify fixed contents that the parser should encounter at this point.
   /// If the content of the stream doesn't match the given bytes, an error is
   /// thrown and it's meaningless to continue parsing
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub contents: Option<Contents>,
 
   /// Defines data type for an attribute.
@@ -691,7 +730,7 @@ pub struct Attribute {
   ///   id: top_level
   /// seq:
   ///   - id: foo
-  ///   type: header
+  ///     type: header
   ///     # resolves to /top_level/header ──┐
   ///   - id: bar     #                     │
   ///     type: body1 #                     │
@@ -718,18 +757,21 @@ pub struct Attribute {
   /// [type]: ./struct.TypeSpec.html
   /// [`meta/id`]: ./struct.MetaSpec.html#structfield.id
   #[serde(rename = "type")]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub type_: Option<Type>,
 
   /// Designates repeated attribute in a structure.
   ///
   /// Attribute would be read as array / list / sequence, executing parsing
   /// code multiple times.
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub repeat: Option<Repeat>,//TODO: сделать необязательным (https://github.com/kaitai-io/kaitai_struct/issues/776)
   /// Specify number of repetitions for repeated attribute.
   ///
   /// If that key is specified, `repeat` key must be `Some(Repeat::Expr)` or `None`.
   ///
   /// Only this one or `repeat_until` key must be specified at same time.
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub repeat_expr: Option<Count>,
   /// Specifies a condition to be checked **after** each parsed item, repeating
   /// while the expression is `false`.
@@ -740,25 +782,31 @@ pub struct Attribute {
   /// If that key is specified, `repeat` key must be `Some(Repeat::Expr)` or `None`.
   ///
   /// Only this one or `repeat_expr` key must be specified at same time.
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub repeat_until: Option<Condition>,
 
   /// Marks the attribute as optional (attribute is parsed only if the condition specified
   /// evaluates to `true`).
   #[serde(rename = "if")]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub condition: Option<Condition>,
 
   /// The number of bytes to read, before `type` would be parsed.
   /// If `type` isn't defined, just byte array of specified size will be returned.
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub size: Option<Count>,
   /// If `true`, reads all the bytes till the end of the stream.
   ///
   /// Default is `false`.
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub size_eos: Option<bool>,
 
   /// Processes the byte buffer before access.
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub process: Option<ProcessAlgo>,
   /// Name of existing enum field data type becomes given enum.
   #[serde(rename = "enum")]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub enum_: Option<Path>,
 
   /// Encoding, used for that attribute, if it has `str` or `strz` type.
@@ -768,6 +816,7 @@ pub struct Attribute {
   /// See more info at [`meta/encoding`] key description.
   ///
   /// [`meta/encoding`]: ./struct.MetaSpec.html#structfield.encoding
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub encoding: Option<String>,
   /// Specify a byte which is the string or byte array padded with after the end up to the total size.
   ///
@@ -777,11 +826,13 @@ pub struct Attribute {
   /// - isn't specified, then the `pad-right` controls where the string ends (basically acts like a terminator)
   /// - is specified, padding comes after the terminator, not before. The value is terminated immediately after
   ///   the terminator occurs, so the `pad-right` has no effect on parsing and is only relevant for serialization
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub pad_right: Option<u8>,// TODO: add default to meta.pad_right
 
   /// String or byte array reading will stop when it encounters this byte
   ///
   /// Cannot be used with `type: strz` (which already implies `terminator: 0` -- null-terminated string)
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub terminator: Option<u8>,// TODO: add default to meta.terminator
   /// Specify if terminator byte should be "consumed" when reading
   ///
@@ -789,10 +840,12 @@ pub struct Attribute {
   /// If `false`: the stream pointer will point to the terminator byte itself
   ///
   /// Default is `true`
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub consume: Option<bool>,// TODO: add default to meta.consume
   /// Specifies if terminator byte should be considered part of the string read and thus be appended to it
   ///
   /// Default is `false`
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub include: Option<bool>,// TODO: add default to meta.include
   /// Allows the compiler to ignore the lack of a terminator if `eos-error` is disabled,
   /// string reading will stop at either:
@@ -801,6 +854,7 @@ pub struct Attribute {
   ///   2. end of stream is reached
   ///
   /// Default is `true`.
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub eos_error: Option<bool>,// TODO: add default to meta.eos_error
 
   /// Additional arbitrary values.
@@ -812,7 +866,7 @@ pub struct Attribute {
 ///
 /// [`Attribute`]: ./struct.Attribute.html
 /// [`instances`]: ./struct.TypeSpec.html#structfield.instances
-#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub struct Instance {
   /// Common attribute parameters.
@@ -820,21 +874,25 @@ pub struct Instance {
   pub common: Attribute,
 
   /// Specifies position at which the value should be parsed.
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub pos: Option<Position>,
   /// Specifies an IO stream from which a value should be parsed.
-  pub io: Option<String>,//TODO: тип - Path to stream
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub io: Option<String>,
   /// Overrides any reading & parsing. Instead, just calculates function specified in value
   /// and returns the result as this instance. Has many purposes
-  pub value: Option<Value>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub value: Option<Scalar>,
 }
 
 /// Definition of a single type parameter under [`params`] key.
 ///
 /// [`params`]: ./struct.TypeSpec.html#structfield.params
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub struct Param {
   /// Unique name of this parameter by which it can be referenced in expressions.
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub id: Option<Name>,//TODO: why parameter id is optional? Parameters without name is useless
   /// Specifies "pure" type of the parameter, without any serialization details
   /// (like endianness, sizes, encodings).
@@ -856,6 +914,7 @@ pub struct Param {
   /// One can specify arrays by appending `[]` after the type identifier
   /// (e.g. `type: u2[]`, `type: 'foo::bar[]'`, `type: struct[]` etc.)
   #[serde(rename = "type")]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub type_: Option<String>,
 
   /// Documentation for parameter.
@@ -875,6 +934,7 @@ pub struct Param {
   /// to it from the current type, with a double colon as a path delimiter
   /// (e.g. `foo::bar::my_enum`)
   #[serde(rename = "enum")]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub enum_: Option<Path>,
 
   /// Additional arbitrary values.
@@ -889,7 +949,7 @@ pub struct Param {
 ///   enum_name:
 ///     1: value
 /// ```
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "kebab-case", untagged)]
 pub enum EnumValue {
   /// Symbolic alias for numeric constant.
@@ -907,6 +967,7 @@ pub enum EnumValue {
     /// Original constant identifier(s) in the format specification.
     /// Uses, if that identifier can't be expressed in the `id` field.
     #[serde(rename = "-orig-id")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     orig_id: Option<OneOrMany<String>>,//TODO: Если не понадобится в компиляторе, удалить
 
     /// Additional arbitrary values.
@@ -916,9 +977,9 @@ pub enum EnumValue {
 }
 
 /// Enumeration definition
-#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(transparent)]
-pub struct Enum(IndexMap<Scalar, EnumValue>);
+pub struct Enum(pub IndexMap<Scalar, EnumValue>);
 impl Deref for Enum {
   type Target = IndexMap<Scalar, EnumValue>;
 
@@ -949,33 +1010,39 @@ impl DerefMut for Enum {
 ///   top-level type,
 /// - all nested types MUST NOT have that key (as they already have a certain ID from
 ///   the map key name provided in types — declaration of subtypes)
-#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub struct TypeSpec {
   /// Defaults for attributes' parameters
   #[serde(rename = "meta")]
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub default: Option<Defaults>,
   /// Documentation for type.
   #[serde(flatten)]
   pub doc: Doc,
 
   /// List of type parameters, that can be used, for example, in field existence checks.
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub params: Option<Vec<Param>>,
   /// List of enumeration types, defined inside this type. Each enumeration has its
   /// own unique name inside this type (however, that name must not be the same as
   /// names in `types` and `instances` keys of this type).
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub enums: Option<IndexMap<Name, Enum>>,
   /// List of used-defined types, defined inside this type. Each type has its
   /// own unique name inside this type (however, that name must not be the same as
   /// names in `enums` and `instances` keys of this type).
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub types: Option<IndexMap<Name, TypeSpec>>,
 
   /// The list of fields that this type consists of. The fields in the data stream
   /// are in the same order as they are declared here.
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub seq: Option<Vec<Attribute>>,
   /// List of dynamic and calculated fields of this type. The position of these fields
   /// is not fixed in the type, and they may not even be physically represented in the
   /// data stream at all.
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub instances: Option<IndexMap<Name, Instance>>,
 
   /// Additional arbitrary values.
@@ -984,7 +1051,7 @@ pub struct TypeSpec {
 }
 
 /// Type representing the entire file
-#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub struct Ksy {
   /// Meta-information about this file
@@ -1090,6 +1157,20 @@ fn contents() {
     ])),
     ..Default::default()
   });
+}
+
+#[test]
+fn path() {
+  let single: Path = "one".to_owned().into();
+  assert_eq!(single, Path(vec![Name("one".to_owned())]));
+  assert_eq!(String::from(single), "one");
+
+  let many: Path = "some::path".to_owned().into();
+  assert_eq!(many, Path(vec![
+    Name("some".to_owned()),
+    Name("path".to_owned()),
+  ]));
+  assert_eq!(String::from(many), "some::path");
 }
 
 #[test]

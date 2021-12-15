@@ -2,7 +2,7 @@
 //! Each type in this module can validate it's content to point out
 //! KSY writers to possible mistakes in theirs KSY files.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// Name of page in [MediaWiki].
 ///
@@ -11,9 +11,9 @@ use serde::Deserialize;
 /// Pattern: `^([a-zA-Z0-9$\-._~+!*'(),@&;:/]+|%[0-9a-fA-F]{2})+$`.
 ///
 /// [MediaWiki]: https://www.mediawiki.org/wiki/MediaWiki
-#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(transparent)]
-pub struct MediaWiki(String);
+pub struct MediaWiki(pub String);
 
 /// [ISO standard][iso] identifier.
 ///
@@ -21,9 +21,9 @@ pub struct MediaWiki(String);
 ///
 /// [iso]: https://www.iso.org/
 /// [Pattern]: https://www.wikidata.org/wiki/Property:P503#P1793
-#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(transparent)]
-pub struct Iso(String);
+pub struct Iso(pub String);
 
 /// [Library of Congress][loc] Format Description Document ID.
 ///
@@ -31,9 +31,9 @@ pub struct Iso(String);
 ///
 /// [loc]: https://www.loc.gov/
 /// [Pattern]: https://www.wikidata.org/wiki/Property:P3266#P1793
-#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(transparent)]
-pub struct Loc(String);
+pub struct Loc(pub String);
 
 /// [IANA media type][mime].
 ///
@@ -44,9 +44,9 @@ pub struct Loc(String);
 /// Pattern: `^(application|audio|font|image|model|text|video)/([a-zA-Z0-9]+[.\-_+]?)*[a-zA-Z0-9]$`.
 ///
 /// [mime]: https://www.iana.org/assignments/media-types/media-types.xhtml
-#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(transparent)]
-pub struct MimeType(String);
+pub struct MimeType(pub String);
 
 /// Identifier (PUID) for a file format in the technical registry [PRONOM]
 ///
@@ -54,15 +54,15 @@ pub struct MimeType(String);
 ///
 /// [PRONOM]: https://www.nationalarchives.gov.uk/PRONOM/Default.aspx
 /// [Pattern]: https://www.wikidata.org/wiki/Property:P2748#P1793
-#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(transparent)]
-pub struct Pronom(String);
+pub struct Pronom(pub String);
 
 /// Identifier for an item in [Request for Comments][rfc], a publication of IETF
 /// and the Internet Society.
 ///
 /// [rfc]: https://en.wikipedia.org/wiki/Request_for_Comments
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(untagged)]
 pub enum Rfc {
   /// RFC ID, specified, as number
@@ -81,6 +81,6 @@ pub enum Rfc {
 ///
 /// [Wikidata]: https://www.wikidata.org/
 /// [Pattern]: https://www.wikidata.org/wiki/Q43649390#P1793
-#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(transparent)]
-pub struct Wikidata(String);
+pub struct Wikidata(pub String);
