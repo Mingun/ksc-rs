@@ -300,6 +300,16 @@ pub enum ByteOrder {
   Be,
 }
 
+/// Variants of bit order of bit-sized integers
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub enum BitOrder {
+  /// Little-Endian
+  Le,
+  /// Big-Endian
+  Be,
+}
+
 /// Represent one element of array content for [`contents`] key.
 ///
 /// [`contents`]: ./struct.Attribute.html#structfield.contents
@@ -525,7 +535,7 @@ pub enum Version {
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub struct Defaults {
-  /// Sets a default string encoding for this file.
+  /// Sets a default string encoding for fields of the type.
   ///
   /// Contains a user-defined encoding scheme, for example `ASCII`, `UTF-8`, `UTF-16LE`,
   /// `UTF-16BE`, `UTF-32LE`, `UTF-32BE` or a Name from the [IANA character sets registry][iana].
@@ -534,12 +544,17 @@ pub struct Defaults {
   ///
   /// [iana]: https://www.iana.org/assignments/character-sets/character-sets.xhtml
   pub encoding: Option<String>,// TODO: encoding-rs encodings
-  /// Default endianness for all types in this file.
+  /// Default endianness for all numeric fields in the type.
   ///
   /// If set, primitive data types like `u4` would be treated as aliases to `u4le` / `u4be`
   /// (depending on the setting); if not set, attempt to use abbreviated types like `u4`
   /// (i.e. without full endianness qualifier) will yield compile-time error.
   pub endian: Option<Variant<ByteOrder>>,
+  /// Default bit endianness for all bitwise fields in the type.
+  ///
+  /// If set, primitive bitwise types (`bX`) would be treated as aliases to `bXle` / `bXbe`
+  /// (depending on the setting); if not set, the default big-endian will be used.
+  pub bit_endian: Option<BitOrder>,
 
   /// Additional arbitrary values.
   #[serde(flatten)]

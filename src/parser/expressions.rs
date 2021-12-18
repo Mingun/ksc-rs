@@ -9,6 +9,8 @@ use bigdecimal::{BigDecimal, Num};
 use bigdecimal::num_bigint::BigInt;
 use serde_yaml::Number;
 
+use crate::parser::BitOrder;
+
 // Re-export parsing functions from generated parser module
 pub use parser::*;
 
@@ -332,12 +334,22 @@ impl BinaryOp {
 /// A reference to the type in the attributes' [`type`] field.
 ///
 /// [`type`]: ../parser/struct.Attribute.html#structfield.type_
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct UserTypeRef<'input> {
-  /// A possible qualified type name of the type used
-  pub name: TypeName<'input>,
-  /// Optional arguments for a type
-  pub args: Vec<Node<'input>>,
+#[derive(Debug, PartialEq)]
+pub enum AttrType<'input> {
+  /// Type is a built-in arbitrary-sized bit type
+  Bits {
+    /// The size of an integer in bits
+    size: usize,
+    /// The order in which bits is layed out in the stream
+    order: Option<BitOrder>,
+  },
+  /// Type is a reference to another user-defined type
+  User {
+    /// A possible qualified type name of the type used
+    name: TypeName<'input>,
+    /// Optional arguments for a type
+    args: Vec<Node<'input>>,
+  },
 }
 
 /// Name and parameters of process routine.
@@ -439,10 +451,8 @@ peg::parser! {
     /// Entry point for parsing [`type`] field value.
     ///
     /// [`type`]: ../../parser/struct.Attribute.html#structfield.type_
-    pub rule parse_type_ref() -> UserTypeRef<'input>
-      = _ name:type_name() _ args:("(" _ args:args() _ ")" _ { args })? EOS() {
-        UserTypeRef { name, args: args.unwrap_or_default() }
-      };
+    pub rule parse_type_ref() -> AttrType<'input>
+      = _ r:(bits_type() / user_type()) _ EOS() { r };
 
     /// Entry point for parsing [`process`] field value.
     ///
@@ -645,6 +655,25 @@ peg::parser! {
     rule list() -> Vec<Node<'input>> = list:args() _ ","? { list };
     /// List of expressions, delimited by comma
     rule args() -> Vec<Node<'input>> = args:expr() ** (_ "," _) { args };
+
+    //-------------------------------------------------------------------------------------------------
+    /// Variants of bit endianness in bit-sized integers
+    rule endian() -> BitOrder
+      = "le" { BitOrder::Le }
+      / "be" { BitOrder::Be }
+      ;
+    rule bits_type() -> AttrType<'input>
+      //FIXME: leading zeroes looks strange: https://github.com/kaitai-io/kaitai_struct/issues/939
+      = "b" n:$(['0'..='9']+) order:endian()? {?
+        Ok(AttrType::Bits {
+          size: n.parse().map_err(|_| "bit size is too long")?,
+          order,
+        })
+      };
+    rule user_type() -> AttrType<'input>
+      = name:type_name() args:(_ "(" _ args:args() _ ")" { args })? {
+        AttrType::User { name, args: args.unwrap_or_default() }
+      };
   }
 }
 
@@ -652,7 +681,7 @@ peg::parser! {
 mod parse {
   // Colorful diffs in assertions
   use pretty_assertions::assert_eq;
-  use super::{BigDecimal, BigInt, Node, Scope, TypeName, TypeRef, UserTypeRef};
+  use super::{AttrType, BigDecimal, BigInt, BitOrder, Node, Scope, TypeName, TypeRef};
   use super::Node::*;
   use super::UnaryOp::*;
   use super::BinaryOp::*;
@@ -1555,11 +1584,71 @@ mod parse {
     use super::*;
 
     /// Wrapper, for use with https://github.com/fasterthanlime/pegviz
-    fn parse(input: &str) -> Result<UserTypeRef, peg::error::ParseError<peg::str::LineCol>> {
+    fn parse(input: &str) -> Result<AttrType, peg::error::ParseError<peg::str::LineCol>> {
       println!("[PEG_INPUT_START]\n{}\n[PEG_TRACE_START]", input);
       let result = super::super::parse_type_ref(input);
       println!("[PEG_TRACE_STOP]");
       result
+    }
+
+    /// Bit-sized integers
+    mod bit_sized {
+      // Colorful diffs in assertions - resolve ambiguous
+      use pretty_assertions::assert_eq;
+      use super::*;
+
+      #[test]//FIXME: should fail after https://github.com/kaitai-io/kaitai_struct/issues/939
+      fn b0() {
+        assert_eq!(parse("b0"), Ok(AttrType::Bits {
+          size: 0,
+          order: None,
+        }));
+      }
+
+      #[test]//FIXME: should fail after https://github.com/kaitai-io/kaitai_struct/issues/939
+      fn b1be() {
+        assert_eq!(parse("b1be"), Ok(AttrType::Bits {
+          size: 1,
+          order: Some(BitOrder::Be),
+        }));
+      }
+
+      #[test]//FIXME: should fail after https://github.com/kaitai-io/kaitai_struct/issues/939
+      fn b1le() {
+        assert_eq!(parse("b1le"), Ok(AttrType::Bits {
+          size: 1,
+          order: Some(BitOrder::Le),
+        }));
+      }
+
+      #[test]//FIXME: should fail after https://github.com/kaitai-io/kaitai_struct/issues/939
+      fn leading_zeros() {
+        assert_eq!(parse("b0001"), Ok(AttrType::Bits {
+          size: 1,
+          order: None,
+        }));
+      }
+
+      #[test]
+      fn correct() {
+        assert_eq!(parse("b12345"), Ok(AttrType::Bits {
+          size: 12345,
+          order: None,
+        }));
+      }
+
+      #[test]
+      fn explicit_endian() {
+        assert_eq!(parse("b12345le"), Ok(AttrType::Bits {
+          size: 12345,
+          order: Some(BitOrder::Le),
+        }));
+
+        assert_eq!(parse("b12345be"), Ok(AttrType::Bits {
+          size: 12345,
+          order: Some(BitOrder::Be),
+        }));
+      }
     }
 
     /// Types, represented only by their local name
@@ -1570,7 +1659,7 @@ mod parse {
 
       #[test]
       fn simple() {
-        assert_eq!(parse("some_type"), Ok(UserTypeRef {
+        assert_eq!(parse("some_type"), Ok(AttrType::User {
           name: TypeName {
             scope: Scope { absolute: false, path: vec![] },
             name: "some_type",
@@ -1580,7 +1669,7 @@ mod parse {
       }
       #[test]
       fn with_spaces() {
-        assert_eq!(parse("  some_type  "), Ok(UserTypeRef {
+        assert_eq!(parse("  some_type  "), Ok(AttrType::User {
           name: TypeName {
             scope: Scope { absolute: false, path: vec![] },
             name: "some_type",
@@ -1590,7 +1679,7 @@ mod parse {
       }
       #[test]
       fn with_args() {
-        assert_eq!(parse("some_type(1+2,data)"), Ok(UserTypeRef {
+        assert_eq!(parse("some_type(1+2,data)"), Ok(AttrType::User {
           name: TypeName {
             scope: Scope { absolute: false, path: vec![] },
             name: "some_type",
@@ -1607,7 +1696,7 @@ mod parse {
       }
       #[test]
       fn with_args_and_spaces() {
-        assert_eq!(parse(" some_type ( 1 + 2 , data ) "), Ok(UserTypeRef {
+        assert_eq!(parse(" some_type ( 1 + 2 , data ) "), Ok(AttrType::User {
           name: TypeName {
             scope: Scope { absolute: false, path: vec![] },
             name: "some_type",
@@ -1635,7 +1724,7 @@ mod parse {
 
         #[test]
         fn simple() {
-          assert_eq!(parse("::some::type"), Ok(UserTypeRef {
+          assert_eq!(parse("::some::type"), Ok(AttrType::User {
             name: TypeName {
               scope: Scope { absolute: true, path: vec!["some"] },
               name: "type",
@@ -1646,7 +1735,7 @@ mod parse {
 
         #[test]
         fn with_spaces() {
-          assert_eq!(parse("  ::  some  ::  type  "), Ok(UserTypeRef {
+          assert_eq!(parse("  ::  some  ::  type  "), Ok(AttrType::User {
             name: TypeName {
               scope: Scope { absolute: true, path: vec!["some"] },
               name: "type",
@@ -1657,7 +1746,7 @@ mod parse {
 
         #[test]
         fn with_args() {
-          assert_eq!(parse("::some::type(1+2,data)"), Ok(UserTypeRef {
+          assert_eq!(parse("::some::type(1+2,data)"), Ok(AttrType::User {
             name: TypeName {
               scope: Scope { absolute: true, path: vec!["some"] },
               name: "type",
@@ -1675,7 +1764,7 @@ mod parse {
 
         #[test]
         fn with_args_and_spaces() {
-          assert_eq!(parse(" :: some :: type ( 1 + 2 , data ) "), Ok(UserTypeRef {
+          assert_eq!(parse(" :: some :: type ( 1 + 2 , data ) "), Ok(AttrType::User {
             name: TypeName {
               scope: Scope { absolute: true, path: vec!["some"] },
               name: "type",
@@ -1699,7 +1788,7 @@ mod parse {
 
         #[test]
         fn simple() {
-          assert_eq!(parse("some::type"), Ok(UserTypeRef {
+          assert_eq!(parse("some::type"), Ok(AttrType::User {
             name: TypeName {
               scope: Scope { absolute: false, path: vec!["some"] },
               name: "type",
@@ -1710,7 +1799,7 @@ mod parse {
 
         #[test]
         fn with_spaces() {
-          assert_eq!(parse("  some  ::  type  "), Ok(UserTypeRef {
+          assert_eq!(parse("  some  ::  type  "), Ok(AttrType::User {
             name: TypeName {
               scope: Scope { absolute: false, path: vec!["some"] },
               name: "type",
@@ -1721,7 +1810,7 @@ mod parse {
 
         #[test]
         fn with_args() {
-          assert_eq!(parse("some::type(1+2,data)"), Ok(UserTypeRef {
+          assert_eq!(parse("some::type(1+2,data)"), Ok(AttrType::User {
             name: TypeName {
               scope: Scope { absolute: false, path: vec!["some"] },
               name: "type",
@@ -1739,7 +1828,7 @@ mod parse {
 
         #[test]
         fn with_args_and_spaces() {
-          assert_eq!(parse(" some :: type ( 1 + 2 , data ) "), Ok(UserTypeRef {
+          assert_eq!(parse(" some :: type ( 1 + 2 , data ) "), Ok(AttrType::User {
             name: TypeName {
               scope: Scope { absolute: false, path: vec!["some"] },
               name: "type",

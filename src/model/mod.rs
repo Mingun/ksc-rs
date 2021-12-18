@@ -19,7 +19,7 @@ use regex::Regex;
 use crate::error::ModelError;
 use crate::model::expressions::OwningNode;
 use crate::parser as p;
-use crate::parser::expressions::{parse_type_ref, parse_process};
+use crate::parser::expressions::{parse_type_ref, parse_process, AttrType};
 
 pub mod expressions;
 mod name;
@@ -89,10 +89,11 @@ mod helpers {
   /// used to determine type for model.
   #[derive(Clone)]
   pub struct TypeProps {
-    pub enum_:    Option<p::Path>,
-    pub contents: Option<p::Contents>,
-    pub encoding: Inheritable<String>,
-    pub endian:   Option<p::Variant<p::ByteOrder>>,
+    pub enum_:      Option<p::Path>,
+    pub contents:   Option<p::Contents>,
+    pub encoding:   Inheritable<String>,
+    pub endian:     Option<p::Variant<p::ByteOrder>>,
+    pub bit_endian: Option<p::BitOrder>,
   }
 }
 
@@ -105,17 +106,6 @@ pub struct UserTypeRef {
   pub name: TypeName,
   /// Optional arguments for type
   pub args: Vec<OwningNode>,
-}
-impl UserTypeRef {
-  fn validate(path: String) -> Result<Self, ModelError> {
-    let r = parse_type_ref(&path)?;
-    Ok(Self {
-      //TODO: resolve relative types
-      path: r.name.scope.path.into_iter().map(TypeName::valid).collect(),
-      name: TypeName::valid(r.name.name),
-      args: OwningNode::validate_all(r.args),
-    })
-  }
 }
 
 /// Name and parameters of the process routine.
@@ -532,6 +522,8 @@ impl Add for SizeOf {
 
 /// Byte order, used for reading built-in numeric types
 pub type ByteOrder = Variant<p::ByteOrder>;
+/// Bit order, used for reading built-in bit-sized numeric types
+pub type BitOrder  = p::BitOrder;
 
 /// Types that can be used as base for enumerations.
 #[derive(Clone, Debug, PartialEq)]
@@ -555,8 +547,8 @@ pub enum Enumerable {
   /// 8-byte signed integer in specified byte order.
   I64(ByteOrder),
 
-  /// Number with specified number of bits.
-  Bits(usize),
+  /// Number with specified number of bits in the specified bit order.
+  Bits(usize, BitOrder),
 }
 impl Enumerable {
   /// Returns the size of the type in bytes.
@@ -569,7 +561,7 @@ impl Enumerable {
       U32(_) | I32(_) => 4,
       U64(_) | I64(_) => 8,
 
-      Bits(size) => size.saturating_add(7) >> 3,// convert bit count to byte count
+      Bits(size, _) => size.saturating_add(7) >> 3,// convert bit count to byte count
     }
   }
 }
@@ -694,13 +686,23 @@ impl TypeRef {
       (Some(Builtin(str)),     _, None, None) => Ok(TypeRef::String(encoding(props.encoding)?)),
       (Some(Builtin(strz)),    _, None, None) => Ok(TypeRef::String(encoding(props.encoding)?)),
 
-      (Some(User(name)), None, None, e) => if let Some(caps) = BITS.captures(&name) {
-        Ok(Enum { base: Bits(caps[1].parse().unwrap()), enum_: e.transpose()? })
-      } else
-      if let None = e {
-        Ok(TypeRef::User(UserTypeRef::validate(name)?))
-      } else {
-        enum_err()
+      (Some(User(name)), None, None, e) => match parse_type_ref(&name)? {
+        AttrType::Bits { size, order } => Ok(Enum {
+          // For backward-compatibility with the Kaitai Struct 0.8 bit order by default
+          // is Big-Endian
+          base: Bits(size, order.or(props.bit_endian).unwrap_or(BitOrder::Be)),
+          enum_: e.transpose()?
+        }),
+        AttrType::User { name, args } => if let None = e {
+          Ok(TypeRef::User(UserTypeRef {
+            //TODO: resolve relative types
+            path: name.scope.path.into_iter().map(TypeName::valid).collect(),
+            name: TypeName::valid(name.name),
+            args: OwningNode::validate_all(args),
+          }))
+        } else {
+          enum_err()
+        }
       },
 
       (None, None, Some(content), None) => Ok(TypeRef::Fixed(content.into())),
@@ -784,10 +786,11 @@ impl Attribute {
     use p::Variant::*;
 
     let mut props = helpers::TypeProps {
-      enum_:    attr.enum_,
-      contents: attr.contents,
-      encoding: helpers::Inheritable::from(attr.encoding, defaults.encoding),
-      endian:   defaults.endian,
+      enum_:      attr.enum_,
+      contents:   attr.contents,
+      encoding:   helpers::Inheritable::from(attr.encoding, defaults.encoding),
+      endian:     defaults.endian,
+      bit_endian: defaults.bit_endian,
     };
     let size = helpers::Size {
       size:       attr.size,
@@ -894,8 +897,9 @@ impl Type {
   fn validate(spec: p::TypeSpec, mut defaults: p::Defaults) -> Result<Self, ModelError> {
     // Merge type defaults with inherited defaults
     if let Some(def) = spec.default {
-      defaults.endian   = def.endian.or(defaults.endian);
-      defaults.encoding = def.encoding.or(defaults.encoding);
+      defaults.endian     = def.endian.or(defaults.endian);
+      defaults.bit_endian = def.bit_endian.or(defaults.bit_endian);
+      defaults.encoding   = def.encoding.or(defaults.encoding);
     }
 
     let fields = Self::check_duplicates(spec.seq.map(|s| s.into_iter().enumerate()), |(i, mut spec)| {
