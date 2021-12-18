@@ -92,7 +92,7 @@ mod helpers {
     pub enum_:    Option<p::Path>,
     pub contents: Option<p::Contents>,
     pub encoding: Inheritable<String>,
-    pub endian:   Option<p::Variant<p::Endian>>,
+    pub endian:   Option<p::Variant<p::ByteOrder>>,
   }
 }
 
@@ -531,7 +531,7 @@ impl Add for SizeOf {
 }
 
 /// Byte order, used for reading built-in numeric types
-pub type ByteOrder = Variant<p::Endian>;
+pub type ByteOrder = Variant<p::ByteOrder>;
 
 /// Types that can be used as base for enumerations.
 #[derive(Clone, Debug, PartialEq)]
@@ -637,7 +637,7 @@ impl TypeRef {
     use TypeRef::{Enum, F32, F64};
     use p::Builtin::*;
     use p::TypeRef::*;
-    use p::Endian::*;
+    use p::ByteOrder::*;
     use helpers::Inheritable::*;
 
     let endian = props.endian;
@@ -1046,7 +1046,7 @@ mod size {
   }
   #[test]
   fn builtin_types() {
-    use p::Endian::*;
+    use p::ByteOrder::*;
     use Enumerable::*;
     use Variant::*;
 
@@ -1358,8 +1358,8 @@ mod sizeof {
   use super::*;
   use SizeOf::*;
 
-  const BE: ByteOrder = ByteOrder::Fixed(p::Endian::Be);
-  const LE: ByteOrder = ByteOrder::Fixed(p::Endian::Le);
+  const BE: ByteOrder = ByteOrder::Fixed(p::ByteOrder::Be);
+  const LE: ByteOrder = ByteOrder::Fixed(p::ByteOrder::Le);
 
   #[test]
   fn add() {

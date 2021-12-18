@@ -293,7 +293,7 @@ pub struct XRefs {
 /// Variants of endianness of integer attribute types
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
-pub enum Endian {
+pub enum ByteOrder {
   /// Little-Endian
   Le,
   /// Big-Endian
@@ -539,7 +539,7 @@ pub struct Defaults {
   /// If set, primitive data types like `u4` would be treated as aliases to `u4le` / `u4be`
   /// (depending on the setting); if not set, attempt to use abbreviated types like `u4`
   /// (i.e. without full endianness qualifier) will yield compile-time error.
-  pub endian: Option<Variant<Endian>>,
+  pub endian: Option<Variant<ByteOrder>>,
 
   /// Additional arbitrary values.
   #[serde(flatten)]
