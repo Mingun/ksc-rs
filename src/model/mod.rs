@@ -999,6 +999,19 @@ pub struct UserType {
   // pub params: IndexMap<ParamName, Param>,//TODO: Parameters
 }
 impl UserType {
+  /// Calculates size that instances of that type occupied in the stream.
+  ///
+  /// The expression's language operator `sizeof<T>` and a special property [`_sizeof`] returns
+  /// result of this method.
+  ///
+  /// The size is calculated as sum of sizes of all [`fields`].
+  ///
+  /// [`_sizeof`]:
+  /// [`fields`]: #field.fields
+  pub fn sizeof(&self) -> SizeOf {
+    self.fields.iter().fold(SizeOf::Sized(0usize.into()), |acc, (_, a)| acc + a.sizeof())
+  }
+
   /// Performs validation of lists for duplicated entries
   ///
   /// # Parameters
