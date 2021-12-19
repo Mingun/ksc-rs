@@ -854,17 +854,17 @@ impl From<Chunk> for Attribute {
 
 /// Defines a user-defined type
 #[derive(Clone, Debug, Default, PartialEq)]
-pub struct Type {
+pub struct UserType {
   /// The list of fields that this type consists of. The fields in the data stream
   /// are in the same order as they are declared here.
   pub fields: IndexMap<SeqName, Attribute>,
   // pub getters: IndexMap<InstanceName, Instance>,//TODO: instances
   /// List of used-defined types, defined inside this type.
-  pub types: IndexMap<TypeName, Type>,
+  pub types: IndexMap<TypeName, UserType>,
   // pub enums: IndexMap<EnumName, Enum>,//TODO: Enums
   // pub params: IndexMap<ParamName, Param>,//TODO: Parameters
 }
-impl Type {
+impl UserType {
   /// Performs validation of lists for duplicated entries
   ///
   /// # Parameters
@@ -911,7 +911,7 @@ impl Type {
     let types = Self::check_duplicates(spec.types, |(name, spec)| {
       Ok((
         TypeName::validate(name)?,
-        Type::validate(spec, defaults.clone())?
+        UserType::validate(spec, defaults.clone())?
       ))
     })?;
 
@@ -928,7 +928,7 @@ pub struct Root {
   /// Name of top-level type
   pub name: TypeName,
   /// Definition of type
-  pub type_: Type,
+  pub type_: UserType,
 }
 impl TryFrom<p::Ksy> for Root {
   type Error = ModelError;
@@ -942,7 +942,7 @@ impl TryFrom<p::Ksy> for Root {
       Some(Bool(false)) => TypeName::valid("r#false"),
       Some(Name(name))  => TypeName::validate(name)?,
     };
-    let type_ = Type::validate(data.root, data.meta.defaults.into())?;
+    let type_ = UserType::validate(data.root, data.meta.defaults.into())?;
 
     Ok(Self { name, type_ })
   }
@@ -967,7 +967,7 @@ mod size {
     let root = Root::try_from(ksy).expect("`size` defines size");
     assert_eq!(root, Root {
       name: TypeName::valid("test"),
-      type_: Type {
+      type_: UserType {
         fields: indexmap![
           SeqName::Named(Name::valid("field")) => Chunk {
             type_ref: TypeRef::Bytes,
@@ -990,7 +990,7 @@ mod size {
     let root = Root::try_from(ksy).expect("`size-eos` defines size");
     assert_eq!(root, Root {
       name: TypeName::valid("test"),
-      type_: Type {
+      type_: UserType {
         fields: indexmap![
           SeqName::Named(Name::valid("field")) => Chunk {
             type_ref: TypeRef::Bytes,
@@ -1013,7 +1013,7 @@ mod size {
     let root = Root::try_from(ksy).expect("`terminator` defines size");
     assert_eq!(root, Root {
       name: TypeName::valid("test"),
-      type_: Type {
+      type_: UserType {
         fields: indexmap![
           SeqName::Named(Name::valid("field")) => Chunk {
             type_ref: TypeRef::Bytes,
@@ -1037,7 +1037,7 @@ mod size {
     let root = Root::try_from(ksy).expect("`strz` defines size (because of implicit `terminator=0`)");
     assert_eq!(root, Root {
       name: TypeName::valid("test"),
-      type_: Type {
+      type_: UserType {
         fields: indexmap![
           SeqName::Named(Name::valid("field")) => Chunk {
             type_ref: TypeRef::String("UTF-8".into()),
@@ -1067,7 +1067,7 @@ mod size {
         let root = Root::try_from(ksy).expect(&format!("`{}` has natural size", stringify!($builtin)));
         assert_eq!(root, Root {
           name: TypeName::valid("test"),
-          type_: Type {
+          type_: UserType {
             fields: indexmap![
               SeqName::Named(Name::valid("field")) => Chunk {
                 type_ref: $base,
