@@ -441,12 +441,15 @@ impl Size {
   /// describe size of field.
   ///
   /// # Parameters
-  /// - `type_size`:
-  ///   If not `Unsized`, field type has natural size and any size attribute
+  /// - `type_ref`:
+  ///   Reference to the validated type of attribute. If its `sizeof()`
+  ///   is not `Unsized`, field type has natural size and any size attribute
   ///   is not required; compiler won't complain about that
   /// - `size`:
-  ///   Size parameters from parser
-  fn validate(type_size: SizeOf, size: helpers::Size) -> Result<Self, ModelError> {
+  ///   Size parameters from a parser
+  /// - `_check_size`: if `true` then in a compatible mode check for allow
+  ///   `size` / `size-eos` together with built-in types will be performed
+  fn validate(type_ref: &TypeRef, size: helpers::Size, _check_size: bool) -> Result<Self, ModelError> {
     use ModelError::*;
     use SizeOf::*;
 
@@ -463,13 +466,43 @@ impl Size {
       (None, ..) => None,
     };
 
+    #[cfg(feature = "compatible")]
+    macro_rules! err {
+      ($text:literal) => {
+        if _check_size {
+          Err(Validation($text.into()))
+        } else {
+          Ok(Self::Natural)
+        }
+      };
+    }
+
+    // Do not allow `size` and `size-eos` together with built-in sized types
+    //TODO: https://github.com/kaitai-io/kaitai_struct/issues/788
+    #[cfg(feature = "compatible")]
+    match (&type_ref, &size.size, &size.size_eos) {
+      (TypeRef::Enum { .. }, Some(_), None) |
+      (TypeRef::F32(_),      Some(_), None) |
+      (TypeRef::F64(_),      Some(_), None) => return err!("`size` cannot be used with natural-sized built-in types (subject to change, see https://github.com/kaitai-io/kaitai_struct/issues/788)"),
+
+      (TypeRef::Enum { .. }, None, Some(_)) |
+      (TypeRef::F32(_),      None, Some(_)) |
+      (TypeRef::F64(_),      None, Some(_)) => return err!("`size-eos` cannot be used with natural-sized built-in types (subject to change, see https://github.com/kaitai-io/kaitai_struct/issues/788)"),
+
+      (TypeRef::Enum { .. }, None, None) |
+      (TypeRef::F32(_),      None, None) |
+      (TypeRef::F64(_),      None, None) => return Ok(Self::Natural),
+
+      _ => {},
+    };
+
     match (size.size, size.size_eos.unwrap_or(false), terminator) {
       (None,        true,   until) => Ok(Self::Eos(until)),
       (None,       false, Some(t)) => Ok(Self::Until(t)),
       // TODO: Warning or even error, if natural type size is less that size
       (Some(size), false,   until) => Ok(Self::Exact { count: Count::validate(size)?, until }),
       (Some(_),     true,       _) => Err(Validation("only one of `size` or `size-eos: true` must be specified".into())),
-      (None,       false,    None) => match type_size {
+      (None,       false,    None) => match type_ref.sizeof() {
         // For unknown sized types use all remaining input
         Unknown => Ok(Self::Eos(None)),
         Unsized(_, _) => Err(Validation("`size`, `size-eos: true` or `terminator` must be specified".into())),
@@ -795,9 +828,12 @@ impl Chunk {
   /// - `props`: attributes that can define type traits in addition or instead
   ///   of the `type` key
   /// - `size`: attributes that affects the field size
+  /// - `check_size`: if `true` then in a compatible mode check for allow
+  ///   `size` / `size-eos` together with built-in types will be performed
   fn validate(type_ref: Option<p::TypeRef>,
               props: helpers::TypeProps,
               mut size: helpers::Size,
+              check_size: bool,
   ) -> Result<Self, ModelError> {
     use p::Builtin::strz;
     use p::TypeRef::Builtin;
@@ -808,7 +844,7 @@ impl Chunk {
     }
 
     let type_ref = TypeRef::validate(type_ref, props)?;
-    let size = Size::validate(type_ref.sizeof(), size)?;
+    let size = Size::validate(&type_ref, size, check_size)?;
     Ok(Self { type_ref, size })
   }
 }
@@ -903,15 +939,15 @@ impl Attribute {
     };
     Ok(Self {
       chunk:     match attr.type_ {
-        None             => Variant::Fixed(Chunk::validate(None,      props, size)?),
-        Some(Fixed(val)) => Variant::Fixed(Chunk::validate(Some(val), props, size)?),
+        None             => Variant::Fixed(Chunk::validate(None,      props, size, true)?),
+        Some(Fixed(val)) => Variant::Fixed(Chunk::validate(Some(val), props, size, true)?),
         Some(Choice { switch_on, cases }) => {
           // Because in switch-on expression encoding defined not at the same level, as type
           // (not in `case:` clause), we make it inherited
           props.encoding = props.encoding.to_inherited();
           let mut new_cases = IndexMap::with_capacity(cases.len());
           for (k, val) in cases.into_iter() {
-            let chunk = Chunk::validate(Some(val), props.clone(), size.clone())?;
+            let chunk = Chunk::validate(Some(val), props.clone(), size.clone(), false)?;
             new_cases.insert(k.try_into()?, chunk);
           }
           Variant::Choice {
@@ -2605,6 +2641,11 @@ mod sizeof {
               endian: Some(p::Variant::Fixed(p::ByteOrder::Be)),
               ..Default::default()
             });
+
+            #[cfg(feature = "compatible")]
+            assert_eq!(attr, Err(ModelError::Validation("`size` cannot be used with natural-sized built-in types (subject to change, see https://github.com/kaitai-io/kaitai_struct/issues/788)".into())));
+
+            #[cfg(not(feature = "compatible"))]
             assert_eq!(attr.unwrap().sizeof(), SizeOf::Sized(10usize.into()));
           }
 
@@ -2618,6 +2659,11 @@ mod sizeof {
               endian: Some(p::Variant::Fixed(p::ByteOrder::Be)),
               ..Default::default()
             });
+
+            #[cfg(feature = "compatible")]
+            assert_eq!(attr, Err(ModelError::Validation("`size-eos` cannot be used with natural-sized built-in types (subject to change, see https://github.com/kaitai-io/kaitai_struct/issues/788)".into())));
+
+            #[cfg(not(feature = "compatible"))]
             assert_eq!(attr.unwrap().sizeof(), SizeOf::Unsized($size.into(), None));
           }
 
@@ -2631,6 +2677,11 @@ mod sizeof {
               endian: Some(p::Variant::Fixed(p::ByteOrder::Be)),
               ..Default::default()
             });
+
+            #[cfg(feature = "compatible")]
+            assert_eq!(attr, Err(ModelError::Validation("`size-eos` cannot be used with natural-sized built-in types (subject to change, see https://github.com/kaitai-io/kaitai_struct/issues/788)".into())));
+
+            #[cfg(not(feature = "compatible"))]
             assert_eq!(attr.unwrap().sizeof(), SizeOf::Sized($size.into()));
           }
         }
@@ -2791,6 +2842,11 @@ mod sizeof {
           size: 10
           "#).unwrap();
           let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+
+          #[cfg(feature = "compatible")]
+          assert_eq!(attr.sizeof(), SizeOf::Sized(4usize.into()));
+
+          #[cfg(not(feature = "compatible"))]
           assert_eq!(attr.sizeof(), SizeOf::Sized(10usize.into()));
         }
 
@@ -2805,6 +2861,11 @@ mod sizeof {
           size: 10
           "#).unwrap();
           let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+
+          #[cfg(feature = "compatible")]
+          assert_eq!(attr.sizeof(), SizeOf::Unsized(2usize.into(), Some(4usize.into())));
+
+          #[cfg(not(feature = "compatible"))]
           assert_eq!(attr.sizeof(), SizeOf::Sized(10usize.into()));
         }
 
@@ -2820,6 +2881,11 @@ mod sizeof {
           encoding: utf-8
           "#).unwrap();
           let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+
+          #[cfg(feature = "compatible")]
+          assert_eq!(attr.sizeof(), SizeOf::Unsized(4usize.into(), Some(10usize.into())));
+
+          #[cfg(not(feature = "compatible"))]
           assert_eq!(attr.sizeof(), SizeOf::Sized(10usize.into()));
         }
       }
@@ -2840,6 +2906,11 @@ mod sizeof {
           size-eos: true
           "#).unwrap();
           let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+
+          #[cfg(feature = "compatible")]
+          assert_eq!(attr.sizeof(), SizeOf::Sized(4usize.into()));
+
+          #[cfg(not(feature = "compatible"))]
           assert_eq!(attr.sizeof(), SizeOf::Unsized(4usize.into(), None));
         }
 
@@ -2854,6 +2925,11 @@ mod sizeof {
           size-eos: true
           "#).unwrap();
           let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+
+          #[cfg(feature = "compatible")]
+          assert_eq!(attr.sizeof(), SizeOf::Unsized(2usize.into(), Some(4usize.into())));
+
+          #[cfg(not(feature = "compatible"))]
           assert_eq!(attr.sizeof(), SizeOf::Unsized(2usize.into(), None));
         }
 
@@ -2889,6 +2965,11 @@ mod sizeof {
           terminator: 0
           "#).unwrap();
           let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+
+          #[cfg(feature = "compatible")]
+          assert_eq!(attr.sizeof(), SizeOf::Sized(4usize.into()));
+
+          #[cfg(not(feature = "compatible"))]
           assert_eq!(attr.sizeof(), SizeOf::Unsized(4usize.into(), None));
         }
 
@@ -2903,6 +2984,11 @@ mod sizeof {
           terminator: 0
           "#).unwrap();
           let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+
+          #[cfg(feature = "compatible")]
+          assert_eq!(attr.sizeof(), SizeOf::Unsized(2usize.into(), Some(4usize.into())));
+
+          #[cfg(not(feature = "compatible"))]
           assert_eq!(attr.sizeof(), SizeOf::Unsized(2usize.into(), None));
         }
 
@@ -2925,6 +3011,7 @@ mod sizeof {
 
     mod repeat {
       use super::*;
+      #[cfg(not(feature = "compatible"))]
       use ModelError::*;
 
       /// Repeated expression have a fixed size
@@ -2943,6 +3030,11 @@ mod sizeof {
           repeat-expr: -42
           "#).unwrap();
           let attr = Attribute::validate(attr, p::Defaults::default());
+
+          #[cfg(feature = "compatible")]
+          assert_eq!(attr.unwrap().sizeof(), SizeOf::Sized(0usize.into()));
+
+          #[cfg(not(feature = "compatible"))]
           assert_eq!(attr, Err(Validation(
             "`repeat-expr` should be positive, but its value is `-42`".into()
           )));
@@ -2954,6 +3046,11 @@ mod sizeof {
           repeat-expr: '-42'
           "#).unwrap();
           let attr = Attribute::validate(attr, p::Defaults::default());
+
+          #[cfg(feature = "compatible")]
+          assert_eq!(attr.unwrap().sizeof(), SizeOf::Sized(0usize.into()));
+
+          #[cfg(not(feature = "compatible"))]
           assert_eq!(attr, Err(Validation(
             "`repeat-expr` should be positive, but its value is `-42`".into()
           )));
@@ -2969,6 +3066,11 @@ mod sizeof {
           repeat-expr: 0
           "#).unwrap();
           let attr = Attribute::validate(attr, p::Defaults::default());
+
+          #[cfg(feature = "compatible")]
+          assert_eq!(attr.unwrap().sizeof(), SizeOf::Sized(0usize.into()));
+
+          #[cfg(not(feature = "compatible"))]
           assert_eq!(attr, Err(Validation(
             "`repeat-expr` should be positive, but its value is `0`".into()
           )));
@@ -2980,6 +3082,11 @@ mod sizeof {
           repeat-expr: '0'
           "#).unwrap();
           let attr = Attribute::validate(attr, p::Defaults::default());
+
+          #[cfg(feature = "compatible")]
+          assert_eq!(attr.unwrap().sizeof(), SizeOf::Sized(0usize.into()));
+
+          #[cfg(not(feature = "compatible"))]
           assert_eq!(attr, Err(Validation(
             "`repeat-expr` should be positive, but its value is `0`".into()
           )));
@@ -3049,6 +3156,11 @@ mod sizeof {
           repeat-until: false
           "#).unwrap();
           let attr = Attribute::validate(attr, p::Defaults::default());
+
+          #[cfg(feature = "compatible")]
+          assert_eq!(attr.unwrap().sizeof(), SizeOf::Unsized(0usize.into(), None));
+
+          #[cfg(not(feature = "compatible"))]
           assert_eq!(attr, Err(Validation(
             "`repeat-until` key is always `false` which generates an infinity loop".into()
           )));
@@ -3060,6 +3172,11 @@ mod sizeof {
           repeat-until: 'false'
           "#).unwrap();
           let attr = Attribute::validate(attr, p::Defaults::default());
+
+          #[cfg(feature = "compatible")]
+          assert_eq!(attr.unwrap().sizeof(), SizeOf::Unsized(0usize.into(), None));
+
+          #[cfg(not(feature = "compatible"))]
           assert_eq!(attr, Err(Validation(
             "`repeat-until` key is always `false` which generates an infinity loop".into()
           )));
@@ -3105,6 +3222,11 @@ mod sizeof {
           repeat-expr: -42
           "#).unwrap();
           let attr = Attribute::validate(attr, p::Defaults::default());
+
+          #[cfg(feature = "compatible")]
+          assert_eq!(attr.unwrap().sizeof(), SizeOf::Sized(0usize.into()));
+
+          #[cfg(not(feature = "compatible"))]
           assert_eq!(attr, Err(Validation(
             "`repeat-expr` should be positive, but its value is `-42`".into()
           )));
@@ -3116,6 +3238,11 @@ mod sizeof {
           repeat-expr: '-42'
           "#).unwrap();
           let attr = Attribute::validate(attr, p::Defaults::default());
+
+          #[cfg(feature = "compatible")]
+          assert_eq!(attr.unwrap().sizeof(), SizeOf::Sized(0usize.into()));
+
+          #[cfg(not(feature = "compatible"))]
           assert_eq!(attr, Err(Validation(
             "`repeat-expr` should be positive, but its value is `-42`".into()
           )));
@@ -3131,6 +3258,11 @@ mod sizeof {
           repeat-expr: 0
           "#).unwrap();
           let attr = Attribute::validate(attr, p::Defaults::default());
+
+          #[cfg(feature = "compatible")]
+          assert_eq!(attr.unwrap().sizeof(), SizeOf::Sized(0usize.into()));
+
+          #[cfg(not(feature = "compatible"))]
           assert_eq!(attr, Err(Validation(
             "`repeat-expr` should be positive, but its value is `0`".into()
           )));
@@ -3142,6 +3274,11 @@ mod sizeof {
           repeat-expr: '0'
           "#).unwrap();
           let attr = Attribute::validate(attr, p::Defaults::default());
+
+          #[cfg(feature = "compatible")]
+          assert_eq!(attr.unwrap().sizeof(), SizeOf::Sized(0usize.into()));
+
+          #[cfg(not(feature = "compatible"))]
           assert_eq!(attr, Err(Validation(
             "`repeat-expr` should be positive, but its value is `0`".into()
           )));
@@ -3211,6 +3348,11 @@ mod sizeof {
           repeat-until: false
           "#).unwrap();
           let attr = Attribute::validate(attr, p::Defaults::default());
+
+          #[cfg(feature = "compatible")]
+          assert_eq!(attr.unwrap().sizeof(), SizeOf::Unsized(0usize.into(), None));
+
+          #[cfg(not(feature = "compatible"))]
           assert_eq!(attr, Err(Validation(
             "`repeat-until` key is always `false` which generates an infinity loop".into()
           )));
@@ -3222,6 +3364,11 @@ mod sizeof {
           repeat-until: 'false'
           "#).unwrap();
           let attr = Attribute::validate(attr, p::Defaults::default());
+
+          #[cfg(feature = "compatible")]
+          assert_eq!(attr.unwrap().sizeof(), SizeOf::Unsized(0usize.into(), None));
+
+          #[cfg(not(feature = "compatible"))]
           assert_eq!(attr, Err(Validation(
             "`repeat-until` key is always `false` which generates an infinity loop".into()
           )));
@@ -3271,6 +3418,11 @@ mod sizeof {
           repeat-expr: -42
           "#).unwrap();
           let attr = Attribute::validate(attr, p::Defaults::default());
+
+          #[cfg(feature = "compatible")]
+          assert_eq!(attr.unwrap().sizeof(), SizeOf::Sized(0usize.into()));
+
+          #[cfg(not(feature = "compatible"))]
           assert_eq!(attr, Err(Validation(
             "`repeat-expr` should be positive, but its value is `-42`".into()
           )));
@@ -3286,6 +3438,11 @@ mod sizeof {
           repeat-expr: '-42'
           "#).unwrap();
           let attr = Attribute::validate(attr, p::Defaults::default());
+
+          #[cfg(feature = "compatible")]
+          assert_eq!(attr.unwrap().sizeof(), SizeOf::Sized(0usize.into()));
+
+          #[cfg(not(feature = "compatible"))]
           assert_eq!(attr, Err(Validation(
             "`repeat-expr` should be positive, but its value is `-42`".into()
           )));
@@ -3305,6 +3462,11 @@ mod sizeof {
           repeat-expr: 0
           "#).unwrap();
           let attr = Attribute::validate(attr, p::Defaults::default());
+
+          #[cfg(feature = "compatible")]
+          assert_eq!(attr.unwrap().sizeof(), SizeOf::Sized(0usize.into()));
+
+          #[cfg(not(feature = "compatible"))]
           assert_eq!(attr, Err(Validation(
             "`repeat-expr` should be positive, but its value is `0`".into()
           )));
@@ -3320,6 +3482,11 @@ mod sizeof {
           repeat-expr: '0'
           "#).unwrap();
           let attr = Attribute::validate(attr, p::Defaults::default());
+
+          #[cfg(feature = "compatible")]
+          assert_eq!(attr.unwrap().sizeof(), SizeOf::Sized(0usize.into()));
+
+          #[cfg(not(feature = "compatible"))]
           assert_eq!(attr, Err(Validation(
             "`repeat-expr` should be positive, but its value is `0`".into()
           )));
@@ -3413,6 +3580,11 @@ mod sizeof {
           repeat-until: false
           "#).unwrap();
           let attr = Attribute::validate(attr, p::Defaults::default());
+
+          #[cfg(feature = "compatible")]
+          assert_eq!(attr.unwrap().sizeof(), SizeOf::Unsized(0usize.into(), None));
+
+          #[cfg(not(feature = "compatible"))]
           assert_eq!(attr, Err(Validation(
             "`repeat-until` key is always `false` which generates an infinity loop".into()
           )));
@@ -3428,6 +3600,11 @@ mod sizeof {
           repeat-until: 'false'
           "#).unwrap();
           let attr = Attribute::validate(attr, p::Defaults::default());
+
+          #[cfg(feature = "compatible")]
+          assert_eq!(attr.unwrap().sizeof(), SizeOf::Unsized(0usize.into(), None));
+
+          #[cfg(not(feature = "compatible"))]
           assert_eq!(attr, Err(Validation(
             "`repeat-until` key is always `false` which generates an infinity loop".into()
           )));
