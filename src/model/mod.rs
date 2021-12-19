@@ -294,13 +294,16 @@ pub struct Terminator {
   ///
   /// If `true`: the stream pointer will point to the byte after the terminator byte
   /// If `false`: the stream pointer will point to the terminator byte itself
+  ///
+  /// Default is `true`
   pub consume: bool,
   /// Specifies if terminator byte should be included in the final value.
+  /// Default is `false`
   pub include: bool,
   /// If `true`, terminator must be present in the input stream, otherwise
   /// reaching end of stream before encountering terminator also possible.
   ///
-  /// Corresponds to `eos-error` key.
+  /// Corresponds to `eos-error` key. Default is `true`
   pub mandatory: bool,
 }
 impl From<u8> for Terminator {
@@ -325,15 +328,16 @@ impl From<u8> for Terminator {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Size {
   /// Size not defined explicitly, natural size should be used for reading
-  /// field. Corresponds to not defined size. To get a real size use the
-  /// [`sizeof()`] method.
+  /// field. Corresponds to not defined `size` in the attribute definition.
+  /// To get a real size use the [`sizeof()`] method of the type.
   ///
   /// [`sizeof()`]: ./enum.TypeRef.html#method.sizeof
   Natural,
-  /// Read all remaining bytes in a stream. Optionally terminator
-  /// can define actually available slice for parsing. In that case
-  /// only bytes in range `[0; terminator]` will be used to parse data.
-  /// All remaining bytes will be unavailable.
+  /// Read all remaining bytes in a stream. Optionally terminator can define
+  /// actually available slice for parsing. In that case only bytes in range
+  /// `[0; terminator]` will be used to parse data. All remaining bytes will
+  /// be unavailable. If terminator byte is not consumed, then in can be read
+  /// by the next field
   ///
   /// ```text
   ///          /====\ - actually used data
@@ -465,7 +469,8 @@ pub enum SizeOf {
   /// Some explicit size definition (as `size`, `size-eos` or `terminator`)
   /// is required.
   ///
-  /// The value contained represents the minimum and the maximum size of the type
+  /// The value contained represents the minimum and the maximum size of the type.
+  /// If maximum size is unlimited, then the second element of tuple is `None`
   Unsized(BigUint, Option<BigUint>),
   /// Size of type is unknown. That variant is used for external types
   /// and for local user types until compiler will be smart enough to
@@ -748,6 +753,14 @@ impl Chunk {
       },
     }
   }
+  /// Checks that type and size properties do not conflict
+  ///
+  /// # Parameters
+  /// - `type_ref`: value of the `type` attribute property. If `None`, no type
+  ///   was specified in the KSY
+  /// - `props`: attributes that can define type traits in addition or instead
+  ///   of the `type` key
+  /// - `size`: attributes that affects the field size
   fn validate(type_ref: Option<p::TypeRef>,
               props: helpers::TypeProps,
               mut size: helpers::Size,
@@ -769,10 +782,13 @@ impl Chunk {
 /// Defines, how to read and interpret data
 #[derive(Clone, Debug, PartialEq)]
 pub struct Attribute {
-  /// Reference to type and size of this attribute. Type can be fixed or calculated
+  /// Defines the size and type of this attribute. Both values can be varied
+  /// depending on the arbitrary expression
+  //TODO: size should be property of the attribute instead of a chunk
+  // See https://github.com/kaitai-io/kaitai_struct/issues/788
   pub chunk: Variant<Chunk>,
 
-  /// Specify how many times a given attribute should occur in a stream.
+  /// Specify how many times a given chunk should occur in a stream.
   pub repeat: Repeat,
   /// If specified, attribute will be read only if condition evaluated to `true`.
   pub condition: Option<Condition>,
