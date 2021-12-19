@@ -539,7 +539,11 @@ pub enum Repeat {
 }
 
 /// Expression used to represent repetition count.
-pub type Count = Expression<u64>;
+///
+/// Although repetition count never can be negative, we use a signed value here
+/// in order to be able to parse negative literals and produce a better error on
+/// the later stages of compilation
+pub type Count = Expression<i64>;
 
 /// Expression used to represent instance position
 pub type Position = Expression<u64>;

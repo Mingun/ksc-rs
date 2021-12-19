@@ -13,6 +13,7 @@ use std::ops::{Add, Deref};
 #[cfg(not(feature = "compatible"))]
 use bigdecimal::Signed;
 use bigdecimal::num_bigint::{BigInt, BigUint};
+use bigdecimal::num_traits::Zero;
 use indexmap::{indexmap, IndexMap};
 use indexmap::map::Entry;
 use lazy_static::lazy_static;
@@ -270,7 +271,7 @@ impl Repeat {
       (Some(Expr),  Some(count), None) => match Count::validate(count)? {
         #[cfg(not(feature = "compatible"))]
         Count(OwningNode::Int(count)) if !count.is_positive() => Err(Validation(
-          format!("`repeat-expr` should be positive, but it value is `{}`", count).into()
+          format!("`repeat-expr` should be positive, but its value is `{}`", count).into()
         )),
         //TODO: Warn if only one iteration will be done
         count => Ok(Self::Count(count)),
@@ -288,7 +289,7 @@ impl Repeat {
       #[cfg(not(feature = "compatible"))]
       (None, Some(count), None) => match Count::validate(count)? {
         Count(OwningNode::Int(count)) if !count.is_positive() => Err(Validation(
-          format!("`repeat-expr` should be positive, but it value is `{}`", count).into()
+          format!("`repeat-expr` should be positive, but its value is `{}`", count).into()
         )),
         //TODO: Warn if only one iteration will be done
         count => Ok(Self::Count(count)),
@@ -831,6 +832,54 @@ pub struct Attribute {
   pub process: Option<ProcessAlgo>,
 }
 impl Attribute {
+  /// Calculates size that attribute is occupied in the the stream.
+  pub fn sizeof(&self) -> SizeOf {
+    use SizeOf::*;
+    use OwningNode::{Int, Bool};
+
+    let size = self.chunk.sizeof();
+    let size = match (&self.repeat, size) {
+      (_, Unknown) => { return Unknown; },
+
+      (Repeat::None, size) => size,
+
+      //TODO: evaluate constant conditions and check that count is non-negative
+      (Repeat::Count(Count(Int(count))), Unsized(min, max)) => {
+        let (_, count) = cmp::max(count.clone(), BigInt::default()).into_parts();
+
+        if count.is_zero() {
+          Sized(count)
+        } else {
+          Unsized(min * count.clone(), max.map(|m| m * count))
+        }
+      },
+      (Repeat::Count(Count(Int(count))), Sized(size)) => {
+        let (_, count) = cmp::max(count.clone(), BigInt::default()).into_parts();
+        Sized(size * count)
+      },
+      (Repeat::Count(_), _) => Unsized(0usize.into(), None),
+
+      // `repeat-until: true` allows only one iteration
+      (Repeat::Until(Condition(Bool(true))), size) => size,
+      // `repeat-until: false` forbidden on the validate stage, but we need to return something
+      (Repeat::Until(Condition(Bool(false))), _) => Unsized(0usize.into(), None),
+      (Repeat::Until(_), Unsized(m, _)) => Unsized(m, None),
+      (Repeat::Until(_),   Sized(size)) => Unsized(size.into(), None),
+
+      (Repeat::Eos, _) => Unsized(0usize.into(), None),
+    };
+    match (&self.condition, size) {
+      (None,       size) => size,
+      (Some(_), Unknown) => Unknown,// Actually not possible because we filter Unknown early
+
+      //TODO: evaluate constant conditions
+      (Some(Condition(Bool(true))), size) => size,
+      (Some(Condition(Bool(false))),   _) => Sized(0usize.into()),
+
+      (Some(_),   Sized(size)) => Unsized(0usize.into(), Some(size)),
+      (Some(_), Unsized(_, m)) => Unsized(0usize.into(), m),
+    }
+  }
   fn validate(attr: p::Attribute, defaults: p::Defaults) -> Result<Self, ModelError> {
     use p::Variant::*;
 
@@ -1442,7 +1491,7 @@ mod repeat {
       assert_eq!(rep, Ok(Repeat::Count(Count(OwningNode::Int((-42).into())))));
 
       #[cfg(not(feature = "compatible"))]
-      assert_eq!(rep, Err(Validation("`repeat-expr` should be positive, but it value is `-42`".into())));
+      assert_eq!(rep, Err(Validation("`repeat-expr` should be positive, but its value is `-42`".into())));
     }
 
     /// ```yaml
@@ -1461,7 +1510,7 @@ mod repeat {
       assert_eq!(rep, Ok(Repeat::Count(Count(OwningNode::Int(0.into())))));
 
       #[cfg(not(feature = "compatible"))]
-      assert_eq!(rep, Err(Validation("`repeat-expr` should be positive, but it value is `0`".into())));
+      assert_eq!(rep, Err(Validation("`repeat-expr` should be positive, but its value is `0`".into())));
     }
 
     /// ```yaml
@@ -1526,7 +1575,7 @@ mod repeat {
         assert_eq!(rep, Err(Validation("missed `repeat: expr`".into())));
 
         #[cfg(not(feature = "compatible"))]
-        assert_eq!(rep, Err(Validation("`repeat-expr` should be positive, but it value is `-42`".into())));
+        assert_eq!(rep, Err(Validation("`repeat-expr` should be positive, but its value is `-42`".into())));
       }
 
       /// ```yaml
@@ -1544,7 +1593,7 @@ mod repeat {
         assert_eq!(rep, Err(Validation("missed `repeat: expr`".into())));
 
         #[cfg(not(feature = "compatible"))]
-        assert_eq!(rep, Err(Validation("`repeat-expr` should be positive, but it value is `0`".into())));
+        assert_eq!(rep, Err(Validation("`repeat-expr` should be positive, but its value is `0`".into())));
       }
 
       /// ```yaml
@@ -2516,6 +2565,1093 @@ mod sizeof {
         }
 
         unlimited!(chunk_size);
+      }
+    }
+  }
+
+  mod attribute {
+    // Colorful diffs in assertions - resolve ambiguous
+    use pretty_assertions::assert_eq;
+    use super::*;
+    use serde_yaml::from_str;
+
+    macro_rules! type_check_size {
+      ($fn:ident == $size:expr) => {
+        mod $fn {
+          // Colorful diffs in assertions - resolve ambiguous
+          use pretty_assertions::assert_eq;
+          use super::*;
+
+          #[test]
+          fn only_type() {
+            let attr: p::Attribute = from_str(&format!(r#"
+            type: {}
+            "#, stringify!($fn))).unwrap();
+            let attr = Attribute::validate(attr, p::Defaults {
+              endian: Some(p::Variant::Fixed(p::ByteOrder::Be)),
+              ..Default::default()
+            }).unwrap();
+            assert_eq!(attr.sizeof(), SizeOf::Sized($size.into()));
+          }
+
+          #[test]
+          fn type_and_size() {
+            //TODO: both tests should be changed after resolve https://github.com/kaitai-io/kaitai_struct/issues/788
+            let attr: p::Attribute = from_str(&format!(r#"
+            type: {}
+            size: 10
+            "#, stringify!($fn))).unwrap();
+            let attr = Attribute::validate(attr, p::Defaults {
+              endian: Some(p::Variant::Fixed(p::ByteOrder::Be)),
+              ..Default::default()
+            });
+            assert_eq!(attr.unwrap().sizeof(), SizeOf::Sized(10usize.into()));
+          }
+
+          #[test]
+          fn type_and_size_eos_true() {
+            let attr: p::Attribute = from_str(&format!(r#"
+            type: {}
+            size-eos: true
+            "#, stringify!($fn))).unwrap();
+            let attr = Attribute::validate(attr, p::Defaults {
+              endian: Some(p::Variant::Fixed(p::ByteOrder::Be)),
+              ..Default::default()
+            });
+            assert_eq!(attr.unwrap().sizeof(), SizeOf::Unsized($size.into(), None));
+          }
+
+          #[test]
+          fn type_and_size_eos_false() {
+            let attr: p::Attribute = from_str(&format!(r#"
+            type: {}
+            size-eos: false
+            "#, stringify!($fn))).unwrap();
+            let attr = Attribute::validate(attr, p::Defaults {
+              endian: Some(p::Variant::Fixed(p::ByteOrder::Be)),
+              ..Default::default()
+            });
+            assert_eq!(attr.unwrap().sizeof(), SizeOf::Sized($size.into()));
+          }
+        }
+      };
+    }
+
+    type_check_size!(u1 == 1usize);
+    type_check_size!(u2 == 2usize);
+    type_check_size!(u4 == 4usize);
+    type_check_size!(u8 == 8usize);
+
+    type_check_size!(u2be == 2usize);
+    type_check_size!(u4be == 4usize);
+    type_check_size!(u8be == 8usize);
+
+    type_check_size!(u2le == 2usize);
+    type_check_size!(u4le == 4usize);
+    type_check_size!(u8le == 8usize);
+
+    //---------------------------------------------------------------------------------------------
+
+    type_check_size!(s1 == 1usize);
+    type_check_size!(s2 == 2usize);
+    type_check_size!(s4 == 4usize);
+    type_check_size!(s8 == 8usize);
+
+    type_check_size!(s2be == 2usize);
+    type_check_size!(s4be == 4usize);
+    type_check_size!(s8be == 8usize);
+
+    type_check_size!(s2le == 2usize);
+    type_check_size!(s4le == 4usize);
+    type_check_size!(s8le == 8usize);
+
+    //---------------------------------------------------------------------------------------------
+
+    type_check_size!(f4 == 4usize);
+    type_check_size!(f8 == 8usize);
+
+    type_check_size!(f4be == 4usize);
+    type_check_size!(f8be == 8usize);
+
+    type_check_size!(f4le == 4usize);
+    type_check_size!(f8le == 8usize);
+
+    //---------------------------------------------------------------------------------------------
+
+    type_check_size!(b1 == 1usize);
+    type_check_size!(b2 == 1usize);
+    type_check_size!(b3 == 1usize);
+    type_check_size!(b4 == 1usize);
+    type_check_size!(b5 == 1usize);
+    type_check_size!(b6 == 1usize);
+    type_check_size!(b7 == 1usize);
+    type_check_size!(b8 == 1usize);
+    type_check_size!(b9 == 2usize);
+
+    type_check_size!(b1be == 1usize);
+    type_check_size!(b2be == 1usize);
+    type_check_size!(b3be == 1usize);
+    type_check_size!(b4be == 1usize);
+    type_check_size!(b5be == 1usize);
+    type_check_size!(b6be == 1usize);
+    type_check_size!(b7be == 1usize);
+    type_check_size!(b8be == 1usize);
+    type_check_size!(b9be == 2usize);
+
+    type_check_size!(b1le == 1usize);
+    type_check_size!(b2le == 1usize);
+    type_check_size!(b3le == 1usize);
+    type_check_size!(b4le == 1usize);
+    type_check_size!(b5le == 1usize);
+    type_check_size!(b6le == 1usize);
+    type_check_size!(b7le == 1usize);
+    type_check_size!(b8le == 1usize);
+    type_check_size!(b9le == 2usize);
+
+    #[test]
+    fn size_only() {
+      let attr: p::Attribute = from_str(r#"
+      size: 5
+      "#).unwrap();
+      let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+      assert_eq!(attr.sizeof(), SizeOf::Sized(5usize.into()));
+    }
+
+    #[test]
+    fn size_eos_only() {
+      let attr: p::Attribute = from_str(r#"
+      size-eos: true
+      "#).unwrap();
+      let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+      assert_eq!(attr.sizeof(), SizeOf::Unsized(0usize.into(), None));
+    }
+
+    mod switch_on_type {
+      use super::*;
+
+      mod only_type {
+        // Colorful diffs in assertions - resolve ambiguous
+        use pretty_assertions::assert_eq;
+        use super::*;
+
+        #[test]
+        fn same_fixed_size() {
+          let attr: p::Attribute = from_str(r#"
+          type:
+            switch-on: value
+            cases:
+              0: u4be
+              _: f4be
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+          assert_eq!(attr.sizeof(), SizeOf::Sized(4usize.into()));
+        }
+
+        #[test]
+        fn diff_fixed_size() {
+          let attr: p::Attribute = from_str(r#"
+          type:
+            switch-on: value
+            cases:
+              0: u4be
+              _: u2be
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+          assert_eq!(attr.sizeof(), SizeOf::Unsized(2usize.into(), Some(4usize.into())));
+        }
+
+        #[test]
+        fn variable_size() {
+          let attr: p::Attribute = from_str(r#"
+          type:
+            switch-on: value
+            cases:
+              0: u4be
+              _: strz
+          encoding: utf-8
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+          assert_eq!(attr.sizeof(), SizeOf::Unsized(0usize.into(), None));
+        }
+      }
+
+      mod type_and_size {
+        // Colorful diffs in assertions - resolve ambiguous
+        use pretty_assertions::assert_eq;
+        use super::*;
+
+        #[test]
+        fn same_fixed_size() {
+          let attr: p::Attribute = from_str(r#"
+          type:
+            switch-on: value
+            cases:
+              0: u4be
+              _: f4be
+          size: 10
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+          assert_eq!(attr.sizeof(), SizeOf::Sized(10usize.into()));
+        }
+
+        #[test]
+        fn diff_fixed_size() {
+          let attr: p::Attribute = from_str(r#"
+          type:
+            switch-on: value
+            cases:
+              0: u4be
+              _: u2be
+          size: 10
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+          assert_eq!(attr.sizeof(), SizeOf::Sized(10usize.into()));
+        }
+
+        #[test]
+        fn variable_size() {
+          let attr: p::Attribute = from_str(r#"
+          type:
+            switch-on: value
+            cases:
+              0: u4be
+              _: strz
+          size: 10
+          encoding: utf-8
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+          assert_eq!(attr.sizeof(), SizeOf::Sized(10usize.into()));
+        }
+      }
+
+      mod type_and_size_eos {
+        // Colorful diffs in assertions - resolve ambiguous
+        use pretty_assertions::assert_eq;
+        use super::*;
+
+        #[test]
+        fn same_fixed_size() {
+          let attr: p::Attribute = from_str(r#"
+          type:
+            switch-on: value
+            cases:
+              0: u4be
+              _: f4be
+          size-eos: true
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+          assert_eq!(attr.sizeof(), SizeOf::Unsized(4usize.into(), None));
+        }
+
+        #[test]
+        fn diff_fixed_size() {
+          let attr: p::Attribute = from_str(r#"
+          type:
+            switch-on: value
+            cases:
+              0: u4be
+              _: u2be
+          size-eos: true
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+          assert_eq!(attr.sizeof(), SizeOf::Unsized(2usize.into(), None));
+        }
+
+        #[test]
+        fn variable_size() {
+          let attr: p::Attribute = from_str(r#"
+          type:
+            switch-on: value
+            cases:
+              0: u4be
+              _: strz
+          size-eos: true
+          encoding: utf-8
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+          assert_eq!(attr.sizeof(), SizeOf::Unsized(0usize.into(), None));
+        }
+      }
+
+      mod type_and_terminator {
+        // Colorful diffs in assertions - resolve ambiguous
+        use pretty_assertions::assert_eq;
+        use super::*;
+
+        #[test]
+        fn same_fixed_size() {
+          let attr: p::Attribute = from_str(r#"
+          type:
+            switch-on: value
+            cases:
+              0: u4be
+              _: f4be
+          terminator: 0
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+          assert_eq!(attr.sizeof(), SizeOf::Unsized(4usize.into(), None));
+        }
+
+        #[test]
+        fn diff_fixed_size() {
+          let attr: p::Attribute = from_str(r#"
+          type:
+            switch-on: value
+            cases:
+              0: u4be
+              _: u2be
+          terminator: 0
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+          assert_eq!(attr.sizeof(), SizeOf::Unsized(2usize.into(), None));
+        }
+
+        #[test]
+        fn variable_size() {
+          let attr: p::Attribute = from_str(r#"
+          type:
+            switch-on: value
+            cases:
+              0: u4be
+              _: strz
+          terminator: 0
+          encoding: utf-8
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+          assert_eq!(attr.sizeof(), SizeOf::Unsized(0usize.into(), None));
+        }
+      }
+    }
+
+    mod repeat {
+      use super::*;
+      use ModelError::*;
+
+      /// Repeated expression have a fixed size
+      mod fixed {
+        // Colorful diffs in assertions - resolve ambiguous
+        use pretty_assertions::assert_eq;
+        use super::*;
+
+        /// This settings obviously is an error, so forbidden
+        #[test]
+        fn expr_negative() {
+          // literal
+          let attr: p::Attribute = from_str(r#"
+          size: 10
+          repeat: expr
+          repeat-expr: -42
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default());
+          assert_eq!(attr, Err(Validation(
+            "`repeat-expr` should be positive, but its value is `-42`".into()
+          )));
+
+          // expression
+          let attr: p::Attribute = from_str(r#"
+          size: 10
+          repeat: expr
+          repeat-expr: '-42'
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default());
+          assert_eq!(attr, Err(Validation(
+            "`repeat-expr` should be positive, but its value is `-42`".into()
+          )));
+        }
+
+        /// This settings obviously is an error, so forbidden
+        #[test]
+        fn expr_zero() {
+          // literal
+          let attr: p::Attribute = from_str(r#"
+          size: 10
+          repeat: expr
+          repeat-expr: 0
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default());
+          assert_eq!(attr, Err(Validation(
+            "`repeat-expr` should be positive, but its value is `0`".into()
+          )));
+
+          // expression
+          let attr: p::Attribute = from_str(r#"
+          size: 10
+          repeat: expr
+          repeat-expr: '0'
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default());
+          assert_eq!(attr, Err(Validation(
+            "`repeat-expr` should be positive, but its value is `0`".into()
+          )));
+        }
+
+        #[test]
+        fn expr_positive() {
+          // literal
+          let attr: p::Attribute = from_str(r#"
+          size: 10
+          repeat: expr
+          repeat-expr: 42
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+          assert_eq!(attr.sizeof(), SizeOf::Sized(420usize.into()));
+
+          // expression
+          let attr: p::Attribute = from_str(r#"
+          size: 10
+          repeat: expr
+          repeat-expr: '42'
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+          assert_eq!(attr.sizeof(), SizeOf::Sized(420usize.into()));
+        }
+
+        #[test]
+        fn expr_variable() {
+          let attr: p::Attribute = from_str(r#"
+          size: 10
+          repeat: expr
+          repeat-expr: value
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+          assert_eq!(attr.sizeof(), SizeOf::Unsized(0usize.into(), None));
+        }
+
+        /// Only one element always will be consumed in case of success parsing
+        #[test]
+        fn until_true() {
+          // literal
+          let attr: p::Attribute = from_str(r#"
+          size: 10
+          repeat: until
+          repeat-until: true
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+          assert_eq!(attr.sizeof(), SizeOf::Sized(10usize.into()));
+
+          // expression
+          let attr: p::Attribute = from_str(r#"
+          size: 10
+          repeat: until
+          repeat-until: 'true'
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+          assert_eq!(attr.sizeof(), SizeOf::Sized(10usize.into()));
+        }
+
+        /// This settings lead to infinity parsing so it is forbidden
+        #[test]
+        fn until_false() {
+          // literal
+          let attr: p::Attribute = from_str(r#"
+          size: 10
+          repeat: until
+          repeat-until: false
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default());
+          assert_eq!(attr, Err(Validation(
+            "`repeat-until` key is always `false` which generates an infinity loop".into()
+          )));
+
+          // expression
+          let attr: p::Attribute = from_str(r#"
+          size: 10
+          repeat: until
+          repeat-until: 'false'
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default());
+          assert_eq!(attr, Err(Validation(
+            "`repeat-until` key is always `false` which generates an infinity loop".into()
+          )));
+        }
+
+        /// At least one element always will be consumed in case of success parsing
+        #[test]
+        fn until_variable() {
+          let attr: p::Attribute = from_str(r#"
+          size: 10
+          repeat: until
+          repeat-until: value
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+          assert_eq!(attr.sizeof(), SizeOf::Unsized(10usize.into(), None));
+        }
+
+        /// In case of empty stream nothing will be parsed, so minimum is 0
+        #[test]
+        fn eos() {
+          let attr: p::Attribute = from_str(r#"
+          size: 10
+          repeat: eos
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+          assert_eq!(attr.sizeof(), SizeOf::Unsized(0usize.into(), None));
+        }
+      }
+
+      /// Repeated expression have non-fixed size - [0; unlimited]
+      mod _0_unlimited {
+        // Colorful diffs in assertions - resolve ambiguous
+        use pretty_assertions::assert_eq;
+        use super::*;
+
+        /// This settings obviously is an error, so forbidden
+        #[test]
+        fn expr_negative() {
+          // literal
+          let attr: p::Attribute = from_str(r#"
+          terminator: 0
+          repeat: expr
+          repeat-expr: -42
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default());
+          assert_eq!(attr, Err(Validation(
+            "`repeat-expr` should be positive, but its value is `-42`".into()
+          )));
+
+          // expression
+          let attr: p::Attribute = from_str(r#"
+          terminator: 0
+          repeat: expr
+          repeat-expr: '-42'
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default());
+          assert_eq!(attr, Err(Validation(
+            "`repeat-expr` should be positive, but its value is `-42`".into()
+          )));
+        }
+
+        /// This settings obviously is an error, so forbidden
+        #[test]
+        fn expr_zero() {
+          // literal
+          let attr: p::Attribute = from_str(r#"
+          terminator: 0
+          repeat: expr
+          repeat-expr: 0
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default());
+          assert_eq!(attr, Err(Validation(
+            "`repeat-expr` should be positive, but its value is `0`".into()
+          )));
+
+          // expression
+          let attr: p::Attribute = from_str(r#"
+          terminator: 0
+          repeat: expr
+          repeat-expr: '0'
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default());
+          assert_eq!(attr, Err(Validation(
+            "`repeat-expr` should be positive, but its value is `0`".into()
+          )));
+        }
+
+        #[test]
+        fn expr_positive() {
+          // literal
+          let attr: p::Attribute = from_str(r#"
+          terminator: 0
+          repeat: expr
+          repeat-expr: 42
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+          assert_eq!(attr.sizeof(), SizeOf::Unsized(0usize.into(), None));
+
+          // expression
+          let attr: p::Attribute = from_str(r#"
+          terminator: 0
+          repeat: expr
+          repeat-expr: '42'
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+          assert_eq!(attr.sizeof(), SizeOf::Unsized(0usize.into(), None));
+        }
+
+        #[test]
+        fn expr_variable() {
+          let attr: p::Attribute = from_str(r#"
+          terminator: 0
+          repeat: expr
+          repeat-expr: value
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+          assert_eq!(attr.sizeof(), SizeOf::Unsized(0usize.into(), None));
+        }
+
+        /// Only one element always will be consumed in case of success parsing
+        #[test]
+        fn until_true() {
+          // literal
+          let attr: p::Attribute = from_str(r#"
+          terminator: 0
+          repeat: until
+          repeat-until: true
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+          assert_eq!(attr.sizeof(), SizeOf::Unsized(0usize.into(), None));
+
+          // expression
+          let attr: p::Attribute = from_str(r#"
+          terminator: 0
+          repeat: until
+          repeat-until: 'true'
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+          assert_eq!(attr.sizeof(), SizeOf::Unsized(0usize.into(), None));
+        }
+
+        /// This settings lead to infinity parsing so it is forbidden
+        #[test]
+        fn until_false() {
+          // literal
+          let attr: p::Attribute = from_str(r#"
+          terminator: 0
+          repeat: until
+          repeat-until: false
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default());
+          assert_eq!(attr, Err(Validation(
+            "`repeat-until` key is always `false` which generates an infinity loop".into()
+          )));
+
+          // expression
+          let attr: p::Attribute = from_str(r#"
+          terminator: 0
+          repeat: until
+          repeat-until: 'false'
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default());
+          assert_eq!(attr, Err(Validation(
+            "`repeat-until` key is always `false` which generates an infinity loop".into()
+          )));
+        }
+
+        /// At least one element always will be consumed in case of success parsing
+        #[test]
+        fn until_variable() {
+          let attr: p::Attribute = from_str(r#"
+          terminator: 0
+          repeat: until
+          repeat-until: value
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+          assert_eq!(attr.sizeof(), SizeOf::Unsized(0usize.into(), None));
+        }
+
+        /// In case of empty stream nothing will be parsed, so minimum is 0
+        #[test]
+        fn eos() {
+          let attr: p::Attribute = from_str(r#"
+          terminator: 0
+          repeat: eos
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+          assert_eq!(attr.sizeof(), SizeOf::Unsized(0usize.into(), None));
+        }
+      }
+
+      /// Repeated expression have non-fixed size - [2; 4]
+      mod _2_4 {
+        // Colorful diffs in assertions - resolve ambiguous
+        use pretty_assertions::assert_eq;
+        use super::*;
+
+        /// This settings obviously is an error, so forbidden
+        #[test]
+        fn expr_negative() {
+          // literal
+          let attr: p::Attribute = from_str(r#"
+          type:
+            switch-on: value
+            cases:
+              0: u2be
+              _: u4be
+          repeat: expr
+          repeat-expr: -42
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default());
+          assert_eq!(attr, Err(Validation(
+            "`repeat-expr` should be positive, but its value is `-42`".into()
+          )));
+
+          // expression
+          let attr: p::Attribute = from_str(r#"
+          type:
+            switch-on: value
+            cases:
+              0: u2be
+              _: u4be
+          repeat: expr
+          repeat-expr: '-42'
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default());
+          assert_eq!(attr, Err(Validation(
+            "`repeat-expr` should be positive, but its value is `-42`".into()
+          )));
+        }
+
+        /// This settings obviously is an error, so forbidden
+        #[test]
+        fn expr_zero() {
+          // literal
+          let attr: p::Attribute = from_str(r#"
+          type:
+            switch-on: value
+            cases:
+              0: u2be
+              _: u4be
+          repeat: expr
+          repeat-expr: 0
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default());
+          assert_eq!(attr, Err(Validation(
+            "`repeat-expr` should be positive, but its value is `0`".into()
+          )));
+
+          // expression
+          let attr: p::Attribute = from_str(r#"
+          type:
+            switch-on: value
+            cases:
+              0: u2be
+              _: u4be
+          repeat: expr
+          repeat-expr: '0'
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default());
+          assert_eq!(attr, Err(Validation(
+            "`repeat-expr` should be positive, but its value is `0`".into()
+          )));
+        }
+
+        #[test]
+        fn expr_positive() {
+          // literal
+          let attr: p::Attribute = from_str(r#"
+          type:
+            switch-on: value
+            cases:
+              0: u2be
+              _: u4be
+          repeat: expr
+          repeat-expr: 42
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+          assert_eq!(attr.sizeof(), SizeOf::Unsized(84usize.into(), Some(168usize.into())));
+
+          // expression
+          let attr: p::Attribute = from_str(r#"
+          type:
+            switch-on: value
+            cases:
+              0: u2be
+              _: u4be
+          repeat: expr
+          repeat-expr: '42'
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+          assert_eq!(attr.sizeof(), SizeOf::Unsized(84usize.into(), Some(168usize.into())));
+        }
+
+        #[test]
+        fn expr_variable() {
+          let attr: p::Attribute = from_str(r#"
+          type:
+            switch-on: value
+            cases:
+              0: u2be
+              _: u4be
+          repeat: expr
+          repeat-expr: value
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+          assert_eq!(attr.sizeof(), SizeOf::Unsized(0usize.into(), None));
+        }
+
+        /// Only one element always will be consumed in case of success parsing
+        #[test]
+        fn until_true() {
+          // literal
+          let attr: p::Attribute = from_str(r#"
+          type:
+            switch-on: value
+            cases:
+              0: u2be
+              _: u4be
+          repeat: until
+          repeat-until: true
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+          assert_eq!(attr.sizeof(), SizeOf::Unsized(2usize.into(), Some(4usize.into())));
+
+          // expression
+          let attr: p::Attribute = from_str(r#"
+          type:
+            switch-on: value
+            cases:
+              0: u2be
+              _: u4be
+          repeat: until
+          repeat-until: 'true'
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+          assert_eq!(attr.sizeof(), SizeOf::Unsized(2usize.into(), Some(4usize.into())));
+        }
+
+        /// This settings lead to infinity parsing so it is forbidden
+        #[test]
+        fn until_false() {
+          // literal
+          let attr: p::Attribute = from_str(r#"
+          type:
+            switch-on: value
+            cases:
+              0: u2be
+              _: u4be
+          repeat: until
+          repeat-until: false
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default());
+          assert_eq!(attr, Err(Validation(
+            "`repeat-until` key is always `false` which generates an infinity loop".into()
+          )));
+
+          // expression
+          let attr: p::Attribute = from_str(r#"
+          type:
+            switch-on: value
+            cases:
+              0: u2be
+              _: u4be
+          repeat: until
+          repeat-until: 'false'
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default());
+          assert_eq!(attr, Err(Validation(
+            "`repeat-until` key is always `false` which generates an infinity loop".into()
+          )));
+        }
+
+        /// At least one element always will be consumed in case of success parsing
+        #[test]
+        fn until_variable() {
+          let attr: p::Attribute = from_str(r#"
+          type:
+            switch-on: value
+            cases:
+              0: u2be
+              _: u4be
+          repeat: until
+          repeat-until: value
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+          assert_eq!(attr.sizeof(), SizeOf::Unsized(2usize.into(), None));
+        }
+
+        /// In case of empty stream nothing will be parsed, so minimum is 0
+        #[test]
+        fn eos() {
+          let attr: p::Attribute = from_str(r#"
+          type:
+            switch-on: value
+            cases:
+              0: u2be
+              _: u4be
+          repeat: eos
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+          assert_eq!(attr.sizeof(), SizeOf::Unsized(0usize.into(), None));
+        }
+      }
+    }
+
+    mod if_ {
+      use super::*;
+
+      /// Expression under condition have a fixed size
+      mod fixed {
+        // Colorful diffs in assertions - resolve ambiguous
+        use pretty_assertions::assert_eq;
+        use super::*;
+
+        #[test]
+        fn true_() {
+          // literal
+          let attr: p::Attribute = from_str(r#"
+          size: 10
+          if: true
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+          assert_eq!(attr.sizeof(), SizeOf::Sized(10usize.into()));
+
+          // expression
+          let attr: p::Attribute = from_str(r#"
+          size: 10
+          if: 'true'
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+          assert_eq!(attr.sizeof(), SizeOf::Sized(10usize.into()));
+        }
+
+        #[test]
+        fn false_() {
+          // literal
+          let attr: p::Attribute = from_str(r#"
+          size: 10
+          if: false
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+          assert_eq!(attr.sizeof(), SizeOf::Sized(0usize.into()));
+
+          // expression
+          let attr: p::Attribute = from_str(r#"
+          size: 10
+          if: 'false'
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+          assert_eq!(attr.sizeof(), SizeOf::Sized(0usize.into()));
+        }
+
+        #[test]
+        fn variable() {
+          let attr: p::Attribute = from_str(r#"
+          size: 10
+          if: value
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+          assert_eq!(attr.sizeof(), SizeOf::Unsized(0usize.into(), Some(10usize.into())));
+        }
+      }
+
+      /// Expression under condition have non-fixed size - [0; unlimited]
+      mod _0_unlimited {
+        // Colorful diffs in assertions - resolve ambiguous
+        use pretty_assertions::assert_eq;
+        use super::*;
+
+        #[test]
+        fn true_() {
+          // literal
+          let attr: p::Attribute = from_str(r#"
+          terminator: 0
+          if: true
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+          assert_eq!(attr.sizeof(), SizeOf::Unsized(0usize.into(), None));
+
+          // expression
+          let attr: p::Attribute = from_str(r#"
+          terminator: 0
+          if: 'true'
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+          assert_eq!(attr.sizeof(), SizeOf::Unsized(0usize.into(), None));
+        }
+
+        #[test]
+        fn false_() {
+          // literal
+          let attr: p::Attribute = from_str(r#"
+          terminator: 0
+          if: false
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+          assert_eq!(attr.sizeof(), SizeOf::Sized(0usize.into()));
+
+          // expression
+          let attr: p::Attribute = from_str(r#"
+          terminator: 0
+          if: 'false'
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+          assert_eq!(attr.sizeof(), SizeOf::Sized(0usize.into()));
+        }
+
+        #[test]
+        fn variable() {
+          let attr: p::Attribute = from_str(r#"
+          terminator: 0
+          if: value
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+          assert_eq!(attr.sizeof(), SizeOf::Unsized(0usize.into(), None));
+        }
+      }
+
+      /// Expression under condition have non-fixed size - [2; 4]
+      mod _2_4 {
+        // Colorful diffs in assertions - resolve ambiguous
+        use pretty_assertions::assert_eq;
+        use super::*;
+
+        #[test]
+        fn true_() {
+          // literal
+          let attr: p::Attribute = from_str(r#"
+          type:
+            switch-on: value
+            cases:
+              0: u2be
+              _: u4be
+          if: true
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+          assert_eq!(attr.sizeof(), SizeOf::Unsized(2usize.into(), Some(4usize.into())));
+
+          // expression
+          let attr: p::Attribute = from_str(r#"
+          type:
+            switch-on: value
+            cases:
+              0: u2be
+              _: u4be
+          if: 'true'
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+          assert_eq!(attr.sizeof(), SizeOf::Unsized(2usize.into(), Some(4usize.into())));
+        }
+
+        #[test]
+        fn false_() {
+          // literal
+          let attr: p::Attribute = from_str(r#"
+          type:
+            switch-on: value
+            cases:
+              0: u2be
+              _: u4be
+          if: false
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+          assert_eq!(attr.sizeof(), SizeOf::Sized(0usize.into()));
+
+          // expression
+          let attr: p::Attribute = from_str(r#"
+          type:
+            switch-on: value
+            cases:
+              0: u2be
+              _: u4be
+          if: 'false'
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+          assert_eq!(attr.sizeof(), SizeOf::Sized(0usize.into()));
+        }
+
+        #[test]
+        fn variable() {
+          let attr: p::Attribute = from_str(r#"
+          type:
+            switch-on: value
+            cases:
+              0: u2be
+              _: u4be
+          if: value
+          "#).unwrap();
+          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
+          assert_eq!(attr.sizeof(), SizeOf::Unsized(0usize.into(), Some(4usize.into())));
+        }
       }
     }
   }
