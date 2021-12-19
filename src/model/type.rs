@@ -7,7 +7,7 @@ use indexmap::IndexMap;
 use crate::error::ModelError;
 use crate::model::expressions::OwningNode;
 use crate::model::{
-  Attribute, Enum, EnumName, FileContext, PackageContext, SeqName, TypeContext, TypeName,
+  Attribute, Enum, EnumName, FileContext, PackageContext, SeqName, SizeOf, TypeContext, TypeName,
 };
 use crate::parser as p;
 use crate::parser::expressions::{Node, TypeName as TName};
@@ -54,6 +54,19 @@ pub struct UserType {
   // pub params: IndexMap<ParamName, Param>, //TODO: Parameters
 }
 impl UserType {
+  /// Calculates size that instances of that type occupied in the stream.
+  ///
+  /// The expression's language operator `sizeof<T>` and a special property [`_sizeof`] returns
+  /// result of this method.
+  ///
+  /// The size is calculated as sum of sizes of all [`fields`].
+  ///
+  /// [`_sizeof`]: crate::model::expressions::OwningAttr::SizeOf
+  /// [`fields`]: UserType::fields
+  pub fn sizeof(&self) -> SizeOf {
+    self.fields.iter().fold(SizeOf::Sized(0usize.into()), |acc, (_, a)| acc + a.sizeof())
+  }
+
   /// Performs validation of lists for duplicated entries
   ///
   /// # Parameters
@@ -149,4 +162,81 @@ impl Root {
 
     Ok(Self { name, type_ })
   }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+#[cfg(test)]
+mod sizeof {
+  use super::*;
+  use crate::model::Package;
+  use pretty_assertions::assert_eq;
+
+  macro_rules! type_check {
+    ($fn:ident($type_:literal) == $size:expr) => {
+      #[test]
+      fn $fn() {
+        let ty: p::TypeSpec = serde_yml::from_str(&format!(r#"
+          seq:
+          - id: f0
+            type: u2
+          - id: f1
+            type: {}
+        "#, $type_)).unwrap();
+        let pkg = Package::test(p::Ksy::default());
+        let ctx = PackageContext::new(&pkg);
+        let ksy = pkg.files.values().next().unwrap();
+        let ctx = ctx.for_file(ksy);
+
+        let ty = UserType::validate(&ty, p::Defaults {
+          encoding: Some("utf-8".into()),
+          endian: Some(p::Variant::Fixed(p::ByteOrder::Be)),
+          ..Default::default()
+        }, &ctx).unwrap();
+        assert_eq!(ty.sizeof(), $size);
+      }
+    };
+  }
+  macro_rules! type_check_if {
+    ($fn:ident($type_:literal) == $size:expr) => {
+      #[test]
+      fn $fn() {
+        let ty: p::TypeSpec = serde_yml::from_str(&format!(r#"
+          seq:
+          - id: f0
+            type: u2
+          - id: f1
+            type: {}
+            if: f0 != 0
+        "#, $type_)).unwrap();
+        let pkg = Package::test(p::Ksy::default());
+        let ctx = PackageContext::new(&pkg);
+        let ksy = pkg.files.values().next().unwrap();
+        let ctx = ctx.for_file(ksy);
+
+        let ty = UserType::validate(&ty, p::Defaults {
+          encoding: Some("utf-8".into()),
+          endian: Some(p::Variant::Fixed(p::ByteOrder::Be)),
+          ..Default::default()
+        }, &ctx).unwrap();
+        assert_eq!(ty.sizeof(), $size);
+      }
+    };
+  }
+
+  type_check!(fixed_fixed("u4") == SizeOf::Sized(6usize.into()));
+  type_check!(fixed_dynamic1("strz") == SizeOf::Unsized(2usize.into(), None));
+  type_check!(fixed_dynamic2(
+    "{ switch-on: 1, cases: { 1: u1, 2: u4 } }")
+    ==
+    SizeOf::Unsized(3usize.into(), Some(6usize.into()))
+  );
+
+  type_check_if!(fixed_fixed_if("u4") == SizeOf::Unsized(2usize.into(), Some(6usize.into())));
+  type_check_if!(fixed_dynamic_if1("strz") == SizeOf::Unsized(2usize.into(), None));
+  type_check_if!(fixed_dynamic_if2(
+    "{ switch-on: 1, cases: { 1: u1, 2: u4 } }")
+    ==
+    SizeOf::Unsized(2usize.into(), Some(6usize.into()))
+  );
 }
