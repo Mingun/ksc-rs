@@ -284,10 +284,27 @@ impl Repeat {
         until => Ok(Self::Until(until)),
       },
 
-      // (None, Some(count), None) => Ok(Self::Count(Count::validate(count)?)),//TODO https://github.com/kaitai-io/kaitai_struct/issues/776
-      // (None, None, Some(until)) => Ok(Self::Until(Condition::validate(until)?)),//TODO https://github.com/kaitai-io/kaitai_struct/issues/776
+      //TODO https://github.com/kaitai-io/kaitai_struct/issues/776
+      #[cfg(not(feature = "compatible"))]
+      (None, Some(count), None) => match Count::validate(count)? {
+        Count(OwningNode::Int(count)) if !count.is_positive() => Err(Validation(
+          format!("`repeat-expr` should be positive, but it value is `{}`", count).into()
+        )),
+        //TODO: Warn if only one iteration will be done
+        count => Ok(Self::Count(count)),
+      },
+      #[cfg(not(feature = "compatible"))]
+      (None, None, Some(until)) => match Condition::validate(until)? {
+        Condition(OwningNode::Bool(false)) => Err(Validation(
+          "`repeat-until` key is always `false` which generates an infinity loop".into()
+        )),
+        // Condition(OwningNode::Bool(true))  => //TODO: Warn that only one iteration will be done
+        until => Ok(Self::Until(until)),
+      },
 
+      #[cfg(feature = "compatible")]
       (None, Some(_), None) => Err(Validation("missed `repeat: expr`".into())),
+      #[cfg(feature = "compatible")]
       (None, None, Some(_)) => Err(Validation("missed `repeat: until`".into())),
 
       (Some(Expr), None,  _) => Err(Validation("missed `repeat-expr`".into())),
@@ -1504,7 +1521,12 @@ mod repeat {
           Some(p::Count::Expr("-42".into())),
           None,
         );
+
+        #[cfg(feature = "compatible")]
         assert_eq!(rep, Err(Validation("missed `repeat: expr`".into())));
+
+        #[cfg(not(feature = "compatible"))]
+        assert_eq!(rep, Err(Validation("`repeat-expr` should be positive, but it value is `-42`".into())));
       }
 
       /// ```yaml
@@ -1517,7 +1539,12 @@ mod repeat {
           Some(p::Count::Value(0)),
           None,
         );
+
+        #[cfg(feature = "compatible")]
         assert_eq!(rep, Err(Validation("missed `repeat: expr`".into())));
+
+        #[cfg(not(feature = "compatible"))]
+        assert_eq!(rep, Err(Validation("`repeat-expr` should be positive, but it value is `0`".into())));
       }
 
       /// ```yaml
@@ -1530,7 +1557,12 @@ mod repeat {
           Some(p::Count::Value(42)),
           None,
         );
+
+        #[cfg(feature = "compatible")]
         assert_eq!(rep, Err(Validation("missed `repeat: expr`".into())));
+
+        #[cfg(not(feature = "compatible"))]
+        assert_eq!(rep, Ok(Repeat::Count(Count(OwningNode::Int(42.into())))));
       }
 
       /// ```yaml
@@ -1543,7 +1575,12 @@ mod repeat {
           Some(p::Count::Expr("expr".into())),
           None,
         );
+
+        #[cfg(feature = "compatible")]
         assert_eq!(rep, Err(Validation("missed `repeat: expr`".into())));
+
+        #[cfg(not(feature = "compatible"))]
+        assert_eq!(rep, Ok(Repeat::Count(Count(OwningNode::Attr(FieldName::valid("expr"))))));
       }
     }
   }
@@ -1642,7 +1679,12 @@ mod repeat {
           None,
           Some(p::Condition::Value(true)),
         );
+
+        #[cfg(feature = "compatible")]
         assert_eq!(rep, Err(Validation("missed `repeat: until`".into())));
+
+        #[cfg(not(feature = "compatible"))]
+        assert_eq!(rep, Ok(Repeat::Until(Condition(OwningNode::Bool(true)))));
       }
 
       /// ```yaml
@@ -1655,7 +1697,12 @@ mod repeat {
           None,
           Some(p::Condition::Value(false)),
         );
+
+        #[cfg(feature = "compatible")]
         assert_eq!(rep, Err(Validation("missed `repeat: until`".into())));
+
+        #[cfg(not(feature = "compatible"))]
+        assert_eq!(rep, Err(Validation("`repeat-until` key is always `false` which generates an infinity loop".into())));
       }
 
       /// ```yaml
@@ -1668,7 +1715,12 @@ mod repeat {
           None,
           Some(p::Condition::Expr("until".into())),
         );
+
+        #[cfg(feature = "compatible")]
         assert_eq!(rep, Err(Validation("missed `repeat: until`".into())));
+
+        #[cfg(not(feature = "compatible"))]
+        assert_eq!(rep, Ok(Repeat::Until(Condition(OwningNode::Attr(FieldName::valid("until"))))));
       }
     }
   }
