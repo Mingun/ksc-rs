@@ -22,12 +22,13 @@ use regex::Regex;
 use crate::error::ModelError;
 use crate::model::expressions::OwningNode;
 use crate::parser as p;
-use crate::parser::expressions::{parse_param_type, parse_process, parse_type_ref, AttrType};
+use crate::parser::expressions::{parse_param_type, parse_process, parse_type_ref, AttrType, SpecialName};
 
 pub mod contexts;
 pub mod expressions;
 mod name;
 pub use name::*;
+use contexts::*;
 
 /// Contains helper structures for implementing `TryFrom`.
 ///
@@ -109,7 +110,7 @@ pub struct UserTypeRef {
   /// A local name of the referenced type
   pub name: TypeName,
   /// Optional arguments for type
-  pub args: Vec<OwningNode>,
+  pub args: Vec<TypeExpr>,
 }
 
 /// Name and parameters of the process routine.
@@ -118,7 +119,7 @@ pub struct ProcessAlgo {
   /// Name of process routine
   pub path: Vec<String>,
   /// Optional arguments for type
-  pub args: Vec<OwningNode>,
+  pub args: Vec<ProcessExpr>,
 }
 impl ProcessAlgo {
   fn validate(algo: p::ProcessAlgo) -> Result<Self, ModelError> {
@@ -130,82 +131,47 @@ impl ProcessAlgo {
   }
 }
 
-/// An expression used in boolean contexts.
-///
-/// Contains AST of the expression language that evaluated to a boolean value.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Condition(OwningNode);
-impl Condition {
-  fn validate(data: p::Condition) -> Result<Self, ModelError> {
-    Ok(match data {
-      p::Condition::Expr(expr)   => Self(OwningNode::parse(&expr)?),
-      p::Condition::Value(value) => Self(OwningNode::Bool(value)),
-    })
-  }
-}
-impl Deref for Condition {
-  type Target = OwningNode;
-
-  #[inline]
-  fn deref(&self) -> &OwningNode {
-    &self.0
-  }
+fn validate_condition<T>(data: p::Condition) -> Result<OwningNode<T>, ModelError>
+  where T: TryFrom<SpecialName, Error = ModelError>,
+{
+  Ok(match data {
+    p::Condition::Expr(expr)   => OwningNode::parse(&expr)?,
+    p::Condition::Value(value) => OwningNode::Bool(value),
+  })
 }
 
-macro_rules! usize_expr {
-  ($(#[$meta:meta])* $from:ty => $to:ident) => {
-    $(#[$meta])*
-    #[derive(Clone, Debug, PartialEq)]
-    pub struct $to(OwningNode);
-    impl $to {
-      fn validate(data: $from) -> Result<Self, ModelError> {
-        Ok(match data {
-          p::Expression::Expr(expr)   => Self(OwningNode::parse(&expr)?),
-          p::Expression::Value(value) => Self(OwningNode::Int(value.into())),
-        })
-      }
-    }
-    impl Deref for $to {
-      type Target = OwningNode;
-
-      #[inline]
-      fn deref(&self) -> &OwningNode {
-        &self.0
-      }
-    }
-  };
+fn validate_count<T>(data: p::Count) -> Result<OwningNode<T>, ModelError>
+  where T: TryFrom<SpecialName, Error = ModelError>,
+{
+  Ok(match data {
+    p::Count::Expr(expr)   => OwningNode::parse(&expr)?,
+    p::Count::Value(value) => OwningNode::Int(value),
+  })
 }
-
-usize_expr!(
-  /// An expression used to represent repetition count.
-  ///
-  /// Contains AST of the expression language that evaluated to an integer value.
-  p::Count => Count
-);
-
-usize_expr!(
-  /// An expression used to represent instance position.
-  ///
-  /// Contains AST of the expression language that evaluated to an integer value.
-  p::Position => Position
-);
 
 /// Generic variant wrapper, that allow or fixed value, or describe a set
 /// of possible choices selected based on some expression.
 #[derive(Clone, Debug, PartialEq)]
-pub enum Variant<T> {
+pub enum Variant<T, S, C>
+  where C: Hash + Eq,
+{
   /// Statically specified value.
   Fixed(T),
   /// Dynamically calculated value based on some expression.
   Choice {
     /// Expression which determines what variant will be used
-    switch_on: OwningNode,
+    switch_on: OwningNode<S>,
     /// Variants
-    cases: IndexMap<OwningNode, T>,
+    cases: IndexMap<OwningNode<C>, T>,
   },
 }
-impl<T, U: TryInto<T>> TryFrom<p::Variant<U>> for Variant<T>
-  where U::Error: Into<ModelError>,
+impl<T, U, S, C> TryFrom<p::Variant<U>> for Variant<T, S, C>
+  where U: TryInto<T>,
+        U::Error: Into<ModelError>,
+        S: TryFrom<SpecialName>,
+        S::Error: Into<ModelError>,
+        C: Hash + Eq + TryFrom<SpecialName>,
+        C::Error: Into<ModelError>,
 {
   type Error = ModelError;
 
@@ -253,10 +219,10 @@ pub enum Repeat {
   /// be reached.
   Eos,
   /// Specify number of repetitions for repeated attribute.
-  Count(Count),
+  Count(RepeatCountExpr),
   /// Specifies a condition to be checked **after** each parsed item, repeating
   /// while the expression is `false`.
-  Until(Condition),
+  Until(RepeatUntilExpr),
 }
 impl Repeat {
   fn validate(repeat: Option<p::Repeat>,
@@ -269,7 +235,7 @@ impl Repeat {
     match (repeat, repeat_expr, repeat_until) {
       (None,        None,        None) => Ok(Self::None),
       (Some(Eos),   None,        None) => Ok(Self::Eos),
-      (Some(Expr),  Some(count), None) => match Count::validate(count)? {
+      (Some(Expr),  Some(count), None) => match validate_count(count)? {
         #[cfg(not(feature = "compatible"))]
         Count(OwningNode::Int(count)) if !count.is_positive() => Err(Validation(
           format!("`repeat-expr` should be positive, but its value is `{}`", count).into(),
@@ -277,7 +243,7 @@ impl Repeat {
         //TODO: Warn if only one iteration will be done
         count => Ok(Self::Count(count)),
       },
-      (Some(Until), None, Some(until)) => match Condition::validate(until)? {
+      (Some(Until), None, Some(until)) => match validate_condition(until)? {
         #[cfg(not(feature = "compatible"))]
         Condition(OwningNode::Bool(false)) => Err(Validation(
           "`repeat-until` key is always `false` which generates an infinity loop".into(),
@@ -288,7 +254,7 @@ impl Repeat {
 
       //TODO https://github.com/kaitai-io/kaitai_struct/issues/776
       #[cfg(not(feature = "compatible"))]
-      (None, Some(count), None) => match Count::validate(count)? {
+      (None, Some(count), None) => match validate_count(count)? {
         Count(OwningNode::Int(count)) if !count.is_positive() => Err(Validation(
           format!("`repeat-expr` should be positive, but its value is `{}`", count).into(),
         )),
@@ -296,7 +262,7 @@ impl Repeat {
         count => Ok(Self::Count(count)),
       },
       #[cfg(not(feature = "compatible"))]
-      (None, None, Some(until)) => match Condition::validate(until)? {
+      (None, None, Some(until)) => match validate_condition(until)? {
         Condition(OwningNode::Bool(false)) => Err(Validation(
           "`repeat-until` key is always `false` which generates an infinity loop".into(),
         )),
@@ -430,7 +396,7 @@ pub enum Size {
     /// Number of bytes which sub-stream occupies in the parent stream.
     ///
     /// Corresponds to `size: count-expr`.
-    count: Count,
+    count: SizeExpr,
     /// Defines readable region of stream. If specified, field will take
     /// `size` bytes, but only bytes in range `[0; terminator]` will be
     /// used to parse data. All remaining bytes will be unavailable.
@@ -501,7 +467,7 @@ impl Size {
       (None,        true,   until) => Ok(Self::Eos(until)),
       (None,       false, Some(t)) => Ok(Self::Until(t)),
       // TODO: Warning or even error, if natural type size is less that size
-      (Some(size), false,   until) => Ok(Self::Exact { count: Count::validate(size)?, until }),
+      (Some(size), false,   until) => Ok(Self::Exact { count: validate_count(size)?, until }),
       (Some(_),     true,       _) => Err(Validation("only one of `size` or `size-eos: true` must be specified".into())),
       (None,       false,    None) => match type_ref.sizeof() {
         // For unknown sized types use all remaining input
@@ -521,7 +487,7 @@ impl From<u64> for Size {
   /// ```
   fn from(value: u64) -> Self {
     Self::Exact {
-      count: Count(OwningNode::Int(value.into())),
+      count: value.into(),
       until: None,
     }
   }
@@ -594,7 +560,7 @@ impl Add for SizeOf {
 }
 
 /// Byte order, used for reading built-in numeric types
-pub type ByteOrder = Variant<p::ByteOrder>;
+pub type ByteOrder = Variant<p::ByteOrder, ByteOrderSwitchOnVar, ByteOrderCasesVar>;
 /// Bit order, used for reading built-in bit-sized numeric types
 pub type BitOrder  = p::BitOrder;
 
@@ -857,12 +823,12 @@ pub struct Attribute {
   /// depending on the arbitrary expression
   //TODO: size should be property of the attribute instead of a chunk
   // See https://github.com/kaitai-io/kaitai_struct/issues/788
-  pub chunk: Variant<Chunk>,
+  pub chunk: Variant<Chunk, TypeSwitchOnVar, TypeCasesVar>,
 
   /// Specify how many times a given chunk should occur in a stream.
   pub repeat: Repeat,
   /// If specified, attribute will be read only if condition evaluated to `true`.
-  pub condition: Option<Condition>,
+  pub condition: Option<IfExpr>,
 
   /// Algorithm that run on raw byte array before parsing data.
   /// Example of algorithms: encryption, base64/hex encoding etc.
@@ -958,7 +924,7 @@ impl Attribute {
         }
       },
       repeat:    Repeat::validate(attr.repeat, attr.repeat_expr, attr.repeat_until)?,
-      condition: attr.condition.map(Condition::validate).transpose()?,
+      condition: attr.condition.map(validate_condition).transpose()?,
       process:   attr.process.map(ProcessAlgo::validate).transpose()?,
     })
   }
@@ -1005,7 +971,7 @@ pub enum Instance {
     /// Specifies expression to calculate and return as a value.
     ///
     /// Corresponds to KSY `value` key
-    value: OwningNode,
+    value: ValueExpr,
     /// Path to enumeration definition. If specified, type should be represented
     /// as an enumeration.
     ///
@@ -1014,7 +980,7 @@ pub enum Instance {
     /// If specified, attribute will be read only if condition evaluated to `true`.
     ///
     /// Corresponds to KSY `if` key
-    condition: Option<Condition>,
+    condition: Option<IfExpr>,
   },
   /// Parse data from specified offset and stream.
   ///
@@ -1038,11 +1004,11 @@ pub enum Instance {
     /// An expression that defines a position in the stream at which `data` begins.
     ///
     /// Corresponds to KSY `pos` key
-    offset: Position,
+    offset: PosExpr,
     /// An expression, specifies an IO stream from which a value should be parsed.
     ///
     /// Corresponds to KSY `io` key
-    stream: Option<OwningNode>,
+    stream: Option<IoExpr>,
   },
   /// Parse data after all sequential data
   //TODO: https://github.com/kaitai-io/kaitai_struct/issues/544: optional offset
@@ -1052,7 +1018,7 @@ pub enum Instance {
     /// An expression, specifies an IO stream from which a value should be parsed.
     ///
     /// Corresponds to KSY `io` key
-    stream: Option<OwningNode>,
+    stream: Option<IoExpr>,
   },
 }
 impl Instance {
@@ -1087,11 +1053,11 @@ impl Instance {
       ) => Ok(Self::Value {
         value:     OwningNode::try_from(expr)?,
         enum_:     ins.common.enum_.map(EnumPath::validate).transpose()?,
-        condition: ins.common.condition.map(Condition::validate).transpose()?,
+        condition: ins.common.condition.map(validate_condition).transpose()?,
       }),
       (None, Some(offset), stream, ..) => Ok(Self::Parse {
         data:   Attribute::validate(ins.common, defaults)?,
-        offset: Position::validate(offset)?,
+        offset: validate_count(offset)?,
         stream: stream.map(|expr| OwningNode::parse(&expr)).transpose()?,
       }),
       (None, None, stream, ..) => Ok(Self::Last {
@@ -1102,9 +1068,9 @@ impl Instance {
     }
   }
 }
-impl From<OwningNode> for Instance {
+impl From<ValueExpr> for Instance {
   /// Converts an expression into a value instance without enum definition or condition.
-  fn from(value: OwningNode) -> Self {
+  fn from(value: ValueExpr) -> Self {
     Self::Value {
       value,
       enum_: None,
@@ -1951,7 +1917,7 @@ mod instance {
       assert_eq!(root, Instance::Value {
         value: OwningNode::Int(42.into()),
         enum_: None,
-        condition: Some(Condition(OwningNode::Bool(true))),
+        condition: Some(true.into()),
       });
     }
 
@@ -1988,7 +1954,7 @@ mod instance {
           type_ref: TypeRef::Bytes,
           size: 5.into(),
         }.into(),
-        offset: Position(OwningNode::Int(42.into())),
+        offset: 42,
         stream: None,
       });
     }
@@ -2005,7 +1971,7 @@ mod instance {
           type_ref: TypeRef::Bytes,
           size: Size::Eos(None),
         }.into(),
-        offset: Position(OwningNode::Int(42.into())),
+        offset: 42.into(),
         stream: None,
       });
     }
@@ -2022,7 +1988,7 @@ mod instance {
           type_ref: TypeRef::Bytes,
           size: Size::Until(0.into()),
         }.into(),
-        offset: Position(OwningNode::Int(42.into())),
+        offset: 42.into(),
         stream: None,
       });
     }
@@ -2042,10 +2008,10 @@ mod instance {
             size: 5.into(),
           }),
           repeat: Repeat::None,
-          condition: Some(Condition(OwningNode::Bool(true))),
+          condition: Some(IfExpr::Bool(true)),
           process: None,
         },
-        offset: Position(OwningNode::Int(42.into())),
+        offset: 42.into(),
         stream: None,
       });
     }
@@ -2071,7 +2037,7 @@ mod instance {
           condition: None,
           process: None,
         },
-        offset: Position(OwningNode::Int(42.into())),
+        offset: 42.into(),
         stream: None,
       });
     }
