@@ -51,12 +51,13 @@
 
 
 use crate::error::ModelError;
+use crate::model::expressions::OwningNode;
 use crate::parser::expressions::SpecialName;
 
 macro_rules! context {
   (
     $(#[$meta:meta])*
-    $var:ident : $ty:ty = $ctx:literal => ($(
+    $var:ident, $expr:ident : $ty:ty = $ctx:literal => ($(
       $(#[$doc:meta])*
       $key:ident => $value:ident,
     )*)
@@ -109,6 +110,9 @@ macro_rules! context {
         }
       }
     }
+
+    $(#[$meta])*
+    pub struct $expr(OwningNode<$var>);
   };
 }
 
@@ -167,13 +171,13 @@ context!(
 context!(
   /// Context variables that available in the
   /// - `[<type>.]meta.endian.switch-on`
-  EndianSwitchOnVar: () = "endian.switch-on" => ()
+  EndianSwitchOnVar, ByteOrderSwitchOnExpr: () = "endian.switch-on" => ()
 );
 
 context!(
   /// Context variables that available in the
   /// - `[<type>.]meta.endian.cases.<case>`
-  EndianCasesVar: () = "endian.cases.<case>" => (
+  EndianCasesVar, ByteOrderCasesExpr: () = "endian.cases.<case>" => (
     /// `_`: Default label that will be used if all more specific cases does not match
     Value => Default,
   )
@@ -185,14 +189,14 @@ context!(
   /// Context variables that available in the
   /// - `<type>.seq[i].if`
   /// - `instances.<instance>.if`
-  IfVar: bool = "if" => ()
+  IfVar, IfExpr: bool = "if" => ()
 );
 
 context!(
   /// Context variables that available in the
   /// - `<type>.seq[i].process`
   /// - `instances.<instance>.process`
-  ProcessVar: () = "process" => (
+  ProcessVar, ProcessExpr: () = "process" => (
     /// `_index`: Current iteration (counting from zero) if one of `repeat` keys is defined for a type
     Index => Index,
   )
@@ -202,14 +206,14 @@ context!(
   /// Context variables that available in the
   /// - `<type>.seq[i].repeat-expr`
   /// - `instances.<instance>.repeat-expr`
-  RepeatCountVar: usize = "repeat-expr" => ()
+  RepeatCountVar, RepeatCountExpr: usize = "repeat-expr" => ()
 );
 
 context!(
   /// Context variables that available in the
   /// - `<type>.seq[i].repeat-until`
   /// - `instances.<instance>.repeat-until`
-  RepeatUntilVar: bool = "repeat-until" => (
+  RepeatUntilVar, RepeatUntilExpr: bool = "repeat-until" => (
     /// `_index`: Current iteration (counting from zero) if one of `repeat` keys is defined for a type
     Index    => Index,
     /// `_`: Last parsed element in field
@@ -225,7 +229,7 @@ context!(
   /// Context variables that available in the
   /// - `<type>.seq[i].size`
   /// - `instances.<instance>.size`
-  SizeVar: usize = "size" => (
+  SizeVar, SizeExpr: usize = "size" => (
     /// `_index`: Current iteration (counting from zero) if one of `repeat` keys is defined for a type
     Index => Index, //TODO: only if `repeat` key is defined
   )
@@ -241,7 +245,7 @@ context!(
   /// Context variables that available in the
   /// - `<type>.seq[i].type`
   /// - `instances.<instance>.type`
-  TypeVar: TypeRef = "type" => (
+  TypeVar, TypeExpr: TypeRef = "type" => (
     /// `_index`: Current iteration (counting from zero) if one of `repeat` keys is defined for a type
     Index => Index, //TODO: only if `repeat` key is defined
     /// `_`: Last parsed element in field. Undefined on the first iteration
@@ -253,7 +257,7 @@ context!(
   /// Context variables that available in the
   /// - `<type>.seq[i].type.switch-on`
   /// - `instances.<instance>.type.switch-on`
-  TypeSwitchOnVar: () = "type.switch-on" => (
+  TypeSwitchOnVar, TypeSwitchOnExpr: () = "type.switch-on" => (
     /// `_index`: Current iteration (counting from zero) if one of `repeat` keys is defined for a type
     Index => Index,    //TODO: only if `repeat` key is defined
   )
@@ -263,7 +267,7 @@ context!(
   /// Context variables that available in the
   /// - `<type>.seq[i].type.cases.<case>`
   /// - `instances.<instance>.type.cases.<case>`
-  TypeCasesVar: () = "type.cases.<case>" => (
+  TypeCasesVar, TypeCasesExpr: () = "type.cases.<case>" => (
     /// `_index`: Current iteration (counting from zero) if one of `repeat` keys is defined for a type
     Index => Index,    //TODO: only if `repeat` key is defined
     /// `_`: Default label that will be used if all more specific cases does not match
@@ -276,19 +280,19 @@ context!(
 context!(
   /// Context variables that available in the
   /// - `instances.<instance>.io`
-  IoVar: () = "io" => ()
+  IoVar, IoExpr: () = "io" => ()
 );
 
 context!(
   /// Context variables that available in the
   /// - `instances.<instance>.pos`
-  PosVar: () = "pos" => ()
+  PosVar, PosExpr: () = "pos" => ()
 );
 
 context!(
   /// Context variables that available in the
   /// - `instances.<instance>.value`
-  ValueVar: () = "value" => ()
+  ValueVar, ValueExpr: () = "value" => ()
 );
 
 //-------------------------------------------------------------------------------------------------
@@ -297,5 +301,5 @@ context!(
   /// Context variables that available in the
   /// - `<type>.seq[i].valid`
   /// - `instances.<instance>.valid`
-  ValidVar: bool = "valid" => ()
+  ValidVar, ValidExpr: bool = "valid" => ()
 );

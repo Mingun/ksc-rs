@@ -21,7 +21,7 @@ use crate::parser::Scalar;
 ///
 /// [`Node`]: ./enum.Node.html
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub enum OwningNode {
+pub enum OwningNode<T> {
   /// String constant
   Str(String),
   /// Integral constant
@@ -33,8 +33,8 @@ pub enum OwningNode {
 
   /// Name of field of the type in which attribute expression is defined
   Attr(FieldName),
-  /// Built-in variable
-  SpecialName(SpecialName),
+  /// Context variable
+  ContextVar(T),
   /// Reference to an enum value.
   EnumValue {
     /// A type that defines this enum.
@@ -46,7 +46,7 @@ pub enum OwningNode {
   },
 
   /// Array constructor
-  List(Vec<OwningNode>),
+  List(Vec<OwningNode<T>>),
 
   /// Calculation of size of type
   SizeOf {
@@ -59,30 +59,30 @@ pub enum OwningNode {
   /// Calling function or method: `[${callee}.]${method}(${args})`.
   Call {
     /// Expression which is called
-    callee: Box<OwningNode>,
+    callee: Box<OwningNode<T>>,
     /// Name of method to call
     method: FieldName,
     /// Arguments of method call
-    args: Vec<OwningNode>,
+    args: Vec<OwningNode<T>>,
   },
   /// Conversion to type: `${expr}.as<${to_type}>`.
   Cast {
     /// Expression for conversion
-    expr: Box<OwningNode>,
+    expr: Box<OwningNode<T>>,
     /// Reference to type for conversion
     to_type: OwningTypeRef,
   },
   /// Access to expression by some index
   Index {
     /// Expression for indexing
-    expr: Box<OwningNode>,
+    expr: Box<OwningNode<T>>,
     /// Index expression
-    index: Box<OwningNode>,
+    index: Box<OwningNode<T>>,
   },
   /// Access to some attribute of expression
   Access {
     /// Expression which attribute must be evaluated
-    expr: Box<OwningNode>,
+    expr: Box<OwningNode<T>>,
     /// Retrieved attribute
     attr: FieldName,
   },
@@ -92,28 +92,31 @@ pub enum OwningNode {
     /// Operation to apply
     op: UnaryOp,
     /// Expression for applying operator
-    expr: Box<OwningNode>,
+    expr: Box<OwningNode<T>>,
   },
   /// The binary infix operator, such as `+` or `==`.
   Binary {
     /// Operation between left and right parts of expression
     op: BinaryOp,
     /// Left part of operator
-    left: Box<OwningNode>,
+    left: Box<OwningNode<T>>,
     /// Right part of operator
-    right: Box<OwningNode>,
+    right: Box<OwningNode<T>>,
   },
   /// Conditional expression, written as ternary operator
   Branch {
     /// Expression to check. Should evaluate to boolean value
-    condition: Box<OwningNode>,
+    condition: Box<OwningNode<T>>,
     /// Expression that should be calculated in case of `true` `condition`.
-    if_true:   Box<OwningNode>,
+    if_true:   Box<OwningNode<T>>,
     /// Expression that should be calculated in case of `false` `condition`.
-    if_false:  Box<OwningNode>,
+    if_false:  Box<OwningNode<T>>,
   },
 }
-impl OwningNode {
+impl<T> OwningNode<T>
+  where T: TryFrom<SpecialName>,
+        T::Error: Into<ModelError>,
+{
   /// Parses and validates an expression
   ///
   /// # Parameters
@@ -136,7 +139,7 @@ impl OwningNode {
 
       //TODO: Name already contains only valid symbols, but need to check that it is really exists
       Node::Attr(val) => Attr(FieldName::valid(val)),
-      Node::SpecialName(val) => SpecialName(val),
+      Node::SpecialName(val) => ContextVar(val.try_into().map_err(Into::into)?),
       //TODO: Names already contains only valid symbols, but need to check that they is really exists
       Node::EnumValue { scope, name, value } => EnumValue {
         scope: scope.into(),
@@ -481,7 +484,10 @@ impl OwningNode {
     nodes.into_iter().map(Self::validate).collect::<Result<_, _>>()
   }
 }
-impl From<Number> for OwningNode {
+impl<T> From<Number> for OwningNode<T>
+  where T: TryFrom<SpecialName>,
+        T::Error: Into<ModelError>,
+{
   #[inline]
   fn from(number: Number) -> Self {
     match Self::validate(Node::from(number)) {
@@ -491,7 +497,10 @@ impl From<Number> for OwningNode {
     }
   }
 }
-impl TryFrom<Scalar> for OwningNode {
+impl<T> TryFrom<Scalar> for OwningNode<T>
+  where T: TryFrom<SpecialName>,
+        T::Error: Into<ModelError>,
+{
   type Error = ModelError;
 
   fn try_from(scalar: Scalar) -> Result<Self, Self::Error> {
@@ -617,6 +626,17 @@ mod convert {
   use super::*;
   use pretty_assertions::assert_eq;
   use OwningNode::*;
+
+  #[derive(Debug, PartialEq)]
+  struct Context;
+  impl TryFrom<SpecialName> for Context {
+    type Error = ModelError;
+
+    fn try_from(name: SpecialName) -> Result<Self, Self::Error> {
+      unimplemented!()
+    }
+  }
+  type OwningNode = super::OwningNode<Context>;
 
   #[test]
   fn from_null() {
