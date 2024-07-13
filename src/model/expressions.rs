@@ -175,7 +175,7 @@ impl<'input> From<Node<'input>> for OwningNode {
 
         match (op, (*expr).into()) {
           // Remove doubled operators
-          (first, Unary { op, expr } ) if first == op => *expr,
+          (first, Unary { op, expr }) if first == op => *expr,
 
           // Constant evaluations
           (Neg, Int(value)) => Int(-value),

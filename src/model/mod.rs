@@ -875,7 +875,7 @@ impl Attribute {
 
     let size = self.chunk.sizeof();
     let size = match (&self.repeat, size) {
-      (_, Unknown) => { return Unknown; },
+      (_, Unknown) => return Unknown,
 
       (Repeat::None, size) => size,
 
