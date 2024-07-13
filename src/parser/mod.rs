@@ -1072,11 +1072,11 @@ mod scalar {
 
   #[test]
   fn display() {
-    assert_eq!("(null)",        format!("{}", Scalar::Null));
-    assert_eq!("true",          format!("{}", Scalar::Bool(true)));
-    assert_eq!("42",            format!("{}", Scalar::Number(42.into())));
-    assert_eq!("4.2",           format!("{}", Scalar::Number(4.2.into())));
-    assert_eq!(r#""(nu\"ll)""#, format!("{}", Scalar::String("(nu\"ll)".into())));
+    assert_eq!(format!("{}", Scalar::Null),                      "(null)");
+    assert_eq!(format!("{}", Scalar::Bool(true)),                "true");
+    assert_eq!(format!("{}", Scalar::Number(42.into())),         "42");
+    assert_eq!(format!("{}", Scalar::Number(4.2.into())),        "4.2");
+    assert_eq!(format!("{}", Scalar::String("(nu\"ll)".into())), r#""(nu\"ll)""#);
   }
 }
 
