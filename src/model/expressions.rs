@@ -88,7 +88,7 @@ pub enum OwningNode {
     /// Operation to apply
     op: UnaryOp,
     /// Expression for applying operator
-    expr: Box<OwningNode>
+    expr: Box<OwningNode>,
   },
   /// The binary infix operator, such as `+` or `==`.
   Binary {
@@ -189,7 +189,7 @@ impl<'input> From<Node<'input>> for OwningNode {
           // Generic path
           (_, expr) => Unary { op, expr: Box::new(expr) },
         }
-      },
+      }
       Node::Binary { op, left, right } => Binary {
         op,
         left:  Box::new((*left).into()),

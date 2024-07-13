@@ -62,7 +62,7 @@ pub enum Variant<T> {
     switch_on: Scalar,
     /// Variants
     cases: IndexMap<Scalar, T>,
-  }
+  },
 }
 
 /// Generic expression, that used in `T` type contexts.
@@ -979,7 +979,7 @@ pub enum EnumValue {
     /// Additional arbitrary values.
     #[serde(flatten)]
     other: IndexMap<UserName, Value>,
-  }
+  },
 }
 
 /// Enumeration definition

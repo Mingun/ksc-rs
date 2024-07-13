@@ -85,7 +85,7 @@ pub enum Node<'input> {
     /// Operation to apply
     op: UnaryOp,
     /// Expression for applying operator
-    expr: Box<Node<'input>>
+    expr: Box<Node<'input>>,
   },
   /// The binary infix operator, such as `+` or `==`.
   Binary {
