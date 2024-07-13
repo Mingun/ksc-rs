@@ -1069,6 +1069,33 @@ pub struct Ksy {
 mod scalar {
   use super::*;
   use pretty_assertions::assert_eq;
+  use std::hash::DefaultHasher;
+
+  /// Checks that hash implementation of the `Scalar` is the same as implementation
+  /// for `Value`
+  #[test]
+  fn hash() {
+    macro_rules! assert_hash {
+      ($scalar:expr) => {
+        let mut hash1 = DefaultHasher::new();
+        let mut hash2 = DefaultHasher::new();
+
+        let scalar = $scalar;
+        let value = Value::from(scalar.clone());
+
+        scalar.hash(&mut hash1);
+        value.hash(&mut hash2);
+
+        assert_eq!(hash1.finish(), hash2.finish());
+      };
+    }
+
+    assert_hash!(Scalar::Null);
+    assert_hash!(Scalar::Number(42.into()));
+    assert_hash!(Scalar::Number(4.2.into())); // 4.5 can be only approximately represented in binary form
+    assert_hash!(Scalar::Number(4.5.into())); // 4.5 can be exactly represented in binary form
+    assert_hash!(Scalar::String("(nu\"ll)".into()));
+  }
 
   #[test]
   fn display() {
