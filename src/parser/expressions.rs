@@ -5,8 +5,8 @@
 use std::char;
 use std::iter::FromIterator;
 
-use bigdecimal::{BigDecimal, Num};
 use bigdecimal::num_bigint::BigInt;
+use bigdecimal::{BigDecimal, Num};
 use serde_yml::Number;
 
 use crate::parser::BitOrder;
@@ -679,12 +679,11 @@ peg::parser! {
 
 #[cfg(test)]
 mod parse {
-  // Colorful diffs in assertions
-  use pretty_assertions::assert_eq;
-  use super::{AttrType, BigDecimal, BigInt, BitOrder, Node, Scope, TypeName, TypeRef};
+  use super::BinaryOp::*;
   use super::Node::*;
   use super::UnaryOp::*;
-  use super::BinaryOp::*;
+  use super::{AttrType, BigDecimal, BigInt, BitOrder, Node, Scope, TypeName, TypeRef};
+  use pretty_assertions::assert_eq;
 
   /// Wrapper, for use with https://github.com/fasterthanlime/pegviz
   fn parse_single(input: &str) -> Result<Node, peg::error::ParseError<peg::str::LineCol>> {
@@ -695,9 +694,8 @@ mod parse {
   }
 
   mod comments {
-    // Colorful diffs in assertions - resolve ambiguous
-    use pretty_assertions::assert_eq;
     use super::*;
+    use pretty_assertions::assert_eq;
 
     #[test]
     fn empty() {
@@ -727,9 +725,8 @@ mod parse {
   }
 
   mod dec {
-    // Colorful diffs in assertions - resolve ambiguous
-    use pretty_assertions::assert_eq;
     use super::*;
+    use pretty_assertions::assert_eq;
 
     #[test]
     fn positive() {
@@ -749,9 +746,8 @@ mod parse {
   }
 
   mod hex {
-    // Colorful diffs in assertions - resolve ambiguous
-    use pretty_assertions::assert_eq;
     use super::*;
+    use pretty_assertions::assert_eq;
 
     #[test]
     fn simple() {
@@ -778,9 +774,8 @@ mod parse {
   }
 
   mod oct {
-    // Colorful diffs in assertions - resolve ambiguous
-    use pretty_assertions::assert_eq;
     use super::*;
+    use pretty_assertions::assert_eq;
 
     #[test]
     fn simple() {
@@ -807,9 +802,8 @@ mod parse {
   }
 
   mod bin {
-    // Colorful diffs in assertions - resolve ambiguous
-    use pretty_assertions::assert_eq;
     use super::*;
+    use pretty_assertions::assert_eq;
 
     #[test]
     fn simple() {
@@ -836,9 +830,8 @@ mod parse {
   }
 
   mod float {
-    // Colorful diffs in assertions - resolve ambiguous
-    use pretty_assertions::assert_eq;
     use super::*;
+    use pretty_assertions::assert_eq;
 
     #[test]
     fn simple() {
@@ -895,9 +888,8 @@ mod parse {
   }
 
   mod string {
-    // Colorful diffs in assertions - resolve ambiguous
-    use pretty_assertions::assert_eq;
     use super::*;
+    use pretty_assertions::assert_eq;
 
     #[test]
     fn simple() {
@@ -935,9 +927,8 @@ mod parse {
     }
 
     mod escape_sequence {
-      // Colorful diffs in assertions - resolve ambiguous
-      use pretty_assertions::assert_eq;
       use super::*;
+      use pretty_assertions::assert_eq;
 
       #[test]
       fn character() {
@@ -987,9 +978,8 @@ mod parse {
     }
 
     mod concat {
-      // Colorful diffs in assertions - resolve ambiguous
-      use pretty_assertions::assert_eq;
       use super::*;
+      use pretty_assertions::assert_eq;
 
       #[test]
       fn interpolated_strings() {
@@ -1020,9 +1010,8 @@ mod parse {
   }
 
   mod expr {
-    // Colorful diffs in assertions - resolve ambiguous
-    use pretty_assertions::assert_eq;
     use super::*;
+    use pretty_assertions::assert_eq;
 
     #[test]
     fn unary() {
@@ -1140,9 +1129,8 @@ mod parse {
   }
 
   mod enums {
-    // Colorful diffs in assertions - resolve ambiguous
-    use pretty_assertions::assert_eq;
     use super::*;
+    use pretty_assertions::assert_eq;
 
     #[test]
     fn value() {
@@ -1222,9 +1210,8 @@ mod parse {
   }
 
   mod literals {
-    // Colorful diffs in assertions - resolve ambiguous
-    use pretty_assertions::assert_eq;
     use super::*;
+    use pretty_assertions::assert_eq;
 
     #[test]
     fn boolean() {
@@ -1288,9 +1275,8 @@ mod parse {
   }
 
   mod cast {
-    // Colorful diffs in assertions - resolve ambiguous
-    use pretty_assertions::assert_eq;
     use super::*;
+    use pretty_assertions::assert_eq;
 
     #[test]
     fn int_as_type() {
@@ -1450,9 +1436,8 @@ mod parse {
   }
 
   mod sizeof_ {
-    // Colorful diffs in assertions - resolve ambiguous
-    use pretty_assertions::assert_eq;
     use super::*;
+    use pretty_assertions::assert_eq;
 
     #[test]
     fn of_type() {
@@ -1511,9 +1496,8 @@ mod parse {
   }
 
   mod bitsizeof_ {
-    // Colorful diffs in assertions - resolve ambiguous
-    use pretty_assertions::assert_eq;
     use super::*;
+    use pretty_assertions::assert_eq;
 
     #[test]
     fn of_type() {
@@ -1544,9 +1528,8 @@ mod parse {
   }
 
   mod attrs {
-    // Colorful diffs in assertions - resolve ambiguous
-    use pretty_assertions::assert_eq;
     use super::*;
+    use pretty_assertions::assert_eq;
 
     #[test]
     fn access() {
@@ -1593,9 +1576,8 @@ mod parse {
 
     /// Bit-sized integers
     mod bit_sized {
-      // Colorful diffs in assertions - resolve ambiguous
-      use pretty_assertions::assert_eq;
       use super::*;
+      use pretty_assertions::assert_eq;
 
       #[test]//FIXME: should fail after https://github.com/kaitai-io/kaitai_struct/issues/939
       fn b0() {
@@ -1653,9 +1635,8 @@ mod parse {
 
     /// Types, represented only by their local name
     mod local {
-      // Colorful diffs in assertions - resolve ambiguous
-      use pretty_assertions::assert_eq;
       use super::*;
+      use pretty_assertions::assert_eq;
 
       #[test]
       fn simple() {
@@ -1718,9 +1699,8 @@ mod parse {
       use super::*;
 
       mod absolute {
-        // Colorful diffs in assertions - resolve ambiguous
-        use pretty_assertions::assert_eq;
         use super::*;
+        use pretty_assertions::assert_eq;
 
         #[test]
         fn simple() {
@@ -1782,9 +1762,8 @@ mod parse {
       }
 
       mod relative {
-        // Colorful diffs in assertions - resolve ambiguous
-        use pretty_assertions::assert_eq;
         use super::*;
+        use pretty_assertions::assert_eq;
 
         #[test]
         fn simple() {

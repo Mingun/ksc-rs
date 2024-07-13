@@ -4,14 +4,16 @@
 
 use std::convert::TryFrom;
 
-use bigdecimal::BigDecimal;
 use bigdecimal::num_bigint::BigInt;
+use bigdecimal::BigDecimal;
 use serde_yml::Number;
 
 use crate::error::ModelError;
-use crate::model::{FieldName, EnumName, EnumValueName, TypeName as TName};
+use crate::model::{EnumName, EnumValueName, FieldName, TypeName as TName};
+use crate::parser::expressions::{
+  parse_single, BinaryOp, Node, Scope, SpecialName, TypeName, TypeRef, UnaryOp,
+};
 use crate::parser::Scalar;
-use crate::parser::expressions::{parse_single, BinaryOp, Node, Scope, SpecialName, TypeName, TypeRef, UnaryOp};
 
 /// Owning counterpart of an AST [`Node`].
 ///
@@ -340,9 +342,8 @@ impl<'input> From<TypeRef<'input>> for OwningTypeRef {
 
 #[cfg(test)]
 mod convert {
-  // Colorful diffs in assertions
-  use pretty_assertions::assert_eq;
   use super::*;
+  use pretty_assertions::assert_eq;
   use OwningNode::*;
 
   #[test]
@@ -361,9 +362,8 @@ mod convert {
   }
 
   mod integer {
-    // Colorful diffs in assertions - resolve ambiguous
-    use pretty_assertions::assert_eq;
     use super::*;
+    use pretty_assertions::assert_eq;
 
     #[test]
     fn from_zero() {
@@ -382,9 +382,8 @@ mod convert {
   }
 
   mod float {
-    // Colorful diffs in assertions - resolve ambiguous
-    use pretty_assertions::assert_eq;
     use super::*;
+    use pretty_assertions::assert_eq;
 
     #[test]
     fn from_zero() {
@@ -415,16 +414,14 @@ mod convert {
 
 #[cfg(test)]
 mod evaluation {
-  // Colorful diffs in assertions
-  use pretty_assertions::assert_eq;
   use super::*;
+  use pretty_assertions::assert_eq;
   use OwningNode::*;
 
   /// Check that the unary operators behaves correctly
   mod unary {
-    // Colorful diffs in assertions - resolve ambiguous
-    use pretty_assertions::assert_eq;
     use super::*;
+    use pretty_assertions::assert_eq;
 
     #[test]
     fn double_neg() {

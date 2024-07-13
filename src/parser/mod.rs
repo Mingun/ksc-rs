@@ -11,12 +11,12 @@ use pretty_assertions::assert_eq;
 
 use std::fmt::{Display, Formatter, Result};
 use std::hash::{Hash, Hasher};
-use std::ops::{Deref, DerefMut};
 use std::mem;
+use std::ops::{Deref, DerefMut};
 
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
-use serde_yml::{Value, Number};
+use serde_yml::{Number, Value};
 
 use crate::identifiers::*;
 
@@ -1239,9 +1239,8 @@ fn type_() {
 
 #[cfg(test)]
 mod repeat {
-  // Colorful diffs in assertions - resolve ambiguous
-  use pretty_assertions::assert_eq;
   use super::*;
+  use pretty_assertions::assert_eq;
 
   #[test]
   fn eos() {

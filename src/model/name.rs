@@ -2,12 +2,12 @@
 #[cfg(test)]
 use pretty_assertions::assert_eq;
 
+use std::cmp::Ordering;
 use std::convert::TryFrom;
 use std::fmt::{self, Debug, Display, Formatter};
-use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
-use std::ops::Deref;
 use std::marker::PhantomData;
+use std::ops::Deref;
 
 use crate::error::ModelError;
 use crate::parser as p;

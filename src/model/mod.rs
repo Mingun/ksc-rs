@@ -4,25 +4,25 @@
 //!
 //! [`parser`]: ./parser/index.html
 
-use std::convert::{TryFrom, TryInto};
 use std::cmp;
+use std::convert::{TryFrom, TryInto};
 use std::fmt::Display;
 use std::hash::Hash;
 use std::ops::{Add, Deref};
 
-#[cfg(not(feature = "compatible"))]
-use bigdecimal::Signed;
 use bigdecimal::num_bigint::{BigInt, BigUint};
 use bigdecimal::num_traits::Zero;
-use indexmap::{indexmap, IndexMap};
+#[cfg(not(feature = "compatible"))]
+use bigdecimal::Signed;
 use indexmap::map::Entry;
+use indexmap::{indexmap, IndexMap};
 use lazy_static::lazy_static;
 use regex::Regex;
 
 use crate::error::ModelError;
 use crate::model::expressions::OwningNode;
 use crate::parser as p;
-use crate::parser::expressions::{parse_type_ref, parse_process, AttrType};
+use crate::parser::expressions::{parse_process, parse_type_ref, AttrType};
 
 pub mod expressions;
 mod name;
@@ -201,7 +201,7 @@ pub enum Variant<T> {
     switch_on: OwningNode,
     /// Variants
     cases: IndexMap<OwningNode, T>,
-  }
+  },
 }
 impl<T, U: TryInto<T>> TryFrom<p::Variant<U>> for Variant<T>
   where U::Error: Into<ModelError>,
@@ -220,9 +220,9 @@ impl<T, U: TryInto<T>> TryFrom<p::Variant<U>> for Variant<T>
         }
         Ok(Variant::Choice {
           switch_on: switch_on.try_into()?,
-          cases: new_cases
+          cases: new_cases,
         })
-      },
+      }
     }
   }
 }
@@ -271,7 +271,7 @@ impl Repeat {
       (Some(Expr),  Some(count), None) => match Count::validate(count)? {
         #[cfg(not(feature = "compatible"))]
         Count(OwningNode::Int(count)) if !count.is_positive() => Err(Validation(
-          format!("`repeat-expr` should be positive, but its value is `{}`", count).into()
+          format!("`repeat-expr` should be positive, but its value is `{}`", count).into(),
         )),
         //TODO: Warn if only one iteration will be done
         count => Ok(Self::Count(count)),
@@ -279,7 +279,7 @@ impl Repeat {
       (Some(Until), None, Some(until)) => match Condition::validate(until)? {
         #[cfg(not(feature = "compatible"))]
         Condition(OwningNode::Bool(false)) => Err(Validation(
-          "`repeat-until` key is always `false` which generates an infinity loop".into()
+          "`repeat-until` key is always `false` which generates an infinity loop".into(),
         )),
         // Condition(OwningNode::Bool(true))  => //TODO: Warn that only one iteration will be done
         until => Ok(Self::Until(until)),
@@ -289,7 +289,7 @@ impl Repeat {
       #[cfg(not(feature = "compatible"))]
       (None, Some(count), None) => match Count::validate(count)? {
         Count(OwningNode::Int(count)) if !count.is_positive() => Err(Validation(
-          format!("`repeat-expr` should be positive, but its value is `{}`", count).into()
+          format!("`repeat-expr` should be positive, but its value is `{}`", count).into(),
         )),
         //TODO: Warn if only one iteration will be done
         count => Ok(Self::Count(count)),
@@ -297,7 +297,7 @@ impl Repeat {
       #[cfg(not(feature = "compatible"))]
       (None, None, Some(until)) => match Condition::validate(until)? {
         Condition(OwningNode::Bool(false)) => Err(Validation(
-          "`repeat-until` key is always `false` which generates an infinity loop".into()
+          "`repeat-until` key is always `false` which generates an infinity loop".into(),
         )),
         // Condition(OwningNode::Bool(true))  => //TODO: Warn that only one iteration will be done
         until => Ok(Self::Until(until)),
@@ -546,7 +546,7 @@ pub enum SizeOf {
 }
 impl SizeOf {
   fn or(self, other: Self) -> Self {
-    use std::cmp::{min, max};
+    use std::cmp::{max, min};
     use SizeOf::*;
 
     match (self, other) {
@@ -675,8 +675,8 @@ impl TypeRef {
   /// Returns the size of the type in bytes, `Unsized`, if type is unsized
   /// (byte arrays and strings) and `Unknown` if size not calculated yet.
   pub fn sizeof(&self) -> SizeOf {
-    use TypeRef::*;
     use SizeOf::*;
+    use TypeRef::*;
 
     match self {
       Enum { base, .. } => Sized(base.size().into()),
@@ -696,13 +696,13 @@ impl TypeRef {
       static ref BITS: Regex = Regex::new("^b([0-9]+)$").expect("incorrect BITS regexp");
     }
 
-    use ModelError::*;
-    use Enumerable::*;
-    use TypeRef::{Enum, F32, F64};
-    use p::Builtin::*;
-    use p::TypeRef::*;
-    use p::ByteOrder::*;
     use helpers::Inheritable::*;
+    use p::Builtin::*;
+    use p::ByteOrder::*;
+    use p::TypeRef::*;
+    use Enumerable::*;
+    use ModelError::*;
+    use TypeRef::{Enum, F32, F64};
 
     let endian = props.endian;
     let endian = |t| match endian {
@@ -763,7 +763,7 @@ impl TypeRef {
           // For backward-compatibility with the Kaitai Struct 0.8 bit order by default
           // is Big-Endian
           base: Bits(size, order.or(props.bit_endian).unwrap_or(BitOrder::Be)),
-          enum_: e.transpose()?
+          enum_: e.transpose()?,
         }),
         AttrType::User { name, args } => if let None = e {
           Ok(TypeRef::User(UserTypeRef {
@@ -812,7 +812,7 @@ impl Chunk {
       Size::Exact { count: Count(OwningNode::Int(count)), .. } => {
         let (_, count) = cmp::max(count.clone(), BigInt::default()).into_parts();
         Sized(count)
-      },
+      }
       Size::Eos(_) | Size::Until(_) | Size::Exact { .. } => match size {
         Unknown         => Unknown,
         Unsized(min, _) => Unsized(min, None),
@@ -870,8 +870,8 @@ pub struct Attribute {
 impl Attribute {
   /// Calculates size that attribute is occupied in the the stream.
   pub fn sizeof(&self) -> SizeOf {
+    use OwningNode::{Bool, Int};
     use SizeOf::*;
-    use OwningNode::{Int, Bool};
 
     let size = self.chunk.sizeof();
     let size = match (&self.repeat, size) {
@@ -888,11 +888,11 @@ impl Attribute {
         } else {
           Unsized(min * count.clone(), max.map(|m| m * count))
         }
-      },
+      }
       (Repeat::Count(Count(Int(count))), Sized(size)) => {
         let (_, count) = cmp::max(count.clone(), BigInt::default()).into_parts();
         Sized(size * count)
-      },
+      }
       (Repeat::Count(_), _) => Unsized(0usize.into(), None),
 
       // `repeat-until: true` allows only one iteration
@@ -952,9 +952,9 @@ impl Attribute {
           }
           Variant::Choice {
             switch_on: switch_on.try_into()?,
-            cases: new_cases
+            cases: new_cases,
           }
-        },
+        }
       },
       repeat:    Repeat::validate(attr.repeat, attr.repeat_expr, attr.repeat_until)?,
       condition: attr.condition.map(Condition::validate).transpose()?,
@@ -1045,7 +1045,7 @@ impl UserType {
     let types = Self::check_duplicates(spec.types, |(name, spec)| {
       Ok((
         TypeName::validate(name)?,
-        UserType::validate(spec, defaults.clone())?
+        UserType::validate(spec, defaults.clone())?,
       ))
     })?;
 
@@ -1084,10 +1084,9 @@ impl TryFrom<p::Ksy> for Root {
 
 #[cfg(test)]
 mod size {
-  // Colorful diffs in assertions
-  use pretty_assertions::assert_eq;
   use super::*;
   use indexmap::indexmap;
+  use pretty_assertions::assert_eq;
 
   #[test]
   fn size() {
@@ -1491,12 +1490,12 @@ mod duplicate {
 #[cfg(test)]
 mod repeat {
   use super::*;
+  use pretty_assertions::assert_eq;
   use ModelError::*;
 
   mod expr {
-    // Colorful diffs in assertions - resolve ambiguous
-    use pretty_assertions::assert_eq;
     use super::*;
+    use pretty_assertions::assert_eq;
 
     /// ```yaml
     /// repeat: expr
@@ -1592,9 +1591,8 @@ mod repeat {
     }
 
     mod only_repeat_expr {
-      // Colorful diffs in assertions - resolve ambiguous
-      use pretty_assertions::assert_eq;
       use super::*;
+      use pretty_assertions::assert_eq;
 
       /// ```yaml
       /// repeat-expr: -42
@@ -1671,9 +1669,8 @@ mod repeat {
   }
 
   mod until {
-    // Colorful diffs in assertions - resolve ambiguous
-    use pretty_assertions::assert_eq;
     use super::*;
+    use pretty_assertions::assert_eq;
 
     /// ```yaml
     /// repeat: until
@@ -1750,9 +1747,8 @@ mod repeat {
     }
 
     mod only_repeat_until {
-      // Colorful diffs in assertions - resolve ambiguous
-      use pretty_assertions::assert_eq;
       use super::*;
+      use pretty_assertions::assert_eq;
 
       /// ```yaml
       /// repeat-until: true
@@ -1811,9 +1807,8 @@ mod repeat {
   }
 
   mod eos {
-    // Colorful diffs in assertions - resolve ambiguous
-    use pretty_assertions::assert_eq;
     use super::*;
+    use pretty_assertions::assert_eq;
 
     /// ```yaml
     /// repeat: eos
@@ -1883,16 +1878,15 @@ mod repeat {
       Some(p::Count::Expr("expr".into())),
       Some(p::Condition::Expr("until".into())),
     );
-    pretty_assertions::assert_eq!(rep, Err(Validation("either `repeat-expr` or `repeat-until` must be specified".into())));
+    assert_eq!(rep, Err(Validation("either `repeat-expr` or `repeat-until` must be specified".into())));
   }
 }
 
 /// Tests for `_sizeof` property / `sizeof<>` property
 #[cfg(test)]
 mod sizeof {
-  // Colorful diffs in assertions
-  use pretty_assertions::assert_eq;
   use super::*;
+  use pretty_assertions::assert_eq;
   use SizeOf::*;
 
   const BE: ByteOrder = ByteOrder::Fixed(p::ByteOrder::Be);
@@ -2299,9 +2293,8 @@ mod sizeof {
   }
 
   mod chunk {
-    // Colorful diffs in assertions - resolve ambiguous
-    use pretty_assertions::assert_eq;
     use super::*;
+    use pretty_assertions::assert_eq;
 
     macro_rules! limited_check_size {
       ($fn:ident, $variant:ident == $size:expr) => {
@@ -2476,9 +2469,8 @@ mod sizeof {
     /// Exact-sized chunks occupies that amount of space that defined in their `size`,
     /// no matter how much underlying type is occupy
     mod exact {
-      // Colorful diffs in assertions - resolve ambiguous
-      use pretty_assertions::assert_eq;
       use super::*;
+      use pretty_assertions::assert_eq;
 
 
       macro_rules! constant {
@@ -2606,17 +2598,15 @@ mod sizeof {
   }
 
   mod attribute {
-    // Colorful diffs in assertions - resolve ambiguous
-    use pretty_assertions::assert_eq;
     use super::*;
+    use pretty_assertions::assert_eq;
     use serde_yml::from_str;
 
     macro_rules! type_check_size {
       ($fn:ident == $size:expr) => {
         mod $fn {
-          // Colorful diffs in assertions - resolve ambiguous
-          use pretty_assertions::assert_eq;
           use super::*;
+          use pretty_assertions::assert_eq;
 
           #[test]
           fn only_type() {
@@ -2781,9 +2771,8 @@ mod sizeof {
       use super::*;
 
       mod only_type {
-        // Colorful diffs in assertions - resolve ambiguous
-        use pretty_assertions::assert_eq;
         use super::*;
+        use pretty_assertions::assert_eq;
 
         #[test]
         fn same_fixed_size() {
@@ -2827,9 +2816,8 @@ mod sizeof {
       }
 
       mod type_and_size {
-        // Colorful diffs in assertions - resolve ambiguous
-        use pretty_assertions::assert_eq;
         use super::*;
+        use pretty_assertions::assert_eq;
 
         #[test]
         fn same_fixed_size() {
@@ -2891,9 +2879,8 @@ mod sizeof {
       }
 
       mod type_and_size_eos {
-        // Colorful diffs in assertions - resolve ambiguous
-        use pretty_assertions::assert_eq;
         use super::*;
+        use pretty_assertions::assert_eq;
 
         #[test]
         fn same_fixed_size() {
@@ -2950,9 +2937,8 @@ mod sizeof {
       }
 
       mod type_and_terminator {
-        // Colorful diffs in assertions - resolve ambiguous
-        use pretty_assertions::assert_eq;
         use super::*;
+        use pretty_assertions::assert_eq;
 
         #[test]
         fn same_fixed_size() {
@@ -3016,9 +3002,8 @@ mod sizeof {
 
       /// Repeated expression have a fixed size
       mod fixed {
-        // Colorful diffs in assertions - resolve ambiguous
-        use pretty_assertions::assert_eq;
         use super::*;
+        use pretty_assertions::assert_eq;
 
         /// This settings obviously is an error, so forbidden
         #[test]
@@ -3208,9 +3193,8 @@ mod sizeof {
 
       /// Repeated expression have non-fixed size - [0; unlimited]
       mod _0_unlimited {
-        // Colorful diffs in assertions - resolve ambiguous
-        use pretty_assertions::assert_eq;
         use super::*;
+        use pretty_assertions::assert_eq;
 
         /// This settings obviously is an error, so forbidden
         #[test]
@@ -3400,9 +3384,8 @@ mod sizeof {
 
       /// Repeated expression have non-fixed size - [2; 4]
       mod _2_4 {
-        // Colorful diffs in assertions - resolve ambiguous
-        use pretty_assertions::assert_eq;
         use super::*;
+        use pretty_assertions::assert_eq;
 
         /// This settings obviously is an error, so forbidden
         #[test]
@@ -3648,9 +3631,8 @@ mod sizeof {
 
       /// Expression under condition have a fixed size
       mod fixed {
-        // Colorful diffs in assertions - resolve ambiguous
-        use pretty_assertions::assert_eq;
         use super::*;
+        use pretty_assertions::assert_eq;
 
         #[test]
         fn true_() {
@@ -3703,9 +3685,8 @@ mod sizeof {
 
       /// Expression under condition have non-fixed size - [0; unlimited]
       mod _0_unlimited {
-        // Colorful diffs in assertions - resolve ambiguous
-        use pretty_assertions::assert_eq;
         use super::*;
+        use pretty_assertions::assert_eq;
 
         #[test]
         fn true_() {
@@ -3758,9 +3739,8 @@ mod sizeof {
 
       /// Expression under condition have non-fixed size - [2; 4]
       mod _2_4 {
-        // Colorful diffs in assertions - resolve ambiguous
-        use pretty_assertions::assert_eq;
         use super::*;
+        use pretty_assertions::assert_eq;
 
         #[test]
         fn true_() {

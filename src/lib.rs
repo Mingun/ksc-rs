@@ -10,11 +10,11 @@ pub mod parser;
 /// crate root directory, next to `src`.
 #[cfg(test)]
 mod formats {
+  use crate::model::Root;
+  use crate::parser::Ksy;
   use std::convert::TryInto;
   use std::fs::File;
   use test_generator::test_resources;
-  use crate::parser::Ksy;
-  use crate::model::Root;
 
   #[test_resources("formats/**/*.ksy")]
   fn parse(resource: &str) {

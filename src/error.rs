@@ -2,8 +2,8 @@
 
 use std::borrow::Cow;
 use std::convert::Infallible;
-use std::fmt::{Display, Formatter, Result};
 use std::error::Error;
+use std::fmt::{Display, Formatter, Result};
 
 use peg::error::ParseError;
 use peg::str::LineCol;
