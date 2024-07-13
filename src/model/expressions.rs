@@ -6,7 +6,7 @@ use std::convert::TryFrom;
 
 use bigdecimal::BigDecimal;
 use bigdecimal::num_bigint::BigInt;
-use serde_yaml::Number;
+use serde_yml::Number;
 
 use crate::error::ModelError;
 use crate::model::{FieldName, EnumName, EnumValueName, TypeName as TName};

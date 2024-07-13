@@ -1091,7 +1091,7 @@ mod size {
 
   #[test]
   fn size() {
-    let ksy: p::Ksy = serde_yaml::from_str(r#"
+    let ksy: p::Ksy = serde_yml::from_str(r#"
     meta:
       id: test
     seq:
@@ -1114,7 +1114,7 @@ mod size {
   }
   #[test]
   fn size_eos() {
-    let ksy: p::Ksy = serde_yaml::from_str(r#"
+    let ksy: p::Ksy = serde_yml::from_str(r#"
     meta:
       id: test
     seq:
@@ -1137,7 +1137,7 @@ mod size {
   }
   #[test]
   fn terminator() {
-    let ksy: p::Ksy = serde_yaml::from_str(r#"
+    let ksy: p::Ksy = serde_yml::from_str(r#"
     meta:
       id: test
     seq:
@@ -1160,7 +1160,7 @@ mod size {
   }
   #[test]
   fn strz() {
-    let ksy: p::Ksy = serde_yaml::from_str(r#"
+    let ksy: p::Ksy = serde_yml::from_str(r#"
     meta:
       id: test
     seq:
@@ -1190,7 +1190,7 @@ mod size {
 
     macro_rules! test {
       ($builtin:ident, $size:literal, $base:expr) => {
-        let ksy: p::Ksy = serde_yaml::from_str(&format!(r#"
+        let ksy: p::Ksy = serde_yml::from_str(&format!(r#"
         meta:
           id: test
           endian: be
@@ -1260,7 +1260,7 @@ mod strz {
 
   #[test]
   fn fixed() {
-    let ksy: p::Ksy = serde_yaml::from_str(r#"
+    let ksy: p::Ksy = serde_yml::from_str(r#"
     meta:
       id: strz_without_size
     seq:
@@ -1273,7 +1273,7 @@ mod strz {
 
   #[test]
   fn choice() {
-    let ksy: p::Ksy = serde_yaml::from_str(r#"
+    let ksy: p::Ksy = serde_yml::from_str(r#"
     meta:
       id: strz_without_size
     seq:
@@ -1297,7 +1297,7 @@ mod encoding {
         #[test]
         fn simple() {
           use std::convert::TryFrom;
-          let ksy: crate::parser::Ksy = serde_yaml::from_str(&format!(r#"
+          let ksy: crate::parser::Ksy = serde_yml::from_str(&format!(r#"
           meta:
             id: missing_encoding
           seq:
@@ -1311,7 +1311,7 @@ mod encoding {
         #[test]
         fn choice() {
           use std::convert::TryFrom;
-          let ksy: crate::parser::Ksy = serde_yaml::from_str(&format!(r#"
+          let ksy: crate::parser::Ksy = serde_yml::from_str(&format!(r#"
           meta:
             id: missing_encoding
           seq:
@@ -1345,7 +1345,7 @@ mod inheritance {
           ($builtin:expr) => {
             let s = stringify!($builtin);
             let t = &format!($template, s);
-            let ksy: p::Ksy = serde_yaml::from_str(t).unwrap();
+            let ksy: p::Ksy = serde_yml::from_str(t).unwrap();
             let _ = Root::try_from(ksy).expect(&format!("inherited `encoding` and `endian` for `{}`\n{}", s, t));
           };
         }
@@ -1475,7 +1475,7 @@ mod duplicate {
 
   #[test]
   fn fields() {
-    let ksy: p::Ksy = serde_yaml::from_str(r#"
+    let ksy: p::Ksy = serde_yml::from_str(r#"
     meta:
       id: duplicate_fields
     seq:
@@ -2609,7 +2609,7 @@ mod sizeof {
     // Colorful diffs in assertions - resolve ambiguous
     use pretty_assertions::assert_eq;
     use super::*;
-    use serde_yaml::from_str;
+    use serde_yml::from_str;
 
     macro_rules! type_check_size {
       ($fn:ident == $size:expr) => {

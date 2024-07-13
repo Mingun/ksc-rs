@@ -12,10 +12,11 @@ use pretty_assertions::assert_eq;
 use std::fmt::{Display, Formatter, Result};
 use std::hash::{Hash, Hasher};
 use std::ops::{Deref, DerefMut};
+use std::mem;
 
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
-use serde_yaml::{Value, Number};
+use serde_yml::{Value, Number};
 
 use crate::identifiers::*;
 
@@ -191,14 +192,15 @@ impl From<Scalar> for Value {
     }
   }
 }
-/// Implementation of hash is the same as for `serde_yaml::Value`.
+/// Implementation of hash is the same as for `serde_yml::Value`.
 impl Hash for Scalar {
   fn hash<H: Hasher>(&self, state: &mut H) {
+    mem::discriminant(self).hash(state);
     match self {
-      Self::Null      => 0.hash(state),
-      Self::Bool(b)   => (1, b).hash(state),
-      Self::Number(i) => (2, i).hash(state),
-      Self::String(s) => (3, s).hash(state),
+      Self::Null      => {}
+      Self::Bool(b)   => b.hash(state),
+      Self::Number(i) => i.hash(state),
+      Self::String(s) => s.hash(state),
     }
   }
 }
@@ -1109,7 +1111,7 @@ mod scalar {
 
 #[test]
 fn doc_ref() {
-  let one: Attribute = serde_yaml::from_str("
+  let one: Attribute = serde_yml::from_str("
     doc-ref: one element
   ").unwrap();
   assert_eq!(one, Attribute {
@@ -1120,7 +1122,7 @@ fn doc_ref() {
     ..Default::default()
   });
 
-  let arr: Attribute = serde_yaml::from_str("
+  let arr: Attribute = serde_yml::from_str("
     doc-ref:
       - 1st element
       - 2nd element
@@ -1139,24 +1141,24 @@ fn doc_ref() {
 
 #[test]
 fn string_or_byte() {
-  let string: StringOrByte = serde_yaml::from_str("'one'").unwrap();
+  let string: StringOrByte = serde_yml::from_str("'one'").unwrap();
   assert_eq!(string, StringOrByte::String("one".to_owned()));
 
-  let number: StringOrByte = serde_yaml::from_str("2").unwrap();
+  let number: StringOrByte = serde_yml::from_str("2").unwrap();
   assert_eq!(number, StringOrByte::Byte(2));
 
-  let string_array: Vec<StringOrByte> = serde_yaml::from_str("[one, 'two']").unwrap();
+  let string_array: Vec<StringOrByte> = serde_yml::from_str("[one, 'two']").unwrap();
   assert_eq!(string_array, vec![
     StringOrByte::String("one".to_owned()),
     StringOrByte::String("two".to_owned()),
   ]);
 
-  let number_array: Vec<StringOrByte> = serde_yaml::from_str("[0x1, 2]").unwrap();
+  let number_array: Vec<StringOrByte> = serde_yml::from_str("[0x1, 2]").unwrap();
   assert_eq!(number_array, vec![
     StringOrByte::Byte(1),
     StringOrByte::Byte(2),
   ]);
-  let mixed_array: Vec<StringOrByte> = serde_yaml::from_str("[one, 2]").unwrap();
+  let mixed_array: Vec<StringOrByte> = serde_yml::from_str("[one, 2]").unwrap();
   assert_eq!(mixed_array, vec![
     StringOrByte::String("one".to_owned()),
     StringOrByte::Byte(2),
@@ -1165,17 +1167,17 @@ fn string_or_byte() {
 
 #[test]
 fn contents() {
-  let string: Contents = serde_yaml::from_str("one").unwrap();
+  let string: Contents = serde_yml::from_str("one").unwrap();
   assert_eq!(string, Contents::Str("one".to_owned()));
 
-  let array: Contents = serde_yaml::from_str("[0x1, 'two', 3]").unwrap();
+  let array: Contents = serde_yml::from_str("[0x1, 'two', 3]").unwrap();
   assert_eq!(array, Contents::Vec(vec![
     StringOrByte::Byte(1),
     StringOrByte::String("two".to_owned()),
     StringOrByte::Byte(3),
   ]));
 
-  let string: Attribute = serde_yaml::from_str("
+  let string: Attribute = serde_yml::from_str("
     contents: one
   ").unwrap();
   assert_eq!(string, Attribute {
@@ -1183,7 +1185,7 @@ fn contents() {
     ..Default::default()
   });
 
-  let array: Attribute = serde_yaml::from_str("
+  let array: Attribute = serde_yml::from_str("
     contents: [0x1, 'two', 3]
   ").unwrap();
   assert_eq!(array, Attribute {
@@ -1214,13 +1216,13 @@ fn path() {
 fn type_() {
   use std::iter::FromIterator;
 
-  let type_: Type = serde_yaml::from_str("str").unwrap();
+  let type_: Type = serde_yml::from_str("str").unwrap();
   assert_eq!(type_, Type::Fixed(TypeRef::Builtin(Builtin::str)));
 
-  let type_: Type = serde_yaml::from_str("custom").unwrap();
+  let type_: Type = serde_yml::from_str("custom").unwrap();
   assert_eq!(type_, Type::Fixed(TypeRef::User("custom".to_owned())));
 
-  let type_: Type = serde_yaml::from_str("
+  let type_: Type = serde_yml::from_str("
     switch-on: id
     cases:
       '1': one
@@ -1243,7 +1245,7 @@ mod repeat {
 
   #[test]
   fn eos() {
-    let repeat: Attribute = serde_yaml::from_str("
+    let repeat: Attribute = serde_yml::from_str("
       repeat: eos
     ").unwrap();
     assert_eq!(repeat, Attribute {
@@ -1255,7 +1257,7 @@ mod repeat {
   }
   #[test]
   fn expr() {
-    let repeat: Attribute = serde_yaml::from_str("
+    let repeat: Attribute = serde_yml::from_str("
       repeat: expr
       repeat-expr: 1 + 1
     ").unwrap();
@@ -1265,7 +1267,7 @@ mod repeat {
       ..Default::default()
     });
 
-    let repeat: Attribute = serde_yaml::from_str("
+    let repeat: Attribute = serde_yml::from_str("
       repeat-expr: 42
     ").unwrap();
     assert_eq!(repeat, Attribute {
@@ -1277,7 +1279,7 @@ mod repeat {
   }
   #[test]
   fn until() {
-    let repeat: Attribute = serde_yaml::from_str("
+    let repeat: Attribute = serde_yml::from_str("
       repeat: until
       repeat-until: 1 + 1
     ").unwrap();
@@ -1288,7 +1290,7 @@ mod repeat {
       ..Default::default()
     });
 
-    let repeat: Attribute = serde_yaml::from_str("
+    let repeat: Attribute = serde_yml::from_str("
       repeat-until: false
     ").unwrap();
     assert_eq!(repeat, Attribute {

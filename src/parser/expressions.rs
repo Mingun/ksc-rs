@@ -7,7 +7,7 @@ use std::iter::FromIterator;
 
 use bigdecimal::{BigDecimal, Num};
 use bigdecimal::num_bigint::BigInt;
-use serde_yaml::Number;
+use serde_yml::Number;
 
 use crate::parser::BitOrder;
 

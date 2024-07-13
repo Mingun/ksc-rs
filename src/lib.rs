@@ -19,7 +19,7 @@ mod formats {
   #[test_resources("formats/**/*.ksy")]
   fn parse(resource: &str) {
     let file = File::open(resource).expect(&format!("can't read file {}", resource));
-    let ksy: Ksy = serde_yaml::from_reader(file).expect(&format!("invalid file {}", resource));
+    let ksy: Ksy = serde_yml::from_reader(file).expect(&format!("invalid file {}", resource));
     let _: Root = ksy.try_into().expect(&format!("incorrect KSY {}", resource));
   }
 }
