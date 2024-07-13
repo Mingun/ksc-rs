@@ -842,43 +842,43 @@ mod parse {
 
     #[test]
     fn simple() {
-      assert_eq!(parse_single("1.2345"), Ok(Float((12345.into(), 4).into())));
+      assert_eq!(parse_single("1.2345"), Ok(Float((12345, 4).into())));
     }
 
     #[test]
     fn with_signless_exponent() {
-      assert_eq!(parse_single("123e4"), Ok(Float((123.into(), -4).into())));
-      assert_eq!(parse_single("123E4"), Ok(Float((123.into(), -4).into())));
+      assert_eq!(parse_single("123e4"), Ok(Float((123, -4).into())));
+      assert_eq!(parse_single("123E4"), Ok(Float((123, -4).into())));
     }
 
     #[test]
     fn with_positive_exponent() {
-      assert_eq!(parse_single("123e+4"), Ok(Float((123.into(), -4).into())));
-      assert_eq!(parse_single("123E+4"), Ok(Float((123.into(), -4).into())));
+      assert_eq!(parse_single("123e+4"), Ok(Float((123, -4).into())));
+      assert_eq!(parse_single("123E+4"), Ok(Float((123, -4).into())));
     }
 
     #[test]
     fn with_negative_exponent() {
-      assert_eq!(parse_single("123e-7"), Ok(Float((123.into(), 7).into())));
-      assert_eq!(parse_single("123E-7"), Ok(Float((123.into(), 7).into())));
+      assert_eq!(parse_single("123e-7"), Ok(Float((123, 7).into())));
+      assert_eq!(parse_single("123E-7"), Ok(Float((123, 7).into())));
     }
 
     #[test]
     fn non_integral_part_with_signless_exponent() {
-      assert_eq!(parse_single("1.2345e7"), Ok(Float((12345.into(), 4-7).into())));
-      assert_eq!(parse_single("1.2345E7"), Ok(Float((12345.into(), 4-7).into())));
+      assert_eq!(parse_single("1.2345e7"), Ok(Float((12345, 4-7).into())));
+      assert_eq!(parse_single("1.2345E7"), Ok(Float((12345, 4-7).into())));
     }
 
     #[test]
     fn non_integral_part_with_positive_exponent() {
-      assert_eq!(parse_single("123.45e+7"), Ok(Float((12345.into(), 2-7).into())));
-      assert_eq!(parse_single("123.45E+7"), Ok(Float((12345.into(), 2-7).into())));
+      assert_eq!(parse_single("123.45e+7"), Ok(Float((12345, 2-7).into())));
+      assert_eq!(parse_single("123.45E+7"), Ok(Float((12345, 2-7).into())));
     }
 
     #[test]
     fn non_integral_part_with_negative_exponent() {
-      assert_eq!(parse_single("123.45e-7"), Ok(Float((12345.into(), 2+7).into())));
-      assert_eq!(parse_single("123.45E-7"), Ok(Float((12345.into(), 2+7).into())));
+      assert_eq!(parse_single("123.45e-7"), Ok(Float((12345, 2+7).into())));
+      assert_eq!(parse_single("123.45E-7"), Ok(Float((12345, 2+7).into())));
     }
 
     #[test]
@@ -889,7 +889,7 @@ mod parse {
       );
       assert_eq!(
         parse_single("1e+10000"),
-        Ok(Float(BigDecimal::from((1.into(), -10000))))
+        Ok(Float(BigDecimal::from((1, -10000))))
       );
     }
   }
@@ -1573,9 +1573,9 @@ mod parse {
 
     #[test]
     fn float_and_access() {
-      assert_eq!(parse_single("123.4.to_s"  ), Ok(Access { expr: Box::new(Float((1234.into(), 1).into())), attr: "to_s" }));
-      assert_eq!(parse_single("123.4. to_s" ), Ok(Access { expr: Box::new(Float((1234.into(), 1).into())), attr: "to_s" }));
-      assert_eq!(parse_single("123.4.\nto_s"), Ok(Access { expr: Box::new(Float((1234.into(), 1).into())), attr: "to_s" }));
+      assert_eq!(parse_single("123.4.to_s"  ), Ok(Access { expr: Box::new(Float((1234, 1).into())), attr: "to_s" }));
+      assert_eq!(parse_single("123.4. to_s" ), Ok(Access { expr: Box::new(Float((1234, 1).into())), attr: "to_s" }));
+      assert_eq!(parse_single("123.4.\nto_s"), Ok(Access { expr: Box::new(Float((1234, 1).into())), attr: "to_s" }));
     }
   }
 

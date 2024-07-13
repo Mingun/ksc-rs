@@ -393,12 +393,12 @@ mod convert {
 
     #[test]
     fn from_positive() {
-      assert_eq!(OwningNode::try_from(Scalar::Number(4.2.into())), Ok(Float((42.into(), 1).into())));
+      assert_eq!(OwningNode::try_from(Scalar::Number(4.5.into())), Ok(Float((45, 1).into())));
     }
 
     #[test]
     fn from_negative() {
-      assert_eq!(OwningNode::try_from(Scalar::Number((-4.2).into())), Ok(Float(((-42).into(), 1).into())));
+      assert_eq!(OwningNode::try_from(Scalar::Number((-4.5).into())), Ok(Float((-45, 1).into())));
     }
   }
 
