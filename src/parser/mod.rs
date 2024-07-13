@@ -1065,13 +1065,19 @@ pub struct Ksy {
   pub root: TypeSpec,
 }
 
-#[test]
-fn scalar_display() {
-  assert_eq!("(null)",        format!("{}", Scalar::Null));
-  assert_eq!("true",          format!("{}", Scalar::Bool(true)));
-  assert_eq!("42",            format!("{}", Scalar::Number(42.into())));
-  assert_eq!("4.2",           format!("{}", Scalar::Number(4.2.into())));
-  assert_eq!(r#""(nu\"ll)""#, format!("{}", Scalar::String("(nu\"ll)".into())));
+#[cfg(test)]
+mod scalar {
+  use super::*;
+  use pretty_assertions::assert_eq;
+
+  #[test]
+  fn display() {
+    assert_eq!("(null)",        format!("{}", Scalar::Null));
+    assert_eq!("true",          format!("{}", Scalar::Bool(true)));
+    assert_eq!("42",            format!("{}", Scalar::Number(42.into())));
+    assert_eq!("4.2",           format!("{}", Scalar::Number(4.2.into())));
+    assert_eq!(r#""(nu\"ll)""#, format!("{}", Scalar::String("(nu\"ll)".into())));
+  }
 }
 
 #[test]
