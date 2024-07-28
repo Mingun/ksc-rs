@@ -1,3 +1,3 @@
 [submodule "formats"]
 	path = formats
-	url = git@github.com:kaitai-io/kaitai_struct_formats.git
+	url = https://github.com/kaitai-io/kaitai_struct_formats.git
