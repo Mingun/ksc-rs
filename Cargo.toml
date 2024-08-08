@@ -18,7 +18,7 @@ regex = "1.5"
 serde = { version = "1.0", features = ["derive"] }
 # When update version check `impl Hash for Scalar`, it should be the same as
 # `impl Hash for serde_yml::Value` for consistency
-serde_yml = "0.0.10"
+serde_yml = "0.0.11"
 
 [dev-dependencies]
 pretty_assertions = "1.0"
