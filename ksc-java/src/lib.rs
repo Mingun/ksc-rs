@@ -4,10 +4,10 @@ use std::str::FromStr;
 
 use heck::{ToLowerCamelCase, ToShoutySnakeCase, ToUpperCamelCase};
 use indexmap::IndexMap;
-use ksc::model::expressions::{OwningAttr, OwningNode};
+use ksc::model::expressions::{OwningAttr, OwningEnumRef, OwningNode};
 use ksc::model::{
-  Attribute, AttributeName, Chunk, EnumName, EnumVariantName, FieldName, OptionalName, Repeat, Root,
-  SeqName, Terminator, TypeName, UserType, Variant,
+  Attribute, AttributeName, Chunk, EnumName, EnumVariantName, Enumerable, FieldName, OptionalName,
+  Repeat, Root, SeqName, Terminator, TypeName, TypeRef, UserType, Variant,
 };
 use ksc::parser::expressions::ContextVar;
 use num_traits::cast::ToPrimitive;
@@ -520,10 +520,82 @@ impl Translate for Chunk {
       },
     }.map(|stream| quote!(_io = #stream;));
 
+    let parse = self.type_ref.translate(gen);
     quote! {
       #stream
-      final Object _value = unimplemented();//TODO: implement parse of attribute
+      final Object _value = #parse;
     }
+  }
+}
+
+impl Translate for TypeRef {
+  fn translate(&self, gen: &TypeGenerator) -> TokenStream {
+    use ksc::parser::ByteOrder::*;
+    use Variant::*;
+
+    match self {
+      // TODO: Finish TypeRef translation
+      Self::Enum { base, enum_: None } => base.translate(gen),
+      Self::Enum { base, enum_: Some(e) } => {
+        let enum_ = e.translate(gen);
+        let base = base.translate(gen);
+        quote!(#enum_.Unknown.resolve(#base))
+      }
+
+      Self::F32(Fixed(Be)) => quote!(_io.readF32be()),
+      Self::F32(Fixed(Le)) => quote!(_io.readF32le()),
+
+      Self::F64(Fixed(Be)) => quote!(_io.readF64be()),
+      Self::F64(Fixed(Le)) => quote!(_io.readF64le()),
+
+      Self::String(encoding) => quote!(_io.readAll(#encoding)),
+      Self::Bytes => quote!(_io.readAll()),
+      Self::User(ut) => {
+        let name = gen.translate_type_name(&ut.name);
+        quote!(new #name(_io, this, this._root))
+      }
+      // Self::Fixed()
+      ty => todo!("type {:?}", ty),
+    }
+  }
+}
+
+impl Translate for Enumerable {
+  fn translate(&self, _gen: &TypeGenerator) -> TokenStream {
+    use ksc::parser::ByteOrder::*;
+    use Variant::*;
+
+    match self {
+      // TODO: Finish Enumerable translation
+      Self::I8 => quote!(_io.readI8()),
+      Self::U8 => quote!(_io.readU8()),
+
+      Self::I16(Fixed(Be)) => quote!(_io.readI16be()),
+      Self::I16(Fixed(Le)) => quote!(_io.readI16le()),
+      Self::U16(Fixed(Be)) => quote!(_io.readU16be()),
+      Self::U16(Fixed(Le)) => quote!(_io.readU16le()),
+
+      Self::I32(Fixed(Be)) => quote!(_io.readI32be()),
+      Self::I32(Fixed(Le)) => quote!(_io.readI32le()),
+      Self::U32(Fixed(Be)) => quote!(_io.readU32be()),
+      Self::U32(Fixed(Le)) => quote!(_io.readU32le()),
+
+      Self::I64(Fixed(Be)) => quote!(_io.readI64be()),
+      Self::I64(Fixed(Le)) => quote!(_io.readI64le()),
+      Self::U64(Fixed(Be)) => quote!(_io.readU64be()),
+      Self::U64(Fixed(Le)) => quote!(_io.readU64le()),
+
+      ty => todo!("type {:?}", ty),
+    }
+  }
+}
+
+impl Translate for OwningEnumRef {
+  fn translate(&self, gen: &TypeGenerator) -> TokenStream {
+    // FIXME: names should be translated according to their containers
+    let path = self.scope.path.iter().map(|p| gen.translate_type_name(p));
+    let name = gen.translate_enum_name(&self.name);
+    quote!(#(#path .)* #name)
   }
 }
 
@@ -819,6 +891,33 @@ mod attribute {
     abstract interface KaitaiStream {{
       boolean isEof();
       KaitaiStream subStream(int size);
+
+      byte[] readAll();
+      String readAll(String encoding);
+
+      byte readI8();
+      byte readU8();
+
+      short readI16be();
+      short readI16le();
+      short readU16be();
+      short readU16le();
+
+      int readI32be();
+      int readI32le();
+      int readU32be();
+      int readU32le();
+
+      long readI64be();
+      long readI64le();
+      long readU64be();
+      long readU64le();
+
+      float readF32be();
+      float readF32le();
+
+      double readF64be();
+      double readF64le();
     }}
     public abstract class KscJavaTest {{
       KaitaiStream _io;
