@@ -874,9 +874,9 @@ pub struct Attribute {
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub struct Instance {
-  /// Common attribute parameters.
+  /// Instructions for parsing data.
   #[serde(flatten)]
-  pub common: Attribute,
+  pub attr: Attribute,
 
   /// Specifies position at which the value should be parsed.
   #[serde(skip_serializing_if = "Option::is_none")]
