@@ -3,7 +3,7 @@
 //! Main goal of this structs -- make base checks. For actual dealing
 //! with KSY file use types from [`model`] module.
 //!
-//! [`model`]: ../model/index.html
+//! [`model`]: crate::model
 
 // Colorful diffs in assertions
 #[cfg(test)]
@@ -79,13 +79,13 @@ pub enum Expression<T> {
 
 /// Type for representing names of:
 ///
-/// - [enumerations](./struct.Enum.html)
-/// - [enumeration values](./enum.EnumValue.html)
-/// - [types](./struct.TypeSpec.html)
-/// - [instances](./struct.Instance.html)
-/// - [attributes](./struct.Attribute.html)
-/// - [parameters](./struct.Param.html)
-/// - [KSY file](./struct.Ksy.html)
+/// - [enumerations](Enum)
+/// - [enumeration values](EnumValue)
+/// - [types](TypeSpec)
+/// - [instances](Instance)
+/// - [attributes](Attribute)
+/// - [parameters](Param)
+/// - [KSY file](Ksy)
 ///
 /// Pattern: `^[a-z][a-z0-9_]*$`.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -122,10 +122,10 @@ impl From<Path> for String {
 
 /// Name of user-defined attribute in:
 ///
-/// - [meta](./struct.MetaSpec.html)
-/// - [attribute](./struct.Attribute.html)
-/// - [parameter](./struct.Param.html)
-/// - [type](./struct.TypeSpec.html)
+/// - [meta](MetaSpec)
+/// - [attribute](Attribute)
+/// - [parameter](Param)
+/// - [type](TypeSpec)
 ///
 /// User-defined attributes can contains any data and completely ignored by compiler.
 ///
@@ -340,7 +340,7 @@ pub enum BitOrder {
 
 /// Represent one element of array content for [`contents`] key.
 ///
-/// [`contents`]: ./struct.Attribute.html#structfield.contents
+/// [`contents`]: Attribute::contents
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(untagged)]
 pub enum StringOrByte {
@@ -389,7 +389,7 @@ pub enum Builtin {
   /// 1-byte unsigned integer.
   u1,
 
-  /// 2-byte unsigned integer with [default endian](./struct.MetaSpec.html#structfield.endian).
+  /// 2-byte unsigned integer with [default endian](Defaults::endian).
   /// Can be used, only if `endian` is specified in one of surrounding types.
   u2,
   /// 2-byte unsigned integer with big-endian byte order.
@@ -405,7 +405,7 @@ pub enum Builtin {
   /// ```
   u2le,
 
-  /// 4-byte unsigned integer with [default endian](./struct.MetaSpec.html#structfield.endian).
+  /// 4-byte unsigned integer with [default endian](Defaults::endian).
   /// Can be used, only if `endian` is specified in one of surrounding types.
   u4,
   /// 4-byte unsigned integer with big-endian byte order.
@@ -421,7 +421,7 @@ pub enum Builtin {
   /// ```
   u4le,
 
-  /// 8-byte unsigned integer with [default endian](./struct.MetaSpec.html#structfield.endian).
+  /// 8-byte unsigned integer with [default endian](Defaults::endian).
   /// Can be used, only if `endian` is specified in one of surrounding types.
   u8,
   /// 8-byte unsigned integer with big-endian byte order.
@@ -440,7 +440,7 @@ pub enum Builtin {
   /// 1-byte signed integer.
   s1,
 
-  /// 2-byte signed integer with [default endian](./struct.MetaSpec.html#structfield.endian).
+  /// 2-byte signed integer with [default endian](Defaults::endian).
   /// Can be used, only if `endian` is specified in one of surrounding types.
   s2,
   /// 2-byte signed integer with big-endian byte order.
@@ -448,7 +448,7 @@ pub enum Builtin {
   /// 2-byte signed integer with little-endian byte order.
   s2le,
 
-  /// 4-byte signed integer with [default endian](./struct.MetaSpec.html#structfield.endian).
+  /// 4-byte signed integer with [default endian](Defaults::endian).
   /// Can be used, only if `endian` is specified in one of surrounding types.
   s4,
   /// 4-byte signed integer with big-endian byte order.
@@ -456,7 +456,7 @@ pub enum Builtin {
   /// 4-byte signed integer with little-endian byte order.
   s4le,
 
-  /// 8-byte signed integer with [default endian](./struct.MetaSpec.html#structfield.endian).
+  /// 8-byte signed integer with [default endian](Defaults::endian).
   /// Can be used, only if `endian` is specified in one of surrounding types.
   s8,
   /// 8-byte signed integer with big-endian byte order.
@@ -469,7 +469,7 @@ pub enum Builtin {
   /// Such type usually named `float` in programming languages.
   ///
   /// [IEEE 754]: https://en.wikipedia.org/wiki/IEEE_754
-  /// [default endian]: ./struct.MetaSpec.html#structfield.endian
+  /// [default endian]: Defaults::endian
   f4,
   /// 4-byte floating point format that follows [IEEE 754] standard with big-endian byte order.
   /// Such type usually named `float` in programming languages.
@@ -487,7 +487,7 @@ pub enum Builtin {
   /// Such type usually named `double` in programming languages.
   ///
   /// [IEEE 754]: https://en.wikipedia.org/wiki/IEEE_754
-  /// [default endian]: ./struct.MetaSpec.html#structfield.endian
+  /// [default endian]: Defaults::endian
   f8,
   /// 8-byte floating point format that follows [IEEE 754] standard with big-endian byte order.
   /// Such type usually named `double` in programming languages.
@@ -502,14 +502,14 @@ pub enum Builtin {
 
   /// String with length of [`size`] in [`encoding`].
   ///
-  /// [`size`]: ./struct.Attribute.html#structfield.size
-  /// [`encoding`]: ./struct.Attribute.html#structfield.encoding
+  /// [`size`]: Attribute::size
+  /// [`encoding`]: Attribute::encoding
   str,
   /// String with length of [`size`] in [`encoding`] terminated by `\0` symbol
   /// (aka C-string).
   ///
-  /// [`size`]: ./struct.Attribute.html#structfield.size
-  /// [`encoding`]: ./struct.Attribute.html#structfield.encoding
+  /// [`size`]: Attribute::size
+  /// [`encoding`]: Attribute::encoding
   strz,
 }
 /// Reference to type definition
@@ -683,7 +683,7 @@ pub struct MetaSpec {//TODO: json: разделить информацию в с
 /// process: zlib
 /// ```
 ///
-/// [type]: ./struct.TypeSpec.html
+/// [type]: TypeSpec
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub struct Attribute {
@@ -758,10 +758,10 @@ pub struct Attribute {
   ///       header: # ... <──────────────────────────────────┘
   /// ```
   ///
-  /// [`types`]: ./struct.TypeSpec.html#structfield.types
-  /// [path]: ./struct.Path.html
-  /// [type]: ./struct.TypeSpec.html
-  /// [`meta/id`]: ./struct.MetaSpec.html#structfield.id
+  /// [`types`]: TypeSpec::types
+  /// [path]: Path
+  /// [type]: TypeSpec
+  /// [`meta/id`]: MetaSpec::id
   #[serde(rename = "type")]
   #[serde(skip_serializing_if = "Option::is_none")]
   pub type_: Option<Type>,
@@ -821,7 +821,7 @@ pub struct Attribute {
   ///
   /// See more info at [`meta/encoding`] key description.
   ///
-  /// [`meta/encoding`]: ./struct.MetaSpec.html#structfield.encoding
+  /// [`meta/encoding`]: Defaults::encoding
   #[serde(skip_serializing_if = "Option::is_none")]
   pub encoding: Option<String>,
   /// Specify a byte which is the string or byte array padded with after the end up to the total size.
@@ -870,8 +870,7 @@ pub struct Attribute {
 
 /// [`Attribute`] specialization for use in [`instances`].
 ///
-/// [`Attribute`]: ./struct.Attribute.html
-/// [`instances`]: ./struct.TypeSpec.html#structfield.instances
+/// [`instances`]: TypeSpec::instances
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub struct Instance {
@@ -893,7 +892,7 @@ pub struct Instance {
 
 /// Definition of a single type parameter under [`params`] key.
 ///
-/// [`params`]: ./struct.TypeSpec.html#structfield.params
+/// [`params`]: TypeSpec::params
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub struct Param {

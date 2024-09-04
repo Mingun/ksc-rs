@@ -2,7 +2,7 @@
 //! Unlike structures from [`parser`] module that module contains validated
 //! structures, that represent only valid constructs of kaitai struct language.
 //!
-//! [`parser`]: ./parser/index.html
+//! [`parser`]: crate::parser
 
 use std::cmp;
 use std::convert::{TryFrom, TryInto};
@@ -365,7 +365,7 @@ pub enum Size {
   /// field. Corresponds to not defined `size` in the attribute definition.
   /// To get a real size use the [`sizeof()`] method of the type.
   ///
-  /// [`sizeof()`]: ./enum.TypeRef.html#method.sizeof
+  /// [`sizeof()`]: TypeRef::sizeof
   Natural,
   /// Read all remaining bytes in a stream. Optionally terminator can define
   /// actually available slice for parsing. In that case only bytes in range

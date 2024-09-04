@@ -179,7 +179,7 @@ impl<'input> From<SpecialName> for Node<'input> {
 /// but generators feel free to choose another representation for the
 /// scope that matches the language best practices.
 ///
-/// [type names]: ../parser/struct.TypeSpec.html#structfield.types
+/// [type names]: crate::parser::TypeSpec::types
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Scope<'input> {
   /// Path starts from a top-level type of the current KSY file.
@@ -235,20 +235,20 @@ pub enum SpecialName {
   /// `_index`: current repetition index in repeated attribute. Valid only
   /// in attributes with [`repeat`] keys.
   ///
-  /// [`repeat`]: ../parser/struct.Attribute.html#structfield.repeat
+  /// [`repeat`]: crate::parser::Attribute::repeat
   Index,
   /// `_`: current attribute value. Usually used in the [`repeat-until`]
   /// expression to refer to the last parsed object, but also can be used
   /// as a value of the [`case`] in `switch-on` (because `case` labels in
   /// that construction is expressions).
   ///
-  /// [`repeat-until`]: ../parser/struct.Attribute.html#structfield.repeat_until
-  /// [`case`]: ../parser/enum.Variant.html#variant.Choice.field.cases
+  /// [`repeat-until`]: crate::parser::Attribute::repeat_until
+  /// [`case`]: crate::parser::Variant::Choice::cases
   Value,
   /// `_buf`: current unparsed attribute value, available only in the [`repeat-until`]
   /// expression.
   ///
-  /// [`repeat-until`]: ../parser/struct.Attribute.html#structfield.repeat_until
+  /// [`repeat-until`]: crate::parser::Attribute::repeat_until
   RawValue,
   /// `_sizeof`: used as an attribute of the struct to get a compile-time size
   /// of the structure:
@@ -263,7 +263,7 @@ pub enum SpecialName {
   SizeOf,
   /// `_on`: result of the [`switch-on`] expression.
   ///
-  /// [`switch-on`]: ../parser/enum.Variant.html#variant.Choice.field.switch_on
+  /// [`switch-on`]: crate::parser::Variant::Choice::switch_on
   SwitchOn,//TODO: probably not available in the expression language - no examples of usage
   /// `_is_le`.
   IsLe,//TODO: what's this?
@@ -333,7 +333,7 @@ impl BinaryOp {
 
 /// A reference to the type in the attributes' [`type`] field.
 ///
-/// [`type`]: ../parser/struct.Attribute.html#structfield.type_
+/// [`type`]: crate::parser::Attribute::type_
 #[derive(Debug, PartialEq)]
 pub enum AttrType<'input> {
   /// Type is a built-in arbitrary-sized bit type
@@ -450,13 +450,13 @@ peg::parser! {
 
     /// Entry point for parsing [`type`] field value.
     ///
-    /// [`type`]: ../../parser/struct.Attribute.html#structfield.type_
+    /// [`type`]: crate::parser::Attribute::type_
     pub rule parse_type_ref() -> AttrType<'input>
       = _ r:(bits_type() / user_type()) _ EOS() { r };
 
     /// Entry point for parsing [`process`] field value.
     ///
-    /// [`process`]: ../../parser/struct.Attribute.html#structfield.process
+    /// [`process`]: crate::parser::Attribute::process
     pub rule parse_process() -> ProcessAlgo<'input>
       = _ path:(name() ** (_ "." _)) args:(_ "(" _ args:args() _ ")" { args })? _ EOS() {
         ProcessAlgo { path, args: args.unwrap_or_default() }

@@ -1,6 +1,6 @@
 //! Validated AST of expressions from a [parser] module.
 //!
-//! [parser]: ../parser/expressions/index.html
+//! [parser]: crate::parser::expressions
 
 use std::convert::TryFrom;
 
@@ -16,8 +16,6 @@ use crate::parser::expressions::{
 use crate::parser::Scalar;
 
 /// Owning counterpart of an AST [`Node`].
-///
-/// [`Node`]: ./enum.Node.html
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum OwningNode {
   /// String constant
@@ -281,8 +279,6 @@ impl From<String> for OwningNode {
 }
 
 /// Owning counterpart of a [`Scope`].
-///
-/// [`Scope`]: ./struct.Scope.html
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct OwningScope {
   /// Path starts from a top-level type of the current KSY file.
@@ -301,8 +297,6 @@ impl<'input> From<Scope<'input>> for OwningScope {
 }
 
 /// Owning counterpart of a [`TypeName`].
-///
-/// [`TypeName`]: ./struct.TypeName.html
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct OwningTypeName {
   /// A scope in which type is defined
@@ -321,8 +315,6 @@ impl<'input> From<TypeName<'input>> for OwningTypeName {
 }
 
 /// Owning counterpart of a [`TypeRef`].
-///
-/// [`TypeRef`]: ./struct.TypeRef.html
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct OwningTypeRef {
   /// A possible qualified type name of the type used

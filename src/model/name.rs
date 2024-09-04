@@ -36,13 +36,13 @@ mod tags {
 ///
 /// That type is used for representing names of:
 ///
-/// - [enumerations](./struct.Enum.html)
-/// - [enumeration values](./enum.EnumValue.html)
-/// - [types](./struct.TypeSpec.html)
-/// - [instances](./struct.Instance.html)
-/// - [attributes](./struct.Attribute.html)
-/// - [parameters](./struct.Param.html)
-/// - [KSY file](./struct.Ksy.html)
+/// - [enumerations](p::Enum)
+/// - [enumeration values](p::EnumValue)
+/// - [types](p::TypeSpec)
+/// - [instances](p::Instance)
+/// - [attributes](p::Attribute)
+/// - [parameters](p::Param)
+/// - [KSY file](p::Ksy)
 pub struct Name<Tag>(String, PhantomData<Tag>);
 impl<Tag> Name<Tag> {
   /// Creates a new name assumes that it is valid
