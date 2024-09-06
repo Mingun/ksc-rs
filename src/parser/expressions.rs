@@ -478,7 +478,7 @@ peg::parser! {
       ;
 
     /// Single non-escaped character in string
-    rule ch() -> char = ch:$[x if x != '\\' && x != '"'] { ch.chars().next().unwrap() };
+    rule ch() -> char = ch:$[^ '"' | '\\'] { ch.chars().next().unwrap() };
     /// One escaped character
     rule escaped() -> char = "\\" r:(quoted_char() / quoted_oct() / quoted_hex()) { r };
     /// Characters that can be escaped by backslash
