@@ -46,6 +46,54 @@ pub enum BitOrder {
   Be,
 }
 
+/// Set of possible validation rules supported by Kaitai Struct
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(untagged)]
+pub enum ValidationRules {
+  /// Shorthand syntax for [`ValidationRules::Checks::eq`].
+  Eq(Scalar),
+  /// List of possible checks. Only `min` and `max` checks can be used together
+  /// in a valid KSY file, but that is enforced on model level. Parser model allows
+  /// any combinations.
+  #[serde(rename_all = "kebab-case")]
+  Checks {
+    /// Parsed value should be equal to the specified expression.
+    ///
+    /// Available special context variables: none
+    eq: Option<Scalar>,
+
+    /// Parsed value should be `>=` than the specified expression.
+    /// This restriction can be combined with `max`.
+    ///
+    /// Available special context variables: none
+    min: Option<Expression<Number>>,
+    /// Parsed value should be `<=` than the specified expression.
+    /// This restriction can be combined with `min`.
+    ///
+    /// Available special context variables: none
+    max: Option<Expression<Number>>,
+
+    /// Specified expression should evaluate to `true` for valid parsed value and
+    /// to `false` for invalid.
+    ///
+    /// Available special context variables:
+    ///
+    /// |Variable|Meaning
+    /// |--------|------------
+    /// |[`_`]   |Parsed value
+    ///
+    /// [`_`]: crate::parser::expressions::SpecialName::Value
+    expr: Option<Expression<bool>>,
+
+    /// Parsed value should be equal to the any of specified expressions.
+    /// Each check is the same as for [`eq`][`ValidationRules::Checks::eq`].
+    any_of: Option<Vec<Scalar>>,
+
+    /// Parsed value should represent a known element of a specified enumeration.
+    in_enum: Option<EnumRef>,
+  },
+}
+
 /// Represent one element of array content for [`contents`] key.
 ///
 /// [`contents`]: Attribute::contents
@@ -572,6 +620,11 @@ pub struct Attribute {
   #[serde(skip_serializing_if = "Option::is_none")]
   pub eos_error: Option<bool>,// TODO: add default to meta.eos_error
 
+  /// Rules for validation of parsed values. For attributes with repetitions
+  /// validation performed for each element of a collection.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub valid: Option<ValidationRules>,
+
   /// Additional arbitrary values.
   #[serde(flatten)]
   pub other: IndexMap<UserName, Value>,
@@ -893,6 +946,95 @@ mod repeat {
       repeat_expr: None,
       repeat_until: Some(Condition::Value(false)),
       ..Default::default()
+    });
+  }
+}
+
+#[cfg(test)]
+mod valid {
+  use super::*;
+  use pretty_assertions::assert_eq;
+
+  #[test]
+  fn shorthand_eq() {
+    let rules: ValidationRules = serde_yml::from_str("true").unwrap();
+    assert_eq!(rules, ValidationRules::Eq(Scalar::Bool(true)));
+
+    let rules: ValidationRules = serde_yml::from_str("false").unwrap();
+    assert_eq!(rules, ValidationRules::Eq(Scalar::Bool(false)));
+
+    let rules: ValidationRules = serde_yml::from_str("10").unwrap();
+    assert_eq!(rules, ValidationRules::Eq(Scalar::Number(10.into())));
+
+    let rules: ValidationRules = serde_yml::from_str("'10'").unwrap();
+    assert_eq!(rules, ValidationRules::Eq(Scalar::String("10".into())));
+  }
+
+  #[test]
+  fn empty() {
+    let rules: ValidationRules = serde_yml::from_str("{}").unwrap();
+    assert_eq!(rules, ValidationRules::Checks {
+      eq: None,
+      min: None,
+      max: None,
+      expr: None,
+      any_of: None,
+      in_enum: None,
+    });
+  }
+
+  #[test]
+  fn checks() {
+    let rules: ValidationRules = serde_yml::from_str("
+      eq: 10
+      min: 10
+      max: 10
+      expr: _
+      any-of: [1, 2]
+      in-enum: path::to::enum
+    ").unwrap();
+    assert_eq!(rules, ValidationRules::Checks {
+      eq: Some(Scalar::Number(10.into())),
+      min: Some(Expression::Value(10.into())),
+      max: Some(Expression::Value(10.into())),
+      expr: Some(Expression::Expr("_".into())),
+      any_of: Some(vec![
+        Scalar::Number(1.into()),
+        Scalar::Number(2.into()),
+      ]),
+      in_enum: Some(EnumRef("path::to::enum".into())),
+    });
+  }
+
+  #[test]
+  fn min_max_arrays() {
+    let rules: ValidationRules = serde_yml::from_str("
+      min: '[1, 2]'
+      max: '[3, 4]'
+    ").unwrap();
+    assert_eq!(rules, ValidationRules::Checks {
+      eq: None,
+      min: Some(Expression::Expr("[1, 2]".into())),
+      max: Some(Expression::Expr("[3, 4]".into())),
+      expr: None,
+      any_of: None,
+      in_enum: None,
+    });
+  }
+
+  #[test]
+  fn min_max_strings() {
+    let rules: ValidationRules = serde_yml::from_str(r#"
+      min: '"ab"'
+      max: '"ac"'
+    "#).unwrap();
+    assert_eq!(rules, ValidationRules::Checks {
+      eq: None,
+      min: Some(Expression::Expr("\"ab\"".into())),
+      max: Some(Expression::Expr("\"ac\"".into())),
+      expr: None,
+      any_of: None,
+      in_enum: None,
     });
   }
 }
