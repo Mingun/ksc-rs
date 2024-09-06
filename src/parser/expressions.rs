@@ -26,6 +26,12 @@ pub enum Node<'input> {
   /// Boolean constant
   Bool(bool),
 
+  /// String with embedded expressions (interpolated string, f-string).
+  ///
+  /// Literal parts represented by [`Node::Str`] node, interpolated parts
+  /// represented by any other nodes.
+  InterpolatedStr(Vec<Node<'input>>),
+
   /// Name of field of the type in which attribute expression is defined
   Attr(&'input str),
   /// Built-in variable
@@ -486,6 +492,18 @@ peg::parser! {
     rule quoted_oct() -> char  = s:$(oct()+) {? to_char(s, 8) };
     rule quoted_hex() -> char  = ['u'] s:$(hex()*<4>) {? to_char(s, 16) };
 
+    /// String which interpolates expressions inside `{}`.
+    /// Defined as string literal prefixed with `f` character: `f"..."`
+    rule fstring() -> Vec<Node<'input>> = "f\"" e:fstring_element()* "\"" {e};
+    rule fstring_element() -> Node<'input>
+      // Interpolated expression inside of f-string (inside `{}`)
+      = "{" _ e:expr() _ "}" {e}
+      // Literal part of interpolated string
+      / v:(fstring_ch() / escaped())+ { Node::Str(String::from_iter(v.into_iter())) }
+      ;
+    /// Single non-escaped character in f-string
+    rule fstring_ch() -> char = [^ '"' | '\\' | '{'];
+
     rule integer() -> BigInt
       = n:$(['1'..='9'] ['0'..='9' | '_']*) {? to_int(n, 10) }
       / "0" ['b' | 'B'] n:$(bin()+) {? to_int(n,  2) }
@@ -608,6 +626,7 @@ peg::parser! {
       / "[" _ l:list()? _ "]"                  { Node::List(l.unwrap_or_default()) }
       / "sizeof" _ "<" _ t:type_ref() _ ">"    { Node::SizeOf { type_: t, bit: false } }
       / "bitsizeof" _ "<" _ t:type_ref() _ ">" { Node::SizeOf { type_: t, bit: true  } }
+      / e:fstring()                            { Node::InterpolatedStr(e) }
       / v:(s:string() _ {s})+                  { Node::Str(String::from_iter(v.into_iter())) }
       / n:special_name() !name_part()          { n }
       / e:enum_name()                          { e }
@@ -1006,6 +1025,109 @@ mod parse {
         assert_eq!(parse_single("\"abc\"\n'def'"), Ok(Str("abcdef".into())));
         assert_eq!(parse_single("'abc'\n\"def\""), Ok(Str("abcdef".into())));
       }
+    }
+  }
+
+  mod f_string {
+    use super::*;
+    use pretty_assertions::assert_eq;
+
+    #[test]
+    fn empty() {
+      assert_eq!(parse_single(r#" f"" "#), Ok(InterpolatedStr(vec![])));
+    }
+
+    #[test]
+    fn literal() {
+      assert_eq!(parse_single(r#" f"\n\r\t 1\n\r\t 2\n\r\t " "#), Ok(InterpolatedStr(vec![
+        Str("\n\r\t 1\n\r\t 2\n\r\t ".into()),
+      ])));
+    }
+
+    #[test]
+    fn literal_then_expr() {
+      assert_eq!(parse_single(r#" f"foo={123}" "#), Ok(InterpolatedStr(vec![
+        Str("foo=".into()),
+        Int(123.into()),
+      ])));
+    }
+
+    #[test]
+    fn expr_then_literal() {
+      assert_eq!(parse_single(r#" f"{123}=abc" "#), Ok(InterpolatedStr(vec![
+        Int(123.into()),
+        Str("=abc".into()),
+      ])));
+    }
+
+    #[test]
+    fn expr_then_expr() {
+      assert_eq!(parse_single(r#" f"{123}{abc}" "#), Ok(InterpolatedStr(vec![
+        Int(123.into()),
+        Attr("abc".into()),
+      ])));
+    }
+
+    mod interpolated {
+      use super::*;
+      use pretty_assertions::assert_eq;
+
+      #[test]
+      fn int_expr() {
+        assert_eq!(parse_single(r#" f"{123}" "#), Ok(InterpolatedStr(vec![
+          Int(123.into()),
+        ])));
+      }
+
+      #[test]
+      fn str_expr() {
+        assert_eq!(parse_single(r#" f"abc{"def"}ghi" "#), Ok(InterpolatedStr(vec![
+          Str("abc".into()),
+          Str("def".into()),
+          Str("ghi".into()),
+        ])));
+      }
+
+      #[test]
+      fn f_str_literal_expr() {
+        assert_eq!(parse_single(r#" f" { f"def" } " "#), Ok(InterpolatedStr(vec![
+          Str(" ".into()),
+          // f"def"
+          InterpolatedStr(vec![Str("def".into())]),
+          Str(" ".into()),
+        ])));
+      }
+
+      #[test]
+      fn f_str_expr_expr() {
+        assert_eq!(parse_single(r#" f" { f"{def}" } " "#), Ok(InterpolatedStr(vec![
+          Str(" ".into()),
+          // f"abc{def}"
+          InterpolatedStr(vec![Attr("def".into())]),
+          Str(" ".into()),
+        ])));
+      }
+    }
+
+    #[test]
+    fn double_quote_in_literal() {
+      assert_eq!(parse_single(r#" f"this \" is a quote" "#), Ok(InterpolatedStr(vec![
+        Str("this \" is a quote".into())
+      ])));
+    }
+
+    #[test]
+    fn starts_with_quote() {
+      assert_eq!(parse_single(r#" f"\" is a quote" "#), Ok(InterpolatedStr(vec![
+        Str("\" is a quote".into())
+      ])));
+    }
+
+    #[test]
+    fn starts_with_space_quote() {
+      assert_eq!(parse_single(r#" f" \" is a quote" "#), Ok(InterpolatedStr(vec![
+        Str(" \" is a quote".into())
+      ])));
     }
   }
 

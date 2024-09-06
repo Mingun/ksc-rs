@@ -27,6 +27,12 @@ pub enum OwningNode {
   /// Boolean constant
   Bool(bool),
 
+  /// String with embedded expressions (interpolated string, f-string).
+  ///
+  /// Literal parts represented by [`OwningNode::Str`] node, interpolated parts
+  /// represented by any other nodes.
+  InterpolatedStr(Vec<OwningNode>),
+
   /// Name of field of the type in which attribute expression is defined
   Attr(FieldName),
   /// Built-in variable
@@ -127,6 +133,7 @@ impl OwningNode {
       Node::Int(val)  => Int(val),
       Node::Float(val)=> Float(val),
       Node::Bool(val) => Bool(val),
+      Node::InterpolatedStr(val) => InterpolatedStr(Self::validate_all(val)),
 
       //TODO: Name already contains only valid symbols, but need to check that it is really exists
       Node::Attr(val) => Attr(FieldName::valid(val)),
