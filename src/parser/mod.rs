@@ -69,10 +69,10 @@ pub enum Variant<T> {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(untagged)]
 pub enum Expression<T> {
-  /// Expression, that should evaluate to `T` value.
-  Expr(String),
   /// Statically determined value.
   Value(T),
+  /// Expression, that should evaluate to `T` value.
+  Expr(String),
 }
 
 //-------------------------------------------------------------------------------------------------
