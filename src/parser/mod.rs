@@ -772,6 +772,13 @@ pub struct TypeSpec {
   #[serde(skip_serializing_if = "Option::is_none")]
   pub instances: Option<IndexMap<Name, Instance>>,
 
+  /// Expression that used to represent type as a string (typically by calling the
+  /// `toString()` / `inspect` / `__repr__` / similar method or property).
+  ///
+  /// Usually used for debugging purposes / internal dumping mechanism.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub to_string: Option<Expression<String>>,
+
   /// Additional arbitrary values.
   #[serde(flatten)]
   pub other: IndexMap<UserName, Value>,
