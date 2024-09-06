@@ -92,14 +92,14 @@ pub enum Expression<T> {
 #[serde(transparent)]
 pub struct Name(pub String);
 
-/// Path to enum name, used to describe `type` in attributes and parameters.
+/// Path to enum name, used to describe `enum` in attributes and parameters.
 ///
 /// Pattern: `^([a-z][a-z0-9_]*::)*[a-z][a-z0-9_]*$`.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[serde(from = "String", into = "String")]
+#[serde(from = "&str", into = "String")]
 pub struct Path(pub Vec<Name>);
-impl From<String> for Path {
-  fn from(path: String) -> Self {
+impl<'a> From<&'a str> for Path {
+  fn from(path: &'a str) -> Self {
     Self(path.split("::").map(|s| Name(s.to_owned())).collect())
   }
 }
@@ -1221,11 +1221,11 @@ fn contents() {
 
 #[test]
 fn path() {
-  let single: Path = "one".to_owned().into();
+  let single: Path = "one".into();
   assert_eq!(single, Path(vec![Name("one".to_owned())]));
   assert_eq!(String::from(single), "one");
 
-  let many: Path = "some::path".to_owned().into();
+  let many: Path = "some::path".into();
   assert_eq!(many, Path(vec![
     Name("some".to_owned()),
     Name("path".to_owned()),
