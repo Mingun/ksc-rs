@@ -473,12 +473,12 @@ peg::parser! {
     rule EOS() = ![_];
 
     rule string() -> String
-      = "'" s:$([x if x != '\'']*) "'"  { s.to_owned() }
+      = "'" s:$([^ '\'']*)         "'"  { s.to_owned() }
       / "\"" v:(ch() / escaped())* "\"" { String::from_iter(v.into_iter()) }
       ;
 
     /// Single non-escaped character in string
-    rule ch() -> char = ch:$[^ '"' | '\\'] { ch.chars().next().unwrap() };
+    rule ch() -> char = [^ '"' | '\\'];
     /// One escaped character
     rule escaped() -> char = "\\" r:(quoted_char() / quoted_oct() / quoted_hex()) { r };
     /// Characters that can be escaped by backslash
