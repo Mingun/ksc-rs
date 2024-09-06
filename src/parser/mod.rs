@@ -557,10 +557,10 @@ pub type Condition = Expression<bool>;
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(untagged)]
 pub enum Version {
-  /// Version, represented as string, for example `1.0-alpha`.
-  String(String),
   /// Version, represented as number, for example `1.0`.
   Number(Number),
+  /// Version, represented as string, for example `1.0-alpha`.
+  String(String),
 }
 
 /// Default values for attributes and user-defined keys for types.
@@ -600,6 +600,7 @@ pub struct Defaults {
 /// It also can be used to assign some defaults and provide some configuration
 /// options for compiler.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "kebab-case")]
 pub struct MetaSpec {//TODO: json: разделить информацию в схеме
   /// Default values for all attributes in this file.
   #[serde(flatten)]
@@ -1066,6 +1067,8 @@ pub struct Ksy {
   pub root: TypeSpec,
 }
 
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
 #[cfg(test)]
 mod scalar {
   use super::*;
@@ -1106,6 +1109,25 @@ mod scalar {
     assert_eq!(format!("{}", Scalar::Number(4.2.into())),        "4.2");
     assert_eq!(format!("{}", Scalar::String("(nu\"ll)".into())), r#""(nu\"ll)""#);
   }
+}
+
+#[test]
+fn version() {
+  let number: MetaSpec = serde_yml::from_str("
+    ks-version: 1.0
+  ").unwrap();
+  assert_eq!(number, MetaSpec {
+    ks_version: Some(Version::Number(1.0.into())),
+    ..Default::default()
+  });
+
+  let string: MetaSpec = serde_yml::from_str("
+    ks-version: 1.0-alpha
+  ").unwrap();
+  assert_eq!(string, MetaSpec {
+    ks_version: Some(Version::String("1.0-alpha".into())),
+    ..Default::default()
+  });
 }
 
 #[test]
