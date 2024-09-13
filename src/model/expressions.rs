@@ -11,7 +11,7 @@ use serde_yml::Number;
 use crate::error::ModelError;
 use crate::model::{EnumName, EnumValueName, FieldName, TypeName as TName};
 use crate::parser::expressions::{
-  parse_single, BinaryOp, Node, Scope, SpecialName, TypeName, TypeRef, UnaryOp,
+  parse_single, BinaryOp, BuiltinAttr, ContextVar, Node, Scope, TypeName, TypeRef, UnaryOp,
 };
 use crate::parser::Scalar;
 
@@ -33,10 +33,13 @@ pub enum OwningNode {
   /// represented by any other nodes.
   InterpolatedStr(Vec<OwningNode>),
 
+  /// Built-in variable
+  ContextVar(ContextVar),
+
   /// Name of field of the type in which attribute expression is defined
   Attr(FieldName),
-  /// Built-in variable
-  SpecialName(SpecialName),
+  /// Built-in field
+  BuiltinAttr(BuiltinAttr),
   /// Reference to an enum value.
   EnumValue {
     /// A type that defines this enum.
@@ -135,9 +138,11 @@ impl OwningNode {
       Node::Bool(val) => Bool(val),
       Node::InterpolatedStr(val) => InterpolatedStr(Self::validate_all(val)),
 
+      Node::ContextVar(val) => ContextVar(val),
+
       //TODO: Name already contains only valid symbols, but need to check that it is really exists
       Node::Attr(val) => Attr(FieldName::valid(val)),
-      Node::SpecialName(val) => SpecialName(val),
+      Node::BuiltinAttr(val) => BuiltinAttr(val),
       //TODO: Names already contains only valid symbols, but need to check that they is really exists
       Node::EnumValue { scope, name, value } => EnumValue {
         scope: scope.into(),

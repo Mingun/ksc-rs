@@ -32,10 +32,13 @@ pub enum Node<'input> {
   /// represented by any other nodes.
   InterpolatedStr(Vec<Node<'input>>),
 
+  /// Built-in variable
+  ContextVar(ContextVar),
+
   /// Name of field of the type in which attribute expression is defined
   Attr(&'input str),
-  /// Built-in variable
-  SpecialName(SpecialName),
+  /// Built-in field
+  BuiltinAttr(BuiltinAttr),
   /// Reference to an enum value.
   EnumValue {
     /// A type that defines this enum.
@@ -171,10 +174,16 @@ impl<'input> From<String> for Node<'input> {
     Self::Str(string)
   }
 }
-impl<'input> From<SpecialName> for Node<'input> {
+impl<'input> From<ContextVar> for Node<'input> {
   #[inline]
-  fn from(value: SpecialName) -> Self {
-    Self::SpecialName(value)
+  fn from(value: ContextVar) -> Self {
+    Self::ContextVar(value)
+  }
+}
+impl<'input> From<BuiltinAttr> for Node<'input> {
+  #[inline]
+  fn from(value: BuiltinAttr) -> Self {
+    Self::BuiltinAttr(value)
   }
 }
 
@@ -228,16 +237,9 @@ pub struct TypeRef<'input> {
   pub array: bool,
 }
 
-/// Names with a special meaning
+/// Free variables available in some contexts
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub enum SpecialName {
-  /// `_io`: stream associated with this object of user-defined type.
-  Stream,
-  /// `_root`: top-level user-defined structure in the current file.
-  Root,
-  /// `_parent`: structure that produced this particular instance of the
-  /// user-defined type.
-  Parent,
+pub enum ContextVar {
   /// `_index`: current repetition index in repeated attribute. Valid only
   /// in attributes with [`repeat`] keys.
   ///
@@ -256,6 +258,24 @@ pub enum SpecialName {
   ///
   /// [`repeat-until`]: crate::parser::Attribute::repeat_until
   RawValue,
+  /// `_on`: result of the [`switch-on`] expression.
+  ///
+  /// [`switch-on`]: crate::parser::Variant::Choice::switch_on
+  SwitchOn,//TODO: probably not available in the expression language - no examples of usage
+  /// `_is_le`.
+  IsLe,//TODO: what's this?
+}
+
+/// Built-in attributes of types.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum BuiltinAttr {
+  /// `_io`: stream associated with this object of user-defined type.
+  Stream,
+  /// `_root`: top-level user-defined structure in the current file.
+  Root,
+  /// `_parent`: structure that produced this particular instance of the
+  /// user-defined type.
+  Parent,
   /// `_sizeof`: used as an attribute of the struct to get a compile-time size
   /// of the structure:
   ///
@@ -267,12 +287,6 @@ pub enum SpecialName {
   ///   size: file_hdr.ofs_bitmap - file_hdr._sizeof
   /// ```
   SizeOf,
-  /// `_on`: result of the [`switch-on`] expression.
-  ///
-  /// [`switch-on`]: crate::parser::Variant::Choice::switch_on
-  SwitchOn,//TODO: probably not available in the expression language - no examples of usage
-  /// `_is_le`.
-  IsLe,//TODO: what's this?
 }
 
 /// List of possible unary operations
@@ -638,14 +652,14 @@ peg::parser! {
     rule special_name() -> Node<'input>
       = "true"    { Node::Bool(true) }
       / "false"   { Node::Bool(false) }
-      / "_io"     { Node::SpecialName(SpecialName::Stream) }
-      / "_on"     { Node::SpecialName(SpecialName::SwitchOn) }
-      / "_root"   { Node::SpecialName(SpecialName::Root) }
-      / "_parent" { Node::SpecialName(SpecialName::Parent) }
-      / "_index"  { Node::SpecialName(SpecialName::Index) }
-      / "_is_le"  { Node::SpecialName(SpecialName::IsLe) }
-      / "_sizeof" { Node::SpecialName(SpecialName::SizeOf) }
-      / "_"       { Node::SpecialName(SpecialName::Value) }
+      / "_io"     { Node::BuiltinAttr(BuiltinAttr::Stream) }
+      / "_root"   { Node::BuiltinAttr(BuiltinAttr::Root) }
+      / "_parent" { Node::BuiltinAttr(BuiltinAttr::Parent) }
+      / "_sizeof" { Node::BuiltinAttr(BuiltinAttr::SizeOf) }
+      / "_on"     { Node::ContextVar(ContextVar::SwitchOn) }
+      / "_index"  { Node::ContextVar(ContextVar::Index) }
+      / "_is_le"  { Node::ContextVar(ContextVar::IsLe) }
+      / "_"       { Node::ContextVar(ContextVar::Value) }
       ;
     rule postfix() -> Postfix<'input>
       = "(" _ a:args() _ ")"                  { Postfix::Args(a)   }// call
@@ -1342,15 +1356,19 @@ mod parse {
     }
 
     #[test]
-    fn special() {
-      assert_eq!(parse_single("_io"),     Ok(SpecialName(crate::parser::expressions::SpecialName::Stream)));
-      assert_eq!(parse_single("_root"),   Ok(SpecialName(crate::parser::expressions::SpecialName::Root)));
-      assert_eq!(parse_single("_parent"), Ok(SpecialName(crate::parser::expressions::SpecialName::Parent)));
-      assert_eq!(parse_single("_index"),  Ok(SpecialName(crate::parser::expressions::SpecialName::Index)));
-      assert_eq!(parse_single("_"),       Ok(SpecialName(crate::parser::expressions::SpecialName::Value)));
-      assert_eq!(parse_single("_on"),     Ok(SpecialName(crate::parser::expressions::SpecialName::SwitchOn)));
-      assert_eq!(parse_single("_sizeof"), Ok(SpecialName(crate::parser::expressions::SpecialName::SizeOf)));
-      assert_eq!(parse_single("_is_le"),  Ok(SpecialName(crate::parser::expressions::SpecialName::IsLe)));
+    fn context_var() {
+      assert_eq!(parse_single("_index"), Ok(ContextVar(crate::parser::expressions::ContextVar::Index)));
+      assert_eq!(parse_single("_"),      Ok(ContextVar(crate::parser::expressions::ContextVar::Value)));
+      assert_eq!(parse_single("_on"),    Ok(ContextVar(crate::parser::expressions::ContextVar::SwitchOn)));
+      assert_eq!(parse_single("_is_le"), Ok(ContextVar(crate::parser::expressions::ContextVar::IsLe)));
+    }
+
+    #[test]
+    fn builtin_attr() {
+      assert_eq!(parse_single("_io"),     Ok(BuiltinAttr(crate::parser::expressions::BuiltinAttr::Stream)));
+      assert_eq!(parse_single("_root"),   Ok(BuiltinAttr(crate::parser::expressions::BuiltinAttr::Root)));
+      assert_eq!(parse_single("_parent"), Ok(BuiltinAttr(crate::parser::expressions::BuiltinAttr::Parent)));
+      assert_eq!(parse_single("_sizeof"), Ok(BuiltinAttr(crate::parser::expressions::BuiltinAttr::SizeOf)));
     }
 
     #[test]
