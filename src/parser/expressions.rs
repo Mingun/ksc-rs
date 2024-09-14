@@ -84,7 +84,7 @@ pub enum Node<'input> {
     /// Expression which attribute must be evaluated
     expr: Box<Node<'input>>,
     /// Retrieved attribute
-    attr: &'input str,
+    attr: Attr<'input>,
   },
 
   /// The unary prefix operator, such as unary `-` or logical `not`.
@@ -393,7 +393,7 @@ enum Postfix<'input> {
   /// Index expression
   Index(Node<'input>),
   /// Field name for attribute access
-  Field(&'input str),
+  Field(Attr<'input>),
 }
 
 /// Helper function to convert escape codes to characters
@@ -644,7 +644,7 @@ peg::parser! {
       / v:(s:string() _ {s})+                  { Node::Str(String::from_iter(v.into_iter())) }
       / n:special_name() !name_part()          { n }
       / e:enum_name()                          { e }
-      / n:name()                               { Node::Attr(Attr::User(n)) }
+      / a:attr()                               { Node::Attr(a) }
       / f:float()                              { Node::Float(f) }
       / i:integer()                            { Node::Int(i) }
       ;
@@ -652,20 +652,26 @@ peg::parser! {
     rule special_name() -> Node<'input>
       = "true"    { Node::Bool(true) }
       / "false"   { Node::Bool(false) }
-      / "_io"     { Node::Attr(Attr::Stream) }
-      / "_root"   { Node::Attr(Attr::Root) }
-      / "_parent" { Node::Attr(Attr::Parent) }
-      / "_sizeof" { Node::Attr(Attr::SizeOf) }
       / "_on"     { Node::ContextVar(ContextVar::SwitchOn) }
       / "_index"  { Node::ContextVar(ContextVar::Index) }
       / "_is_le"  { Node::ContextVar(ContextVar::IsLe) }
       / "_"       { Node::ContextVar(ContextVar::Value) }
       ;
+    rule special_attr() -> Attr<'input>
+      = "_io"     { Attr::Stream }
+      / "_root"   { Attr::Root }
+      / "_parent" { Attr::Parent }
+      / "_sizeof" { Attr::SizeOf }
+      ;
+    rule attr() -> Attr<'input>
+      = a:special_attr() !name_part() { a }
+      / n:name()                      { Attr::User(n) }
+      ;
     rule postfix() -> Postfix<'input>
       = "(" _ a:args() _ ")"                  { Postfix::Args(a)   }// call
       / "[" _ e:expr() _ "]"                  { Postfix::Index(e)  }// indexing
       / "." _ "as" _ "<" _ t:type_ref() _ ">" { Postfix::CastTo(t) }// type cast
-      / "." _ n:name()                        { Postfix::Field(n)  }// attribute access
+      / "." _ a:attr()                        { Postfix::Field(a)  }// attribute access
       ;
 
     /// List of names, delimited by `::`, with an optional leading `::`.
@@ -1330,7 +1336,7 @@ mod parse {
               name: "port",
               value: "http",
             }),
-            attr: "to_i"
+            attr: User("to_i"),
           }),
           right: Box::new(Int(8000.into()))
         }),
@@ -1556,7 +1562,7 @@ mod parse {
       assert_eq!(parse_single("foo.as"), Ok(
         Access {
           expr: Box::new(Attr(User("foo"))),
-          attr: "as",
+          attr: User("as"),
         }
       ));
     }
@@ -1568,7 +1574,7 @@ mod parse {
           op: Lt,
           left: Box::new(Access {
             expr: Box::new(Attr(User("foo"))),
-            attr: "as"
+            attr: User("as"),
           }),
           right: Box::new(Attr(User("x"))),
         }
@@ -1674,32 +1680,32 @@ mod parse {
 
     #[test]
     fn access() {
-      assert_eq!(parse_single("123.to_s"  ), Ok(Access { expr: Box::new(Int(123.into())), attr: "to_s" }));
-      assert_eq!(parse_single("123. to_s" ), Ok(Access { expr: Box::new(Int(123.into())), attr: "to_s" }));
-      assert_eq!(parse_single("123.\nto_s"), Ok(Access { expr: Box::new(Int(123.into())), attr: "to_s" }));
-      assert_eq!(parse_single("foo.bar"   ), Ok(Access { expr: Box::new(Attr(User("foo"))), attr: "bar" }));
+      assert_eq!(parse_single("123.to_s"  ), Ok(Access { expr: Box::new(Int(123.into())), attr: User("to_s"), }));
+      assert_eq!(parse_single("123. to_s" ), Ok(Access { expr: Box::new(Int(123.into())), attr: User("to_s"), }));
+      assert_eq!(parse_single("123.\nto_s"), Ok(Access { expr: Box::new(Int(123.into())), attr: User("to_s"), }));
+      assert_eq!(parse_single("foo.bar"   ), Ok(Access { expr: Box::new(Attr(User("foo"))), attr: User("bar"), }));
     }
 
     #[test]
     fn int_not_float() {
-      assert_eq!(parse_single("123.e"  ), Ok(Access { expr: Box::new(Int(123.into())), attr: "e" }));
-      assert_eq!(parse_single("123. e" ), Ok(Access { expr: Box::new(Int(123.into())), attr: "e" }));
-      assert_eq!(parse_single("123.\ne"), Ok(Access { expr: Box::new(Int(123.into())), attr: "e" }));
+      assert_eq!(parse_single("123.e"  ), Ok(Access { expr: Box::new(Int(123.into())), attr: User("e"), }));
+      assert_eq!(parse_single("123. e" ), Ok(Access { expr: Box::new(Int(123.into())), attr: User("e"), }));
+      assert_eq!(parse_single("123.\ne"), Ok(Access { expr: Box::new(Int(123.into())), attr: User("e"), }));
 
-      assert_eq!(parse_single("123.E"  ), Ok(Access { expr: Box::new(Int(123.into())), attr: "E" }));
-      assert_eq!(parse_single("123. E" ), Ok(Access { expr: Box::new(Int(123.into())), attr: "E" }));
-      assert_eq!(parse_single("123.\nE"), Ok(Access { expr: Box::new(Int(123.into())), attr: "E" }));
+      assert_eq!(parse_single("123.E"  ), Ok(Access { expr: Box::new(Int(123.into())), attr: User("E"), }));
+      assert_eq!(parse_single("123. E" ), Ok(Access { expr: Box::new(Int(123.into())), attr: User("E"), }));
+      assert_eq!(parse_single("123.\nE"), Ok(Access { expr: Box::new(Int(123.into())), attr: User("E"), }));
 
-      assert_eq!(parse_single("123._"  ), Ok(Access { expr: Box::new(Int(123.into())), attr: "_" }));
-      assert_eq!(parse_single("123. _" ), Ok(Access { expr: Box::new(Int(123.into())), attr: "_" }));
-      assert_eq!(parse_single("123.\n_"), Ok(Access { expr: Box::new(Int(123.into())), attr: "_" }));
+      assert_eq!(parse_single("123._"  ), Ok(Access { expr: Box::new(Int(123.into())), attr: User("_"), }));
+      assert_eq!(parse_single("123. _" ), Ok(Access { expr: Box::new(Int(123.into())), attr: User("_"), }));
+      assert_eq!(parse_single("123.\n_"), Ok(Access { expr: Box::new(Int(123.into())), attr: User("_"), }));
     }
 
     #[test]
     fn float_and_access() {
-      assert_eq!(parse_single("123.4.to_s"  ), Ok(Access { expr: Box::new(Float((1234, 1).into())), attr: "to_s" }));
-      assert_eq!(parse_single("123.4. to_s" ), Ok(Access { expr: Box::new(Float((1234, 1).into())), attr: "to_s" }));
-      assert_eq!(parse_single("123.4.\nto_s"), Ok(Access { expr: Box::new(Float((1234, 1).into())), attr: "to_s" }));
+      assert_eq!(parse_single("123.4.to_s"  ), Ok(Access { expr: Box::new(Float((1234, 1).into())), attr: User("to_s"), }));
+      assert_eq!(parse_single("123.4. to_s" ), Ok(Access { expr: Box::new(Float((1234, 1).into())), attr: User("to_s"), }));
+      assert_eq!(parse_single("123.4.\nto_s"), Ok(Access { expr: Box::new(Float((1234, 1).into())), attr: User("to_s"), }));
     }
   }
 

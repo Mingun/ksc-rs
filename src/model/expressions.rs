@@ -85,7 +85,7 @@ pub enum OwningNode {
     /// Expression which attribute must be evaluated
     expr: Box<OwningNode>,
     /// Retrieved attribute
-    attr: FieldName,
+    attr: OwningAttr,
   },
 
   /// The unary prefix operator, such as unary `-` or logical `not`.
@@ -165,8 +165,8 @@ impl OwningNode {
       },
       Node::Access { expr, attr } => Access {
         expr: Box::new(Self::validate(*expr)?),
-        //TODO: Name already contains only valid symbols, but need to check that it is really exists
-        attr: FieldName::valid(attr),
+        //TODO: Need to check that attribute is really exists in the type
+        attr: attr.try_into()?,
       },
 
       Node::Unary { op, expr } => {
