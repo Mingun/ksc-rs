@@ -1573,7 +1573,7 @@ mod repeat {
         Some(p::Count::Expr("expr".into())),
         None,
       );
-      assert_eq!(rep, Ok(Repeat::Count(Count(OwningNode::Attr(FieldName::valid("expr"))))));
+      assert_eq!(rep, Ok(Repeat::Count(Count(OwningNode::Attr(FieldName::valid("expr").into())))));
     }
 
     /// ```yaml
@@ -1663,7 +1663,7 @@ mod repeat {
         assert_eq!(rep, Err(Validation("missed `repeat: expr`".into())));
 
         #[cfg(not(feature = "compatible"))]
-        assert_eq!(rep, Ok(Repeat::Count(Count(OwningNode::Attr(FieldName::valid("expr"))))));
+        assert_eq!(rep, Ok(Repeat::Count(Count(OwningNode::Attr(FieldName::valid("expr").into())))));
       }
     }
   }
@@ -1729,7 +1729,7 @@ mod repeat {
         None,
         Some(p::Condition::Expr("until".into())),
       );
-      assert_eq!(rep, Ok(Repeat::Until(Condition(OwningNode::Attr(FieldName::valid("until"))))));
+      assert_eq!(rep, Ok(Repeat::Until(Condition(OwningNode::Attr(FieldName::valid("until").into())))));
     }
 
     /// ```yaml
@@ -1801,7 +1801,7 @@ mod repeat {
         assert_eq!(rep, Err(Validation("missed `repeat: until`".into())));
 
         #[cfg(not(feature = "compatible"))]
-        assert_eq!(rep, Ok(Repeat::Until(Condition(OwningNode::Attr(FieldName::valid("until"))))));
+        assert_eq!(rep, Ok(Repeat::Until(Condition(OwningNode::Attr(FieldName::valid("until").into())))));
       }
     }
   }
@@ -2564,7 +2564,7 @@ mod sizeof {
           let chunk = Chunk {
             type_ref,
             size: Size::Exact {
-              count: Count(OwningNode::Attr(FieldName::valid("x"))),
+              count: Count(OwningNode::Attr(FieldName::valid("x").into())),
               until: None,
             },
           };
@@ -2585,7 +2585,7 @@ mod sizeof {
           let chunk = Chunk {
             type_ref,
             size: Size::Exact {
-              count: Count(OwningNode::Attr(FieldName::valid("x"))),
+              count: Count(OwningNode::Attr(FieldName::valid("x").into())),
               until: Some(0x00.into()),
             },
           };

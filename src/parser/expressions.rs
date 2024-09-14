@@ -36,9 +36,7 @@ pub enum Node<'input> {
   ContextVar(ContextVar),
 
   /// Name of field of the type in which attribute expression is defined
-  Attr(&'input str),
-  /// Built-in field
-  BuiltinAttr(BuiltinAttr),
+  Attr(Attr<'input>),
   /// Reference to an enum value.
   EnumValue {
     /// A type that defines this enum.
@@ -180,10 +178,10 @@ impl<'input> From<ContextVar> for Node<'input> {
     Self::ContextVar(value)
   }
 }
-impl<'input> From<BuiltinAttr> for Node<'input> {
+impl<'input> From<Attr<'input>> for Node<'input> {
   #[inline]
-  fn from(value: BuiltinAttr) -> Self {
-    Self::BuiltinAttr(value)
+  fn from(value: Attr<'input>) -> Self {
+    Self::Attr(value)
   }
 }
 
@@ -266,17 +264,17 @@ pub enum ContextVar {
   IsLe,//TODO: what's this?
 }
 
-/// Built-in attributes of types.
+/// Attributes of types.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub enum BuiltinAttr {
-  /// `_io`: stream associated with this object of user-defined type.
+pub enum Attr<'input> {
+  /// Built-in attribute `_io`: stream associated with this object of user-defined type.
   Stream,
-  /// `_root`: top-level user-defined structure in the current file.
+  /// Built-in attribute `_root`: top-level user-defined structure in the current file.
   Root,
-  /// `_parent`: structure that produced this particular instance of the
+  /// Built-in attribute `_parent`: structure that produced this particular instance of the
   /// user-defined type.
   Parent,
-  /// `_sizeof`: used as an attribute of the struct to get a compile-time size
+  /// Built-in attribute `_sizeof`: used as an attribute of the struct to get a compile-time size
   /// of the structure:
   ///
   /// ```yaml
@@ -287,6 +285,8 @@ pub enum BuiltinAttr {
   ///   size: file_hdr.ofs_bitmap - file_hdr._sizeof
   /// ```
   SizeOf,
+  /// User-defined attribute of the type
+  User(&'input str),
 }
 
 /// List of possible unary operations
@@ -644,7 +644,7 @@ peg::parser! {
       / v:(s:string() _ {s})+                  { Node::Str(String::from_iter(v.into_iter())) }
       / n:special_name() !name_part()          { n }
       / e:enum_name()                          { e }
-      / n:name()                               { Node::Attr(n) }
+      / n:name()                               { Node::Attr(Attr::User(n)) }
       / f:float()                              { Node::Float(f) }
       / i:integer()                            { Node::Int(i) }
       ;
@@ -652,10 +652,10 @@ peg::parser! {
     rule special_name() -> Node<'input>
       = "true"    { Node::Bool(true) }
       / "false"   { Node::Bool(false) }
-      / "_io"     { Node::BuiltinAttr(BuiltinAttr::Stream) }
-      / "_root"   { Node::BuiltinAttr(BuiltinAttr::Root) }
-      / "_parent" { Node::BuiltinAttr(BuiltinAttr::Parent) }
-      / "_sizeof" { Node::BuiltinAttr(BuiltinAttr::SizeOf) }
+      / "_io"     { Node::Attr(Attr::Stream) }
+      / "_root"   { Node::Attr(Attr::Root) }
+      / "_parent" { Node::Attr(Attr::Parent) }
+      / "_sizeof" { Node::Attr(Attr::SizeOf) }
       / "_on"     { Node::ContextVar(ContextVar::SwitchOn) }
       / "_index"  { Node::ContextVar(ContextVar::Index) }
       / "_is_le"  { Node::ContextVar(ContextVar::IsLe) }
@@ -710,6 +710,7 @@ peg::parser! {
 
 #[cfg(test)]
 mod parse {
+  use super::Attr::User;
   use super::BinaryOp::*;
   use super::Node::*;
   use super::UnaryOp::*;
@@ -1078,7 +1079,7 @@ mod parse {
     fn expr_then_expr() {
       assert_eq!(parse_single(r#" f"{123}{abc}" "#), Ok(InterpolatedStr(vec![
         Int(123.into()),
-        Attr("abc".into()),
+        Attr(User("abc")),
       ])));
     }
 
@@ -1117,7 +1118,7 @@ mod parse {
         assert_eq!(parse_single(r#" f" { f"{def}" } " "#), Ok(InterpolatedStr(vec![
           Str(" ".into()),
           // f"abc{def}"
-          InterpolatedStr(vec![Attr("def".into())]),
+          InterpolatedStr(vec![Attr(User("def"))]),
           Str(" ".into()),
         ])));
       }
@@ -1198,7 +1199,7 @@ mod parse {
     fn ternary() {
       assert_eq!(parse_single("x ? \"foo\" : \"bar\""), Ok(
         Branch {
-          condition: Box::new(Attr("x")),
+          condition: Box::new(Attr(User("x"))),
           if_true:   Box::new(Str("foo".into())),
           if_false:  Box::new(Str("bar".into()))
         }
@@ -1249,11 +1250,11 @@ mod parse {
     #[test]
     fn indexing() {
       assert_eq!(parse_single("a[42]"), Ok(
-        Index { expr: Box::new(Attr("a")), index: Box::new(Int(42.into())) }
+        Index { expr: Box::new(Attr(User("a"))), index: Box::new(Int(42.into())) }
       ));
       assert_eq!(parse_single("a[42 - 2]"), Ok(
         Index {
-          expr: Box::new(Attr("a")),
+          expr: Box::new(Attr(User("a"))),
           index: Box::new(Binary {
             op: Sub,
             left:  Box::new(Int(42.into())),
@@ -1365,52 +1366,52 @@ mod parse {
 
     #[test]
     fn builtin_attr() {
-      assert_eq!(parse_single("_io"),     Ok(BuiltinAttr(crate::parser::expressions::BuiltinAttr::Stream)));
-      assert_eq!(parse_single("_root"),   Ok(BuiltinAttr(crate::parser::expressions::BuiltinAttr::Root)));
-      assert_eq!(parse_single("_parent"), Ok(BuiltinAttr(crate::parser::expressions::BuiltinAttr::Parent)));
-      assert_eq!(parse_single("_sizeof"), Ok(BuiltinAttr(crate::parser::expressions::BuiltinAttr::SizeOf)));
+      assert_eq!(parse_single("_io"),     Ok(Attr(crate::parser::expressions::Attr::Stream)));
+      assert_eq!(parse_single("_root"),   Ok(Attr(crate::parser::expressions::Attr::Root)));
+      assert_eq!(parse_single("_parent"), Ok(Attr(crate::parser::expressions::Attr::Parent)));
+      assert_eq!(parse_single("_sizeof"), Ok(Attr(crate::parser::expressions::Attr::SizeOf)));
     }
 
     #[test]
     fn identifiers() {
-      assert_eq!(parse_single("truex"), Ok(Attr("truex")));
-      assert_eq!(parse_single("true1"), Ok(Attr("true1")));
+      assert_eq!(parse_single("truex"), Ok(Attr(User("truex"))));
+      assert_eq!(parse_single("true1"), Ok(Attr(User("true1"))));
 
-      assert_eq!(parse_single("falsex"), Ok(Attr("falsex")));
-      assert_eq!(parse_single("false1"), Ok(Attr("false1")));
+      assert_eq!(parse_single("falsex"), Ok(Attr(User("falsex"))));
+      assert_eq!(parse_single("false1"), Ok(Attr(User("false1"))));
 
-      assert_eq!(parse_single("notx"), Ok(Attr("notx")));
-      assert_eq!(parse_single("not1"), Ok(Attr("not1")));
+      assert_eq!(parse_single("notx"), Ok(Attr(User("notx"))));
+      assert_eq!(parse_single("not1"), Ok(Attr(User("not1"))));
 
-      assert_eq!(parse_single("andx"), Ok(Attr("andx")));
-      assert_eq!(parse_single("and1"), Ok(Attr("and1")));
+      assert_eq!(parse_single("andx"), Ok(Attr(User("andx"))));
+      assert_eq!(parse_single("and1"), Ok(Attr(User("and1"))));
 
-      assert_eq!(parse_single("orx"), Ok(Attr("orx")));
-      assert_eq!(parse_single("or1"), Ok(Attr("or1")));
+      assert_eq!(parse_single("orx"), Ok(Attr(User("orx"))));
+      assert_eq!(parse_single("or1"), Ok(Attr(User("or1"))));
 
-      assert_eq!(parse_single("_iox"), Ok(Attr("_iox")));
-      assert_eq!(parse_single("_io1"), Ok(Attr("_io1")));
+      assert_eq!(parse_single("_iox"), Ok(Attr(User("_iox"))));
+      assert_eq!(parse_single("_io1"), Ok(Attr(User("_io1"))));
 
-      assert_eq!(parse_single("_rootx"), Ok(Attr("_rootx")));
-      assert_eq!(parse_single("_root1"), Ok(Attr("_root1")));
+      assert_eq!(parse_single("_rootx"), Ok(Attr(User("_rootx"))));
+      assert_eq!(parse_single("_root1"), Ok(Attr(User("_root1"))));
 
-      assert_eq!(parse_single("_parentx"), Ok(Attr("_parentx")));
-      assert_eq!(parse_single("_parent1"), Ok(Attr("_parent1")));
+      assert_eq!(parse_single("_parentx"), Ok(Attr(User("_parentx"))));
+      assert_eq!(parse_single("_parent1"), Ok(Attr(User("_parent1"))));
 
-      assert_eq!(parse_single("_indexx"), Ok(Attr("_indexx")));
-      assert_eq!(parse_single("_index1"), Ok(Attr("_index1")));
+      assert_eq!(parse_single("_indexx"), Ok(Attr(User("_indexx"))));
+      assert_eq!(parse_single("_index1"), Ok(Attr(User("_index1"))));
 
-      assert_eq!(parse_single("_x"), Ok(Attr("_x")));
-      assert_eq!(parse_single("_1"), Ok(Attr("_1")));
+      assert_eq!(parse_single("_x"), Ok(Attr(User("_x"))));
+      assert_eq!(parse_single("_1"), Ok(Attr(User("_1"))));
 
-      assert_eq!(parse_single("_onx"), Ok(Attr("_onx")));
-      assert_eq!(parse_single("_on1"), Ok(Attr("_on1")));
+      assert_eq!(parse_single("_onx"), Ok(Attr(User("_onx"))));
+      assert_eq!(parse_single("_on1"), Ok(Attr(User("_on1"))));
 
-      assert_eq!(parse_single("_sizeofx"), Ok(Attr("_sizeofx")));
-      assert_eq!(parse_single("_sizeof1"), Ok(Attr("_sizeof1")));
+      assert_eq!(parse_single("_sizeofx"), Ok(Attr(User("_sizeofx"))));
+      assert_eq!(parse_single("_sizeof1"), Ok(Attr(User("_sizeof1"))));
 
-      assert_eq!(parse_single("_is_lex"), Ok(Attr("_is_lex")));
-      assert_eq!(parse_single("_is_le1"), Ok(Attr("_is_le1")));
+      assert_eq!(parse_single("_is_lex"), Ok(Attr(User("_is_lex"))));
+      assert_eq!(parse_single("_is_le1"), Ok(Attr(User("_is_le1"))));
     }
   }
 
@@ -1467,7 +1468,7 @@ mod parse {
     fn var_as_type() {
       assert_eq!(parse_single("foo.as<x>"), Ok(
         Cast {
-          expr: Box::new(Attr("foo")),
+          expr: Box::new(Attr(User("foo"))),
           to_type: TypeRef {
             name: TypeName {
               scope: Scope { absolute: false, path: vec![] },
@@ -1482,7 +1483,7 @@ mod parse {
     fn as_type_with_spaces() {
       assert_eq!(parse_single("foo.as < x  >  "), Ok(
         Cast {
-          expr: Box::new(Attr("foo")),
+          expr: Box::new(Attr(User("foo"))),
           to_type: TypeRef {
             name: TypeName {
               scope: Scope { absolute: false, path: vec![] },
@@ -1498,7 +1499,7 @@ mod parse {
     fn as_enum() {
       assert_eq!(parse_single("foo.as<bar::baz>"), Ok(
         Cast {
-          expr: Box::new(Attr("foo")),
+          expr: Box::new(Attr(User("foo"))),
           to_type: TypeRef {//TODO: should be enum
             name: TypeName {
               scope: Scope { absolute: false, path: vec!["bar"] },
@@ -1510,7 +1511,7 @@ mod parse {
       ));
       assert_eq!(parse_single("foo.as<::bar::baz>"), Ok(
         Cast {
-          expr: Box::new(Attr("foo")),
+          expr: Box::new(Attr(User("foo"))),
           to_type: TypeRef {//TODO: should be enum
             name: TypeName {
               scope: Scope { absolute: true, path: vec!["bar"] },
@@ -1526,7 +1527,7 @@ mod parse {
     fn as_array() {
       assert_eq!(parse_single("foo.as<bar[]>"), Ok(
         Cast {
-          expr: Box::new(Attr("foo")),
+          expr: Box::new(Attr(User("foo"))),
           to_type: TypeRef {
             name: TypeName {
               scope: Scope { absolute: false, path: vec![] },
@@ -1538,7 +1539,7 @@ mod parse {
       ));
       assert_eq!(parse_single("foo.as<::bar::baz[]>"), Ok(
         Cast {
-          expr: Box::new(Attr("foo")),
+          expr: Box::new(Attr(User("foo"))),
           to_type: TypeRef {
             name: TypeName {
               scope: Scope { absolute: true, path: vec!["bar"] },
@@ -1554,7 +1555,7 @@ mod parse {
     fn attribute() {
       assert_eq!(parse_single("foo.as"), Ok(
         Access {
-          expr: Box::new(Attr("foo")),
+          expr: Box::new(Attr(User("foo"))),
           attr: "as",
         }
       ));
@@ -1566,10 +1567,10 @@ mod parse {
         Binary {
           op: Lt,
           left: Box::new(Access {
-            expr: Box::new(Attr("foo")),
+            expr: Box::new(Attr(User("foo"))),
             attr: "as"
           }),
-          right: Box::new(Attr("x")),
+          right: Box::new(Attr(User("x"))),
         }
       ));
     }
@@ -1628,8 +1629,8 @@ mod parse {
       assert_eq!(parse_single("sizeof<foo"), Ok(
         Binary {
           op: Lt,
-          left: Box::new(Attr("sizeof")),
-          right: Box::new(Attr("foo")),
+          left: Box::new(Attr(User("sizeof"))),
+          right: Box::new(Attr(User("foo"))),
         }
       ));
     }
@@ -1660,8 +1661,8 @@ mod parse {
       assert_eq!(parse_single("bitsizeof<foo"), Ok(
         Binary {
           op: Lt,
-          left: Box::new(Attr("bitsizeof")),
-          right: Box::new(Attr("foo")),
+          left: Box::new(Attr(User("bitsizeof"))),
+          right: Box::new(Attr(User("foo"))),
         }
       ));
     }
@@ -1676,7 +1677,7 @@ mod parse {
       assert_eq!(parse_single("123.to_s"  ), Ok(Access { expr: Box::new(Int(123.into())), attr: "to_s" }));
       assert_eq!(parse_single("123. to_s" ), Ok(Access { expr: Box::new(Int(123.into())), attr: "to_s" }));
       assert_eq!(parse_single("123.\nto_s"), Ok(Access { expr: Box::new(Int(123.into())), attr: "to_s" }));
-      assert_eq!(parse_single("foo.bar"   ), Ok(Access { expr: Box::new(Attr("foo")), attr: "bar" }));
+      assert_eq!(parse_single("foo.bar"   ), Ok(Access { expr: Box::new(Attr(User("foo"))), attr: "bar" }));
     }
 
     #[test]
@@ -1811,7 +1812,7 @@ mod parse {
               left:  Box::new(Int(1.into())),
               right: Box::new(Int(2.into())),
             },
-            Attr("data"),
+            Attr(User("data")),
           ],
         }));
       }
@@ -1828,7 +1829,7 @@ mod parse {
               left:  Box::new(Int(1.into())),
               right: Box::new(Int(2.into())),
             },
-            Attr("data"),
+            Attr(User("data")),
           ],
         }));
       }
@@ -1877,7 +1878,7 @@ mod parse {
                 left:  Box::new(Int(1.into())),
                 right: Box::new(Int(2.into())),
               },
-              Attr("data"),
+              Attr(User("data")),
             ],
           }));
         }
@@ -1895,7 +1896,7 @@ mod parse {
                 left:  Box::new(Int(1.into())),
                 right: Box::new(Int(2.into())),
               },
-              Attr("data"),
+              Attr(User("data")),
             ],
           }));
         }
@@ -1940,7 +1941,7 @@ mod parse {
                 left:  Box::new(Int(1.into())),
                 right: Box::new(Int(2.into())),
               },
-              Attr("data"),
+              Attr(User("data")),
             ],
           }));
         }
@@ -1958,7 +1959,7 @@ mod parse {
                 left:  Box::new(Int(1.into())),
                 right: Box::new(Int(2.into())),
               },
-              Attr("data"),
+              Attr(User("data")),
             ],
           }));
         }

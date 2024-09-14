@@ -11,7 +11,7 @@ use serde_yml::Number;
 use crate::error::ModelError;
 use crate::model::{EnumName, EnumValueName, FieldName, TypeName as TName};
 use crate::parser::expressions::{
-  parse_single, BinaryOp, BuiltinAttr, ContextVar, Node, Scope, TypeName, TypeRef, UnaryOp,
+  parse_name, parse_single, Attr, BinaryOp, ContextVar, Node, Scope, TypeName, TypeRef, UnaryOp,
 };
 use crate::parser::Scalar;
 
@@ -37,9 +37,7 @@ pub enum OwningNode {
   ContextVar(ContextVar),
 
   /// Name of field of the type in which attribute expression is defined
-  Attr(FieldName),
-  /// Built-in field
-  BuiltinAttr(BuiltinAttr),
+  Attr(OwningAttr),
   /// Reference to an enum value.
   EnumValue {
     /// A type that defines this enum.
@@ -140,9 +138,8 @@ impl OwningNode {
 
       Node::ContextVar(val) => ContextVar(val),
 
-      //TODO: Name already contains only valid symbols, but need to check that it is really exists
-      Node::Attr(val) => Attr(FieldName::valid(val)),
-      Node::BuiltinAttr(val) => BuiltinAttr(val),
+      //TODO: Need to check that attribute is really exists in the type
+      Node::Attr(val) => Attr(val.try_into()?),
       //TODO: Names already contains only valid symbols, but need to check that they is really exists
       Node::EnumValue { scope, name, value } => EnumValue {
         scope: scope.into(),
@@ -345,6 +342,51 @@ impl<'input> From<TypeRef<'input>> for OwningTypeRef {
   }
 }
 
+/// Owning counterpart of an [`Attr`]. Contains validated user-defined field of a type.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum OwningAttr {
+  /// Built-in attribute `_io`: stream associated with this object of user-defined type.
+  Stream,
+  /// Built-in attribute `_root`: top-level user-defined structure in the current file.
+  Root,
+  /// Built-in attribute `_parent`: structure that produced this particular instance of the
+  /// user-defined type.
+  Parent,
+  /// Built-in attribute `_sizeof`: used as an attribute of the struct to get a compile-time size
+  /// of the structure:
+  ///
+  /// ```yaml
+  /// seq:
+  /// - id: file_hdr
+  ///   type: file_header
+  /// - id: dib_info
+  ///   size: file_hdr.ofs_bitmap - file_hdr._sizeof
+  /// ```
+  SizeOf,
+  /// User-defined attribute of the type
+  User(FieldName),
+}
+impl<'input> TryFrom<Attr<'input>> for OwningAttr {
+  type Error = ModelError;
+
+  #[inline]
+  fn try_from(reference: Attr<'input>) -> Result<Self, Self::Error> {
+    Ok(match reference {
+      Attr::Stream  => Self::Stream,
+      Attr::Root    => Self::Root,
+      Attr::Parent  => Self::Parent,
+      Attr::SizeOf  => Self::SizeOf,
+      Attr::User(m) => Self::User(FieldName::valid(parse_name(m)?)),
+    })
+  }
+}
+impl<'input> From<FieldName> for OwningAttr {
+  #[inline]
+  fn from(name: FieldName) -> Self {
+    Self::User(name)
+  }
+}
+
 #[cfg(test)]
 mod convert {
   use super::*;
@@ -408,10 +450,10 @@ mod convert {
 
   #[test]
   fn from_string() {
-    assert_eq!(OwningNode::try_from(Scalar::String("id".into())), Ok(Attr(FieldName::valid("id"))));
+    assert_eq!(OwningNode::try_from(Scalar::String("id".into())), Ok(Attr(FieldName::valid("id").into())));
     assert_eq!(OwningNode::try_from(Scalar::String("x + 2".into())), Ok(Binary {
       op: BinaryOp::Add,
-      left:  Box::new(Attr(FieldName::valid("x"))),
+      left:  Box::new(Attr(FieldName::valid("x").into())),
       right: Box::new(Int(2.into())),
     }));
   }
@@ -430,28 +472,28 @@ mod evaluation {
 
     #[test]
     fn double_neg() {
-      assert_eq!(OwningNode::parse("-(-x)"), Ok(Attr(FieldName::valid("x"))));
+      assert_eq!(OwningNode::parse("-(-x)"), Ok(Attr(FieldName::valid("x").into())));
     }
 
     #[test]
     fn double_not() {
-      assert_eq!(OwningNode::parse("not not x"), Ok(Attr(FieldName::valid("x"))));
+      assert_eq!(OwningNode::parse("not not x"), Ok(Attr(FieldName::valid("x").into())));
     }
 
     #[test]
     fn double_inv() {
-      assert_eq!(OwningNode::parse("~~x"), Ok(Attr(FieldName::valid("x"))));
+      assert_eq!(OwningNode::parse("~~x"), Ok(Attr(FieldName::valid("x").into())));
     }
   }
 
   #[test]
   fn branch() {
-    assert_eq!(OwningNode::parse("true  ? a : b"), Ok(Attr(FieldName::valid("a"))));
-    assert_eq!(OwningNode::parse("false ? a : b"), Ok(Attr(FieldName::valid("b"))));
+    assert_eq!(OwningNode::parse("true  ? a : b"), Ok(Attr(FieldName::valid("a").into())));
+    assert_eq!(OwningNode::parse("false ? a : b"), Ok(Attr(FieldName::valid("b").into())));
     assert_eq!(OwningNode::parse("condition ? a : b"), Ok(Branch {
-      condition: Box::new(Attr(FieldName::valid("condition"))),
-      if_true:   Box::new(Attr(FieldName::valid("a"))),
-      if_false:  Box::new(Attr(FieldName::valid("b"))),
+      condition: Box::new(Attr(FieldName::valid("condition").into())),
+      if_true:   Box::new(Attr(FieldName::valid("a").into())),
+      if_false:  Box::new(Attr(FieldName::valid("b").into())),
     }));
   }
 }
