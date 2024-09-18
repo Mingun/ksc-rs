@@ -15,7 +15,7 @@ use bigdecimal::num_traits::Zero;
 #[cfg(not(feature = "compatible"))]
 use bigdecimal::Signed;
 use indexmap::map::Entry;
-use indexmap::{indexmap, IndexMap};
+use indexmap::IndexMap;
 use lazy_static::lazy_static;
 use regex::Regex;
 
@@ -1013,7 +1013,7 @@ impl UserType {
     use ModelError::*;
 
     Ok(match seq {
-      None => indexmap![],
+      None => IndexMap::new(),
       Some(seq) => {
         let iter = seq.into_iter();
         let mut result = IndexMap::with_capacity(iter.size_hint().1.unwrap_or(0));
