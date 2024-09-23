@@ -377,4 +377,14 @@ mod formats {
       super::compile(Path::new("ksc-rs"), &gen(resource).to_string());
     }
   }
+
+  #[test]
+  fn check() {
+    use std::io::Write;
+
+    let tokens = gen("test.ksy");
+    let ksc_dir = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+    let mut java = File::create(ksc_dir.join("test.java")).expect("cannot create temp file with java code");
+    java.write_all(format!("{}", tokens).as_bytes()).expect("cannot write Java source code to the file");
+  }
 }
