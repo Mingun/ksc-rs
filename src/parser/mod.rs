@@ -647,7 +647,7 @@ pub struct Instance {
   #[serde(flatten)]
   pub attr: Attribute,
 
-  /// Specifies position at which the value should be parsed.
+  /// Specifies a position at which the value should be parsed.
   #[serde(skip_serializing_if = "Option::is_none")]
   pub pos: Option<Position>,
   /// Specifies an IO stream from which a value should be parsed.

@@ -7,7 +7,8 @@ use indexmap::IndexMap;
 use crate::error::ModelError;
 use crate::model::expressions::OwningNode;
 use crate::model::{
-  Attribute, Enum, EnumName, FileContext, PackageContext, SeqName, SizeOf, TypeContext, TypeName,
+  Attribute, Enum, EnumName, FieldName, FileContext, Instance, PackageContext, SeqName, SizeOf,
+  TypeContext, TypeName,
 };
 use crate::parser as p;
 use crate::parser::expressions::{Node, TypeName as TName};
@@ -46,7 +47,10 @@ pub struct UserType {
   /// The list of fields that this type consists of. The fields in the data stream
   /// are in the same order as they are declared here.
   pub fields: IndexMap<SeqName, Attribute>,
-  // pub getters: IndexMap<InstanceName, Instance>, //TODO: instances
+  /// List of dynamic and calculated fields of this type. The position of these fields
+  /// is not fixed in the type, and they may not even be physically represented in the
+  /// data stream at all.
+  pub instances: IndexMap<FieldName, Instance>,
   /// List of used-defined types, defined inside this type.
   pub types: IndexMap<TypeName, UserType>,
   /// List of enumerations defined inside this type.
@@ -117,6 +121,17 @@ impl UserType {
         Attribute::validate(spec, &defaults, &type_ctx)?,
       ))
     })?;
+    let instances = Self::check_duplicates(spec.instances.as_ref(), |(name, spec)| {
+      use ModelError::*;
+
+      let name = FieldName::validate(name)?;
+
+      if fields.contains_key(&name) {
+        return Err(Validation(format!("a sequenced attribute and an instance cannot have the same name `{}`", name).into()));
+      }
+
+      Ok((name, Instance::validate(spec, &defaults, &type_ctx)?))
+    })?;
     let types = Self::check_duplicates(spec.types.as_ref(), |(name, spec)| {
       Ok((
         TypeName::validate(name)?,
@@ -132,6 +147,7 @@ impl UserType {
 
     Ok(Self {
       fields,
+      instances,
       types,
       enums,
     })
