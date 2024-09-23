@@ -166,9 +166,9 @@ pub type EnumValueName = Name<tags::EnumValue>;
 #[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct EnumPath {
   /// Path to type with enum definition
-  path: Vec<TypeName>,
+  pub path: Vec<TypeName>,
   /// Name of enum inside type
-  name: EnumName,
+  pub name: EnumName,
 }
 impl EnumPath {
   /// Checks that the names in path contains only valid characters and creates
