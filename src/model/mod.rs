@@ -28,8 +28,10 @@ mod r#enum;
 pub mod expressions;
 mod name;
 
+pub use name::{
+  EnumName, EnumPath, EnumValueName, FieldName, Name, OptionalName, ParamName, SeqName, TypeName,
+};
 pub use r#enum::Enum;
-pub use name::*;
 
 /// Contains helper structures for implementing `TryFrom`.
 ///

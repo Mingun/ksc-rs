@@ -14,8 +14,8 @@ use serde::{Deserialize, Serialize};
 use serde_yml::{Number, Value};
 
 pub use doc::{Doc, DocRef, XRef, XRefs};
-pub use r#enum::*;
 pub use names::{Identifier, Import, Name, Path, ProcessAlgo, UserName};
+pub use r#enum::{Enum, EnumValue, EnumVariant};
 pub use utils::{Expression, OneOrMany, Scalar, Variant};
 
 mod doc;
