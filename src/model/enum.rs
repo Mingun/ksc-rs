@@ -8,8 +8,8 @@ use indexmap::IndexMap;
 
 use crate::error::ModelError;
 use crate::error::ModelError::Validation;
-use crate::parser as p;
 use crate::model::EnumValueName;
+use crate::parser as p;
 
 /// Enumeration definition. Contains a map of enumerated values in order of their
 /// definition in the KSY.
@@ -108,7 +108,7 @@ impl EnumVariant {
   /// [`parser`]: crate::parser
   pub fn validate(value: p::EnumValue) -> Result<Self, ModelError> {
     let name = match value {
-      p::EnumValue::Name(name)  => EnumValueName::validate(name)?,
+      p::EnumValue::Name(name) => EnumValueName::validate(name)?,
       p::EnumValue::Full(info) => match info.id {
         p::Identifier::Name(name) => EnumValueName::validate(name)?,
         p::Identifier::Bool(true) => EnumValueName::valid("true"),
