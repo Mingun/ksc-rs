@@ -632,16 +632,17 @@ peg::parser! {
     rule hex() = ['0'..='9' | 'a'..='f' | 'A'..='F' | '_'];
 
     rule digit() = ['0'..='9'];
+    rule digit_() = ['0'..='9' | '_'];
 
-    rule float() -> BigDecimal = n:$(//TODO: allow '_' in floats
-        digit()+ exponent()   // Ex.: 4E2, 4E+2, 4e-2
-      / fixed() exponent()?   // Ex.: 4.E2, .4e+2, 4.2e-0
+    rule float() -> BigDecimal = n:$(
+        digit()+ digit_()* exponent()    // Ex.: 4E2, 4E+2, 4e-2
+      / fixed()            exponent()?   // Ex.: 4.E2, .4e+2, 4.2e-0
     ) {? n.replace('_', "").parse().map_err(|_| "float literal must contain at least one digit") };
     rule fixed()
-      = digit()* "." digit()+        // Ex.: 4.2, .42
-      / digit()+ "." !(_ name_start())// Ex.: 42.
+      = digit()* digit_()* "." digit()+ digit_()* // Ex.: 4.2, .42
+      / digit()+ digit_()* "." !(_ name_start())  // Ex.: 42.
       ;
-    rule exponent() = ['e' | 'E'] ['+' | '-']? digit()+;
+    rule exponent() = ['e' | 'E'] ['+' | '-']? digit()+ digit_()*;
 
     //-------------------------------------------------------------------------------------------------
 
