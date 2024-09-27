@@ -3,9 +3,12 @@ use std::error::Error;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
+use bigdecimal::num_bigint::BigInt;
+use bigdecimal::BigDecimal;
+
 use crate::model::Package;
-use crate::parser::expressions::{EnumRef, Scope, TypeName};
-use crate::parser::{Enum, Ksy, Name, TypeSpec};
+use crate::parser::expressions::{Attr, EnumRef, Node, Scope, TypeName, UnaryOp};
+use crate::parser::{Attribute, Enum, Ksy, Name, TypeSpec};
 
 /// `TypeId` uses equivalence of pointers to compare equivalent types
 #[derive(Debug)]
@@ -34,6 +37,16 @@ pub enum ResolveError<'n> {
   UnknownType(&'n str),
   /// Specified enum cannot be resolved
   UnknownEnum(&'n str),
+  /// Specified field cannot be resolved
+  UnknownField,
+  /// Specified enumeration variant cannot be resolved
+  UnknownEnumVariant,
+  /// Parent for a type cannot be determined
+  UnknownParent,
+  /// Expression should have boolean type in this context
+  NotBool,
+  /// Two expressions should have compatible types, but they don't
+  MismatchedTypes,
 }
 
 impl<'n> fmt::Display for ResolveError<'n> {
@@ -41,11 +54,49 @@ impl<'n> fmt::Display for ResolveError<'n> {
     match self {
       Self::UnknownType(n) => write!(f, "unknown type `{n}`"),
       Self::UnknownEnum(n) => write!(f, "unknown enum `{n}`"),
+      Self::UnknownField => f.write_str("unknown field"),
+      Self::UnknownEnumVariant => f.write_str("unknown enum variant"),
+      Self::UnknownParent => f.write_str("unknown parent"),
+      Self::NotBool => f.write_str("expected boolean expression"),
+      Self::MismatchedTypes => f.write_str("mismatched types"),
     }
   }
 }
 
 impl<'n> Error for ResolveError<'n> {}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum AttrType<'t> {
+  Str,
+  /// Type of indexes and sizeof operation
+  Usize,
+  Int,
+  /// Each integer constant gives its own type
+  IntConstant(BigInt),
+  Float,
+  /// Each floating-point constant gives its own type
+  FloatConstant(BigDecimal),
+  Bool,
+  Bytes,
+
+  /// Generic `KaitaiStruct` type, base for all user types
+  Struct,
+  /// Concrete instance of `KaitaiStruct`
+  UserType(&'t TypeSpec),
+
+  /// Type is a stream used to reading
+  Stream,
+
+  /// Type is a sequence of another type
+  Seq(Box<AttrType<'t>>),
+  /// Type is optional
+  Option(Box<AttrType<'t>>),
+
+  Enum(&'t Enum),
+  Switch(Vec<AttrType<'t>>),
+}
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -63,6 +114,10 @@ fn fill_parents<'t>(parents: &mut HashMap<TypeId<'t>, &'t TypeSpec>, ty: &'t Typ
 /// Returns `true` if given id is equal to the given string
 fn id_matches(id: &Option<Name>, name: &str) -> bool {
   id.as_ref().map(|n| n.0.as_str()) == Some(name)
+}
+
+fn merge_types<'t, 'n>(left: AttrType<'t>, right: AttrType<'t>) -> Result<AttrType<'t>, ResolveError<'n>> {
+  todo!("l={:?}\nr={:?}", left, right)
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -371,6 +426,174 @@ impl<'t> TypeContext<'t> {
       };
     }
   }
+
+  /// Calculates type of expression in current context
+  fn calc_type(&self, expression: &'t Node) -> Result<AttrType<'t>, ResolveError<'t>> {
+    use crate::parser::expressions::ContextVar as CtxVar;
+    use Node::*;
+
+    match expression {
+      Str(_) => Ok(AttrType::Str),
+      Int(i) => Ok(AttrType::IntConstant(i.clone())),
+      Float(f) => Ok(AttrType::FloatConstant(f.clone())),
+      Bool(_) => Ok(AttrType::Bool),
+      InterpolatedStr(_) => Ok(AttrType::Str),
+      ContextVar(CtxVar::Index) => Ok(AttrType::Usize),
+      ContextVar(CtxVar::Value) => todo!("{:?}", expression),
+      ContextVar(CtxVar::IsLe) => Ok(AttrType::Bool),
+      ContextVar(CtxVar::RawValue) => Ok(AttrType::Bytes),
+      ContextVar(CtxVar::SwitchOn) => todo!("{:?}", expression),
+      Attr(attr) => self.calc_field(attr),
+      EnumVariant { enum_, variant } => {
+        let e = self.resolve_enum(enum_)?;
+        // TODO: check presence of enum variant
+        Ok(AttrType::Enum(e))
+      }
+      List(vec) => todo!("{:?}", expression),
+      SizeOf { .. } => Ok(AttrType::Usize),
+      Call { callee, args } => {
+        let callee = self.calc_type(callee)?;
+        let args: Result<Vec<_>, ResolveError> = args.iter().map(|a| self.calc_type(a)).collect();
+
+        todo!("{:?}", expression)
+      },
+      Cast { expr, to_type } => {
+        let expr_type = self.calc_type(expr)?;
+        // TODO: check compatibility of types
+        todo!("{:?} -> {:?}", expr_type, to_type)
+      },
+      Index { expr, index } => {
+        // Expression should be indexable
+        let elem = match self.calc_type(expr)? {
+          AttrType::Seq(elem) => elem,
+          _ => return Err(ResolveError::MismatchedTypes),
+        };
+        // Check that index has an integral type
+        match self.calc_type(index)? {
+          AttrType::Int | AttrType::IntConstant(_) => {},
+          _ => return Err(ResolveError::MismatchedTypes),
+        }
+        Ok(*elem)
+      },
+      Access { expr, attr } => {
+        match self.calc_type(expr)? {
+          AttrType::UserType(context) => self.file.for_type(context).calc_field(attr),
+          _ => Err(ResolveError::MismatchedTypes),
+        }
+      },
+      Unary { op, expr } => {
+        let expr = self.calc_type(expr)?;
+        match (op, &expr) {
+          (UnaryOp::Inv, AttrType::Int) |
+          (UnaryOp::Inv, AttrType::IntConstant(_)) => Ok(expr),
+          (UnaryOp::Inv, _) => Err(ResolveError::MismatchedTypes),
+
+          (UnaryOp::Neg, AttrType::Int) |
+          (UnaryOp::Neg, AttrType::IntConstant(_)) => Ok(expr),
+          (UnaryOp::Neg, _) => Err(ResolveError::MismatchedTypes),
+
+          (UnaryOp::Not, AttrType::Bool) => Ok(expr),
+          (UnaryOp::Not, _) => Err(ResolveError::MismatchedTypes),
+        }
+      },
+      Binary { op, left, right } => {
+        let l = self.calc_type(left)?;
+        let r = self.calc_type(right)?;
+
+        todo!("{:?}", (op, l, r))
+      },
+      Branch { condition, if_true, if_false } => {
+        match self.calc_type(condition)? {
+          AttrType::Bool => {
+            let l = self.calc_type(if_true)?;
+            let r = self.calc_type(if_false)?;
+            merge_types(l, r)
+          },
+          _ => Err(ResolveError::NotBool),
+        }
+      },
+    }
+  }
+
+  fn calc_field(&self, attr: &Attr) -> Result<AttrType<'t>, ResolveError<'t>> {
+    match attr {
+      Attr::Stream => Ok(AttrType::Stream),
+      Attr::Root => Ok(AttrType::UserType(&self.file.ksy.root)),
+      Attr::Parent => match self.parent(&TypeId(self.context)) {
+        Some(parent) => Ok(AttrType::UserType(parent)),
+        None => Err(ResolveError::UnknownParent),
+      },
+      Attr::SizeOf => Ok(AttrType::Usize),
+      Attr::User(field) => {
+        if let Some(seq) = &self.context.seq {
+          match seq.iter().find(|a| id_matches(&a.id, *field)) {
+            Some(a) => return self.calc_attr(a),
+            None => {},
+          }
+        }
+        if let Some(instances) = &self.context.instances {
+          match instances.get(*field) {
+            Some(i) => return self.calc_attr(&i.attr),
+            None => {},
+          }
+        }
+        if let Some(params) = &self.context.params {
+          match params.iter().find(|p| id_matches(&p.id, *field)) {
+            Some(p) => todo!("param({}) -> {:?}", field, p),
+            None => {},
+          }
+        }
+        Err(ResolveError::UnknownField)
+      },
+    }
+  }
+
+  fn calc_attr(&self, attr: &Attribute) -> Result<AttrType<'t>, ResolveError<'t>> {
+    todo!("{:?}", attr)
+    /*let ty = match &attr.chunk {
+      Variant::Fixed(chunk) => self.calc_chunk(chunk)?,
+      Variant::Choice { .. } => todo!("{:?}", attr.chunk),
+    };
+
+    // TODO: probably just two flags, because arbitrary nesting is not required
+    let ty = match attr.repeat {
+      Repeat::None => AttrType::Seq(Box::new(ty)),
+      _ => ty,
+    };
+    let ty = match attr.condition {
+      Some(_) => AttrType::Option(Box::new(ty)),
+      None => ty,
+    };
+    Ok(ty)*/
+  }
+
+  /*fn calc_chunk<'n>(&self, chunk: &'n Chunk) -> Result<AttrType<'t>, ResolveError<'n>> {
+    match &chunk.type_ref {
+      TypeRef::Enum { base, enum_ } => match enum_ {
+        Some(path) => match self.resolve_enum_ref(path) {
+          Some(e) => Ok(AttrType::Enum(e)),
+          None => Err(ResolveError::UnknownEnum),
+        },
+        None => Ok(AttrType::Int),
+      },
+      TypeRef::F32(_) => Ok(AttrType::Float),
+      TypeRef::F64(_) => Ok(AttrType::Float),
+      TypeRef::Bytes => Ok(AttrType::Bytes),
+      TypeRef::String(_) => Ok(AttrType::Str),
+      TypeRef::User(u) => {
+        let ty = match self.resolve_type_ref(u) {
+          Some(ty) => ty,
+          None => return Err(ResolveError::UnknownType),
+        };
+        // Check correctness of types of the arguments
+        for arg in &u.args {
+          self.calc_type(arg)?;
+        }
+        Ok(AttrType::UserType(ty))
+      },
+      TypeRef::Fixed(_) => Ok(AttrType::Bytes),
+    }
+  }*/
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////

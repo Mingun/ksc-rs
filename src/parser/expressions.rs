@@ -71,14 +71,14 @@ pub enum Node<'input> {
     /// Reference to type for conversion
     to_type: TypeRef<'input>,
   },
-  /// Access to expression by some index
+  /// Access to expression by some index: `expr[index]`.
   Index {
     /// Expression for indexing
     expr: Box<Node<'input>>,
     /// Index expression
     index: Box<Node<'input>>,
   },
-  /// Access to some attribute of expression
+  /// Access to some attribute of expression: `expr.attr`.
   Access {
     /// Expression which attribute must be evaluated
     expr: Box<Node<'input>>,
