@@ -2613,7 +2613,17 @@ mod sizeof {
   mod attribute {
     use super::*;
     use pretty_assertions::assert_eq;
-    use serde_yml::from_str;
+
+    /// Helper method to create attributes from their KSY representation
+    fn from_ksy(ksy: &str) -> Result<Attribute, ModelError> {
+      from_ksy_with(ksy, p::Defaults::default())
+    }
+
+    /// Helper method to create attributes from their KSY representation with additional attributes
+    fn from_ksy_with(ksy: &str, defaults: p::Defaults) -> Result<Attribute, ModelError> {
+      let attr: p::Attribute = serde_yml::from_str(ksy).unwrap();
+      Attribute::validate(attr, defaults)
+    }
 
     macro_rules! type_check_size {
       ($fn:ident == $size:expr) => {
@@ -2623,10 +2633,9 @@ mod sizeof {
 
           #[test]
           fn only_type() {
-            let attr: p::Attribute = from_str(&format!(r#"
+            let attr = from_ksy_with(&format!(r#"
             type: {}
-            "#, stringify!($fn))).unwrap();
-            let attr = Attribute::validate(attr, p::Defaults {
+            "#, stringify!($fn)), p::Defaults {
               endian: Some(p::Variant::Fixed(p::ByteOrder::Be)),
               ..Default::default()
             }).unwrap();
@@ -2636,11 +2645,10 @@ mod sizeof {
           #[test]
           fn type_and_size() {
             //TODO: both tests should be changed after resolve https://github.com/kaitai-io/kaitai_struct/issues/788
-            let attr: p::Attribute = from_str(&format!(r#"
+            let attr = from_ksy_with(&format!(r#"
             type: {}
             size: 10
-            "#, stringify!($fn))).unwrap();
-            let attr = Attribute::validate(attr, p::Defaults {
+            "#, stringify!($fn)), p::Defaults {
               endian: Some(p::Variant::Fixed(p::ByteOrder::Be)),
               ..Default::default()
             });
@@ -2654,11 +2662,10 @@ mod sizeof {
 
           #[test]
           fn type_and_size_eos_true() {
-            let attr: p::Attribute = from_str(&format!(r#"
+            let attr = from_ksy_with(&format!(r#"
             type: {}
             size-eos: true
-            "#, stringify!($fn))).unwrap();
-            let attr = Attribute::validate(attr, p::Defaults {
+            "#, stringify!($fn)), p::Defaults {
               endian: Some(p::Variant::Fixed(p::ByteOrder::Be)),
               ..Default::default()
             });
@@ -2672,11 +2679,10 @@ mod sizeof {
 
           #[test]
           fn type_and_size_eos_false() {
-            let attr: p::Attribute = from_str(&format!(r#"
+            let attr = from_ksy_with(&format!(r#"
             type: {}
             size-eos: false
-            "#, stringify!($fn))).unwrap();
-            let attr = Attribute::validate(attr, p::Defaults {
+            "#, stringify!($fn)), p::Defaults {
               endian: Some(p::Variant::Fixed(p::ByteOrder::Be)),
               ..Default::default()
             });
@@ -2764,19 +2770,17 @@ mod sizeof {
 
     #[test]
     fn size_only() {
-      let attr: p::Attribute = from_str(r#"
+      let attr = from_ksy(r#"
       size: 5
       "#).unwrap();
-      let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
       assert_eq!(attr.sizeof(), SizeOf::Sized(5usize.into()));
     }
 
     #[test]
     fn size_eos_only() {
-      let attr: p::Attribute = from_str(r#"
+      let attr = from_ksy(r#"
       size-eos: true
       "#).unwrap();
-      let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
       assert_eq!(attr.sizeof(), SizeOf::Unsized(0usize.into(), None));
     }
 
@@ -2789,33 +2793,31 @@ mod sizeof {
 
         #[test]
         fn same_fixed_size() {
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           type:
             switch-on: value
             cases:
               0: u4be
               _: f4be
           "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
           assert_eq!(attr.sizeof(), SizeOf::Sized(4usize.into()));
         }
 
         #[test]
         fn diff_fixed_size() {
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           type:
             switch-on: value
             cases:
               0: u4be
               _: u2be
           "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
           assert_eq!(attr.sizeof(), SizeOf::Unsized(2usize.into(), Some(4usize.into())));
         }
 
         #[test]
         fn variable_size() {
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           type:
             switch-on: value
             cases:
@@ -2823,7 +2825,6 @@ mod sizeof {
               _: strz
           encoding: utf-8
           "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
           assert_eq!(attr.sizeof(), SizeOf::Unsized(0usize.into(), None));
         }
       }
@@ -2834,7 +2835,7 @@ mod sizeof {
 
         #[test]
         fn same_fixed_size() {
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           type:
             switch-on: value
             cases:
@@ -2842,7 +2843,6 @@ mod sizeof {
               _: f4be
           size: 10
           "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
 
           #[cfg(feature = "compatible")]
           assert_eq!(attr.sizeof(), SizeOf::Sized(4usize.into()));
@@ -2853,7 +2853,7 @@ mod sizeof {
 
         #[test]
         fn diff_fixed_size() {
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           type:
             switch-on: value
             cases:
@@ -2861,7 +2861,6 @@ mod sizeof {
               _: u2be
           size: 10
           "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
 
           #[cfg(feature = "compatible")]
           assert_eq!(attr.sizeof(), SizeOf::Unsized(2usize.into(), Some(4usize.into())));
@@ -2872,7 +2871,7 @@ mod sizeof {
 
         #[test]
         fn variable_size() {
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           type:
             switch-on: value
             cases:
@@ -2881,7 +2880,6 @@ mod sizeof {
           size: 10
           encoding: utf-8
           "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
 
           #[cfg(feature = "compatible")]
           assert_eq!(attr.sizeof(), SizeOf::Unsized(4usize.into(), Some(10usize.into())));
@@ -2897,7 +2895,7 @@ mod sizeof {
 
         #[test]
         fn same_fixed_size() {
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           type:
             switch-on: value
             cases:
@@ -2905,7 +2903,6 @@ mod sizeof {
               _: f4be
           size-eos: true
           "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
 
           #[cfg(feature = "compatible")]
           assert_eq!(attr.sizeof(), SizeOf::Sized(4usize.into()));
@@ -2916,7 +2913,7 @@ mod sizeof {
 
         #[test]
         fn diff_fixed_size() {
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           type:
             switch-on: value
             cases:
@@ -2924,7 +2921,6 @@ mod sizeof {
               _: u2be
           size-eos: true
           "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
 
           #[cfg(feature = "compatible")]
           assert_eq!(attr.sizeof(), SizeOf::Unsized(2usize.into(), Some(4usize.into())));
@@ -2935,7 +2931,7 @@ mod sizeof {
 
         #[test]
         fn variable_size() {
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           type:
             switch-on: value
             cases:
@@ -2944,7 +2940,6 @@ mod sizeof {
           size-eos: true
           encoding: utf-8
           "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
           assert_eq!(attr.sizeof(), SizeOf::Unsized(0usize.into(), None));
         }
       }
@@ -2955,7 +2950,7 @@ mod sizeof {
 
         #[test]
         fn same_fixed_size() {
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           type:
             switch-on: value
             cases:
@@ -2963,7 +2958,6 @@ mod sizeof {
               _: f4be
           terminator: 0
           "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
 
           #[cfg(feature = "compatible")]
           assert_eq!(attr.sizeof(), SizeOf::Sized(4usize.into()));
@@ -2974,7 +2968,7 @@ mod sizeof {
 
         #[test]
         fn diff_fixed_size() {
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           type:
             switch-on: value
             cases:
@@ -2982,7 +2976,6 @@ mod sizeof {
               _: u2be
           terminator: 0
           "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
 
           #[cfg(feature = "compatible")]
           assert_eq!(attr.sizeof(), SizeOf::Unsized(2usize.into(), Some(4usize.into())));
@@ -2993,7 +2986,7 @@ mod sizeof {
 
         #[test]
         fn variable_size() {
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           type:
             switch-on: value
             cases:
@@ -3002,7 +2995,6 @@ mod sizeof {
           terminator: 0
           encoding: utf-8
           "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
           assert_eq!(attr.sizeof(), SizeOf::Unsized(0usize.into(), None));
         }
       }
@@ -3022,12 +3014,11 @@ mod sizeof {
         #[test]
         fn expr_negative() {
           // literal
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           size: 10
           repeat: expr
           repeat-expr: -42
-          "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default());
+          "#);
 
           #[cfg(feature = "compatible")]
           assert_eq!(attr.unwrap().sizeof(), SizeOf::Sized(0usize.into()));
@@ -3038,12 +3029,11 @@ mod sizeof {
           )));
 
           // expression
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           size: 10
           repeat: expr
           repeat-expr: '-42'
-          "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default());
+          "#);
 
           #[cfg(feature = "compatible")]
           assert_eq!(attr.unwrap().sizeof(), SizeOf::Sized(0usize.into()));
@@ -3058,12 +3048,11 @@ mod sizeof {
         #[test]
         fn expr_zero() {
           // literal
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           size: 10
           repeat: expr
           repeat-expr: 0
-          "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default());
+          "#);
 
           #[cfg(feature = "compatible")]
           assert_eq!(attr.unwrap().sizeof(), SizeOf::Sized(0usize.into()));
@@ -3074,12 +3063,11 @@ mod sizeof {
           )));
 
           // expression
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           size: 10
           repeat: expr
           repeat-expr: '0'
-          "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default());
+          "#);
 
           #[cfg(feature = "compatible")]
           assert_eq!(attr.unwrap().sizeof(), SizeOf::Sized(0usize.into()));
@@ -3093,32 +3081,29 @@ mod sizeof {
         #[test]
         fn expr_positive() {
           // literal
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           size: 10
           repeat: expr
           repeat-expr: 42
           "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
           assert_eq!(attr.sizeof(), SizeOf::Sized(420usize.into()));
 
           // expression
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           size: 10
           repeat: expr
           repeat-expr: '42'
           "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
           assert_eq!(attr.sizeof(), SizeOf::Sized(420usize.into()));
         }
 
         #[test]
         fn expr_variable() {
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           size: 10
           repeat: expr
           repeat-expr: value
           "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
           assert_eq!(attr.sizeof(), SizeOf::Unsized(0usize.into(), None));
         }
 
@@ -3126,21 +3111,19 @@ mod sizeof {
         #[test]
         fn until_true() {
           // literal
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           size: 10
           repeat: until
           repeat-until: true
           "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
           assert_eq!(attr.sizeof(), SizeOf::Sized(10usize.into()));
 
           // expression
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           size: 10
           repeat: until
           repeat-until: 'true'
           "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
           assert_eq!(attr.sizeof(), SizeOf::Sized(10usize.into()));
         }
 
@@ -3148,12 +3131,11 @@ mod sizeof {
         #[test]
         fn until_false() {
           // literal
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           size: 10
           repeat: until
           repeat-until: false
-          "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default());
+          "#);
 
           #[cfg(feature = "compatible")]
           assert_eq!(attr.unwrap().sizeof(), SizeOf::Unsized(0usize.into(), None));
@@ -3164,12 +3146,11 @@ mod sizeof {
           )));
 
           // expression
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           size: 10
           repeat: until
           repeat-until: 'false'
-          "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default());
+          "#);
 
           #[cfg(feature = "compatible")]
           assert_eq!(attr.unwrap().sizeof(), SizeOf::Unsized(0usize.into(), None));
@@ -3183,23 +3164,21 @@ mod sizeof {
         /// At least one element always will be consumed in case of success parsing
         #[test]
         fn until_variable() {
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           size: 10
           repeat: until
           repeat-until: value
           "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
           assert_eq!(attr.sizeof(), SizeOf::Unsized(10usize.into(), None));
         }
 
         /// In case of empty stream nothing will be parsed, so minimum is 0
         #[test]
         fn eos() {
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           size: 10
           repeat: eos
           "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
           assert_eq!(attr.sizeof(), SizeOf::Unsized(0usize.into(), None));
         }
       }
@@ -3213,12 +3192,11 @@ mod sizeof {
         #[test]
         fn expr_negative() {
           // literal
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           terminator: 0
           repeat: expr
           repeat-expr: -42
-          "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default());
+          "#);
 
           #[cfg(feature = "compatible")]
           assert_eq!(attr.unwrap().sizeof(), SizeOf::Sized(0usize.into()));
@@ -3229,12 +3207,11 @@ mod sizeof {
           )));
 
           // expression
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           terminator: 0
           repeat: expr
           repeat-expr: '-42'
-          "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default());
+          "#);
 
           #[cfg(feature = "compatible")]
           assert_eq!(attr.unwrap().sizeof(), SizeOf::Sized(0usize.into()));
@@ -3249,12 +3226,11 @@ mod sizeof {
         #[test]
         fn expr_zero() {
           // literal
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           terminator: 0
           repeat: expr
           repeat-expr: 0
-          "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default());
+          "#);
 
           #[cfg(feature = "compatible")]
           assert_eq!(attr.unwrap().sizeof(), SizeOf::Sized(0usize.into()));
@@ -3265,12 +3241,11 @@ mod sizeof {
           )));
 
           // expression
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           terminator: 0
           repeat: expr
           repeat-expr: '0'
-          "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default());
+          "#);
 
           #[cfg(feature = "compatible")]
           assert_eq!(attr.unwrap().sizeof(), SizeOf::Sized(0usize.into()));
@@ -3284,32 +3259,29 @@ mod sizeof {
         #[test]
         fn expr_positive() {
           // literal
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           terminator: 0
           repeat: expr
           repeat-expr: 42
           "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
           assert_eq!(attr.sizeof(), SizeOf::Unsized(0usize.into(), None));
 
           // expression
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           terminator: 0
           repeat: expr
           repeat-expr: '42'
           "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
           assert_eq!(attr.sizeof(), SizeOf::Unsized(0usize.into(), None));
         }
 
         #[test]
         fn expr_variable() {
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           terminator: 0
           repeat: expr
           repeat-expr: value
           "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
           assert_eq!(attr.sizeof(), SizeOf::Unsized(0usize.into(), None));
         }
 
@@ -3317,21 +3289,19 @@ mod sizeof {
         #[test]
         fn until_true() {
           // literal
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           terminator: 0
           repeat: until
           repeat-until: true
           "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
           assert_eq!(attr.sizeof(), SizeOf::Unsized(0usize.into(), None));
 
           // expression
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           terminator: 0
           repeat: until
           repeat-until: 'true'
           "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
           assert_eq!(attr.sizeof(), SizeOf::Unsized(0usize.into(), None));
         }
 
@@ -3339,12 +3309,11 @@ mod sizeof {
         #[test]
         fn until_false() {
           // literal
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           terminator: 0
           repeat: until
           repeat-until: false
-          "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default());
+          "#);
 
           #[cfg(feature = "compatible")]
           assert_eq!(attr.unwrap().sizeof(), SizeOf::Unsized(0usize.into(), None));
@@ -3355,12 +3324,11 @@ mod sizeof {
           )));
 
           // expression
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           terminator: 0
           repeat: until
           repeat-until: 'false'
-          "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default());
+          "#);
 
           #[cfg(feature = "compatible")]
           assert_eq!(attr.unwrap().sizeof(), SizeOf::Unsized(0usize.into(), None));
@@ -3374,23 +3342,21 @@ mod sizeof {
         /// At least one element always will be consumed in case of success parsing
         #[test]
         fn until_variable() {
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           terminator: 0
           repeat: until
           repeat-until: value
           "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
           assert_eq!(attr.sizeof(), SizeOf::Unsized(0usize.into(), None));
         }
 
         /// In case of empty stream nothing will be parsed, so minimum is 0
         #[test]
         fn eos() {
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           terminator: 0
           repeat: eos
           "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
           assert_eq!(attr.sizeof(), SizeOf::Unsized(0usize.into(), None));
         }
       }
@@ -3404,7 +3370,7 @@ mod sizeof {
         #[test]
         fn expr_negative() {
           // literal
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           type:
             switch-on: value
             cases:
@@ -3412,8 +3378,7 @@ mod sizeof {
               _: u4be
           repeat: expr
           repeat-expr: -42
-          "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default());
+          "#);
 
           #[cfg(feature = "compatible")]
           assert_eq!(attr.unwrap().sizeof(), SizeOf::Sized(0usize.into()));
@@ -3424,7 +3389,7 @@ mod sizeof {
           )));
 
           // expression
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           type:
             switch-on: value
             cases:
@@ -3432,8 +3397,7 @@ mod sizeof {
               _: u4be
           repeat: expr
           repeat-expr: '-42'
-          "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default());
+          "#);
 
           #[cfg(feature = "compatible")]
           assert_eq!(attr.unwrap().sizeof(), SizeOf::Sized(0usize.into()));
@@ -3448,7 +3412,7 @@ mod sizeof {
         #[test]
         fn expr_zero() {
           // literal
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           type:
             switch-on: value
             cases:
@@ -3456,8 +3420,7 @@ mod sizeof {
               _: u4be
           repeat: expr
           repeat-expr: 0
-          "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default());
+          "#);
 
           #[cfg(feature = "compatible")]
           assert_eq!(attr.unwrap().sizeof(), SizeOf::Sized(0usize.into()));
@@ -3468,7 +3431,7 @@ mod sizeof {
           )));
 
           // expression
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           type:
             switch-on: value
             cases:
@@ -3476,8 +3439,7 @@ mod sizeof {
               _: u4be
           repeat: expr
           repeat-expr: '0'
-          "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default());
+          "#);
 
           #[cfg(feature = "compatible")]
           assert_eq!(attr.unwrap().sizeof(), SizeOf::Sized(0usize.into()));
@@ -3491,7 +3453,7 @@ mod sizeof {
         #[test]
         fn expr_positive() {
           // literal
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           type:
             switch-on: value
             cases:
@@ -3500,11 +3462,10 @@ mod sizeof {
           repeat: expr
           repeat-expr: 42
           "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
           assert_eq!(attr.sizeof(), SizeOf::Unsized(84usize.into(), Some(168usize.into())));
 
           // expression
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           type:
             switch-on: value
             cases:
@@ -3513,13 +3474,12 @@ mod sizeof {
           repeat: expr
           repeat-expr: '42'
           "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
           assert_eq!(attr.sizeof(), SizeOf::Unsized(84usize.into(), Some(168usize.into())));
         }
 
         #[test]
         fn expr_variable() {
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           type:
             switch-on: value
             cases:
@@ -3528,7 +3488,6 @@ mod sizeof {
           repeat: expr
           repeat-expr: value
           "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
           assert_eq!(attr.sizeof(), SizeOf::Unsized(0usize.into(), None));
         }
 
@@ -3536,7 +3495,7 @@ mod sizeof {
         #[test]
         fn until_true() {
           // literal
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           type:
             switch-on: value
             cases:
@@ -3545,11 +3504,10 @@ mod sizeof {
           repeat: until
           repeat-until: true
           "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
           assert_eq!(attr.sizeof(), SizeOf::Unsized(2usize.into(), Some(4usize.into())));
 
           // expression
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           type:
             switch-on: value
             cases:
@@ -3558,7 +3516,6 @@ mod sizeof {
           repeat: until
           repeat-until: 'true'
           "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
           assert_eq!(attr.sizeof(), SizeOf::Unsized(2usize.into(), Some(4usize.into())));
         }
 
@@ -3566,7 +3523,7 @@ mod sizeof {
         #[test]
         fn until_false() {
           // literal
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           type:
             switch-on: value
             cases:
@@ -3574,8 +3531,7 @@ mod sizeof {
               _: u4be
           repeat: until
           repeat-until: false
-          "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default());
+          "#);
 
           #[cfg(feature = "compatible")]
           assert_eq!(attr.unwrap().sizeof(), SizeOf::Unsized(0usize.into(), None));
@@ -3586,7 +3542,7 @@ mod sizeof {
           )));
 
           // expression
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           type:
             switch-on: value
             cases:
@@ -3594,8 +3550,7 @@ mod sizeof {
               _: u4be
           repeat: until
           repeat-until: 'false'
-          "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default());
+          "#);
 
           #[cfg(feature = "compatible")]
           assert_eq!(attr.unwrap().sizeof(), SizeOf::Unsized(0usize.into(), None));
@@ -3609,7 +3564,7 @@ mod sizeof {
         /// At least one element always will be consumed in case of success parsing
         #[test]
         fn until_variable() {
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           type:
             switch-on: value
             cases:
@@ -3618,14 +3573,13 @@ mod sizeof {
           repeat: until
           repeat-until: value
           "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
           assert_eq!(attr.sizeof(), SizeOf::Unsized(2usize.into(), None));
         }
 
         /// In case of empty stream nothing will be parsed, so minimum is 0
         #[test]
         fn eos() {
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           type:
             switch-on: value
             cases:
@@ -3633,7 +3587,6 @@ mod sizeof {
               _: u4be
           repeat: eos
           "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
           assert_eq!(attr.sizeof(), SizeOf::Unsized(0usize.into(), None));
         }
       }
@@ -3650,48 +3603,43 @@ mod sizeof {
         #[test]
         fn true_() {
           // literal
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           size: 10
           if: true
           "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
           assert_eq!(attr.sizeof(), SizeOf::Sized(10usize.into()));
 
           // expression
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           size: 10
           if: 'true'
           "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
           assert_eq!(attr.sizeof(), SizeOf::Sized(10usize.into()));
         }
 
         #[test]
         fn false_() {
           // literal
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           size: 10
           if: false
           "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
           assert_eq!(attr.sizeof(), SizeOf::Sized(0usize.into()));
 
           // expression
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           size: 10
           if: 'false'
           "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
           assert_eq!(attr.sizeof(), SizeOf::Sized(0usize.into()));
         }
 
         #[test]
         fn variable() {
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           size: 10
           if: value
           "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
           assert_eq!(attr.sizeof(), SizeOf::Unsized(0usize.into(), Some(10usize.into())));
         }
       }
@@ -3704,48 +3652,43 @@ mod sizeof {
         #[test]
         fn true_() {
           // literal
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           terminator: 0
           if: true
           "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
           assert_eq!(attr.sizeof(), SizeOf::Unsized(0usize.into(), None));
 
           // expression
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           terminator: 0
           if: 'true'
           "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
           assert_eq!(attr.sizeof(), SizeOf::Unsized(0usize.into(), None));
         }
 
         #[test]
         fn false_() {
           // literal
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           terminator: 0
           if: false
           "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
           assert_eq!(attr.sizeof(), SizeOf::Sized(0usize.into()));
 
           // expression
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           terminator: 0
           if: 'false'
           "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
           assert_eq!(attr.sizeof(), SizeOf::Sized(0usize.into()));
         }
 
         #[test]
         fn variable() {
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           terminator: 0
           if: value
           "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
           assert_eq!(attr.sizeof(), SizeOf::Unsized(0usize.into(), None));
         }
       }
@@ -3758,7 +3701,7 @@ mod sizeof {
         #[test]
         fn true_() {
           // literal
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           type:
             switch-on: value
             cases:
@@ -3766,11 +3709,10 @@ mod sizeof {
               _: u4be
           if: true
           "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
           assert_eq!(attr.sizeof(), SizeOf::Unsized(2usize.into(), Some(4usize.into())));
 
           // expression
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           type:
             switch-on: value
             cases:
@@ -3778,14 +3720,13 @@ mod sizeof {
               _: u4be
           if: 'true'
           "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
           assert_eq!(attr.sizeof(), SizeOf::Unsized(2usize.into(), Some(4usize.into())));
         }
 
         #[test]
         fn false_() {
           // literal
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           type:
             switch-on: value
             cases:
@@ -3793,11 +3734,10 @@ mod sizeof {
               _: u4be
           if: false
           "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
           assert_eq!(attr.sizeof(), SizeOf::Sized(0usize.into()));
 
           // expression
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           type:
             switch-on: value
             cases:
@@ -3805,13 +3745,12 @@ mod sizeof {
               _: u4be
           if: 'false'
           "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
           assert_eq!(attr.sizeof(), SizeOf::Sized(0usize.into()));
         }
 
         #[test]
         fn variable() {
-          let attr: p::Attribute = from_str(r#"
+          let attr = from_ksy(r#"
           type:
             switch-on: value
             cases:
@@ -3819,7 +3758,6 @@ mod sizeof {
               _: u4be
           if: value
           "#).unwrap();
-          let attr = Attribute::validate(attr, p::Defaults::default()).unwrap();
           assert_eq!(attr.sizeof(), SizeOf::Unsized(0usize.into(), Some(4usize.into())));
         }
       }
