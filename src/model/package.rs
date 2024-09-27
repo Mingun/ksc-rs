@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::Hash;
 
 use crate::error::ModelError;
-use crate::model::Root;
+use crate::model::{PackageContext, Root};
 use crate::parser::{Import, Name, Ksy};
 
 /// Loader used to handle imported kaitai types in `meta.imports` section.
@@ -104,7 +104,8 @@ impl Package {
 
   /// Performs validation of a set of KS files and create a list of models for them.
   pub fn validate(self) -> Result<Vec<Root>, ModelError> {
-    self.files.iter().map(|(_, ksy)| Root::validate(ksy)).collect()
+    let ctx = PackageContext::new(&self);
+    self.files.iter().map(|(_, ksy)| Root::validate(ksy, &ctx)).collect()
   }
 
   /// Creates a new package from one file for tests. Cannot handle imports

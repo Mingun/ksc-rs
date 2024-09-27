@@ -9,7 +9,7 @@ use bigdecimal::BigDecimal;
 use serde_yml::Number;
 
 use crate::error::ModelError;
-use crate::model::{EnumName, EnumVariantName, FieldName, TypeName as TName};
+use crate::model::{EnumName, EnumVariantName, FieldName, TypeContext, TypeName as TName};
 use crate::parser::expressions::{
   parse_enum_ref, parse_name, parse_single, Attr, BinaryOp, ContextVar, EnumRef, Node, Scope,
   TypeName, TypeRef, UnaryOp,
@@ -121,14 +121,14 @@ impl OwningNode {
   ///   for syntax
   ///
   /// [module level documentation]: ./index.html
-  pub fn parse(expr: &str) -> Result<Self, ModelError> {
-    Self::validate(parse_single(expr)?)
+  pub fn parse(expr: &str, ctx: &TypeContext) -> Result<Self, ModelError> {
+    Self::validate(parse_single(expr)?, ctx)
   }
   /// Converts scalar YAML value into expression node. [`Scalar::Null`] translated
   /// into an error, [`Scalar::String`] parsed as [expression].
   ///
   /// [expression]: crate::model::expressions
-  pub fn from_scalar(scalar: &Scalar) -> Result<Self, ModelError> {
+  pub fn from_scalar(scalar: &Scalar, ctx: &TypeContext) -> Result<Self, ModelError> {
     match scalar {
       Scalar::Null => Err(ModelError::Validation(
         "Expected expression, but null found (note that `null` literal in YAML is \
@@ -136,11 +136,11 @@ impl OwningNode {
       )),
       Scalar::Bool(val) => Ok(Self::Bool(*val)),
       Scalar::Number(n) => Ok(n.into()),
-      Scalar::String(val) => Ok(Self::parse(val)?),
+      Scalar::String(val) => Ok(Self::parse(val, ctx)?),
     }
   }
   /// Performs a semantic validation of raw parsed expression
-  pub fn validate(node: Node) -> Result<Self, ModelError> {
+  pub fn validate(node: Node, ctx: &TypeContext) -> Result<Self, ModelError> {
     use OwningNode::*;
 
     Ok(match node {
@@ -148,7 +148,7 @@ impl OwningNode {
       Node::Int(val)  => Int(val),
       Node::Float(val)=> Float(val),
       Node::Bool(val) => Bool(val),
-      Node::InterpolatedStr(val) => InterpolatedStr(Self::validate_all(val)?),
+      Node::InterpolatedStr(val) => InterpolatedStr(Self::validate_all(val, ctx)?),
 
       Node::ContextVar(val) => ContextVar(val),
 
@@ -160,24 +160,24 @@ impl OwningNode {
         variant: EnumVariantName::valid(variant),
       },
 
-      Node::List(val) => List(Self::validate_all(val)?),
+      Node::List(val) => List(Self::validate_all(val, ctx)?),
 
       Node::SizeOf { type_, bit } => SizeOf { type_: type_.into(), bit },
 
       Node::Call { callee, args } => Call {
-        callee: Box::new(Self::validate(*callee)?),
-        args: Self::validate_all(args)?,
+        callee: Box::new(Self::validate(*callee, ctx)?),
+        args: Self::validate_all(args, ctx)?,
       },
       Node::Cast { expr, to_type } => Cast {
-        expr: Box::new(Self::validate(*expr)?),
+        expr: Box::new(Self::validate(*expr, ctx)?),
         to_type: to_type.into(),
       },
       Node::Index { expr, index } => Index {
-        expr:  Box::new(Self::validate(*expr)?),
-        index: Box::new(Self::validate(*index)?),
+        expr:  Box::new(Self::validate(*expr, ctx)?),
+        index: Box::new(Self::validate(*index, ctx)?),
       },
       Node::Access { expr, attr } => Access {
-        expr: Box::new(Self::validate(*expr)?),
+        expr: Box::new(Self::validate(*expr, ctx)?),
         //TODO: Need to check that attribute is really exists in the type
         attr: attr.try_into()?,
       },
@@ -185,7 +185,7 @@ impl OwningNode {
       Node::Unary { op, expr } => {
         use UnaryOp::*;
 
-        match (op, Self::validate(*expr)?) {
+        match (op, Self::validate(*expr, ctx)?) {
           // Remove doubled operators
           (first, Unary { op, expr }) if first == op => *expr,
 
@@ -204,13 +204,13 @@ impl OwningNode {
       }
       Node::Binary { op, left, right } => Binary {
         op,
-        left:  Box::new(Self::validate(*left)?),
-        right: Box::new(Self::validate(*right)?),
+        left:  Box::new(Self::validate(*left, ctx)?),
+        right: Box::new(Self::validate(*right, ctx)?),
       },
       Node::Branch { condition, if_true, if_false } => {
-        let condition = Self::validate(*condition)?;
-        let if_true   = Self::validate(*if_true)?;
-        let if_false  = Self::validate(*if_false)?;
+        let condition = Self::validate(*condition, ctx)?;
+        let if_true   = Self::validate(*if_true, ctx)?;
+        let if_false  = Self::validate(*if_false, ctx)?;
 
         match condition {
           Bool(true)  => if_true,
@@ -229,8 +229,8 @@ impl OwningNode {
   ///
   /// # Parameters
   /// - `nodes`: List of nodes for validation
-  pub fn validate_all(nodes: Vec<Node>) -> Result<Vec<Self>, ModelError> {
-    nodes.into_iter().map(Self::validate).collect::<Result<_, _>>()
+  pub fn validate_all(nodes: Vec<Node>, ctx: &TypeContext) -> Result<Vec<Self>, ModelError> {
+    nodes.into_iter().map(|n| Self::validate(n, ctx)).collect()
   }
 }
 impl From<Number> for OwningNode {
@@ -329,7 +329,8 @@ impl<'input> OwningEnumRef {
   ///
   /// # Parameters
   /// - `enum_`: Path to an enum definition, for example, `::absolute::path::to::enum`
-  pub fn validate(enum_: &crate::parser::EnumRef) -> Result<Self, ModelError> {
+  /// - `ctx`: context for validation and reporting errors
+  pub fn validate(enum_: &crate::parser::EnumRef, ctx: &TypeContext) -> Result<Self, ModelError> {
     Ok(parse_enum_ref(&enum_.0)?.into())
   }
 }
@@ -436,11 +437,18 @@ impl<'input> From<FieldName> for OwningAttr {
 #[cfg(test)]
 mod convert {
   use super::*;
+  use crate::model::{Package, PackageContext};
+  use crate::parser::Ksy;
   use pretty_assertions::assert_eq;
   use OwningNode::*;
 
   fn from_scalar(scalar: Scalar) -> Result<OwningNode, ModelError> {
-    OwningNode::from_scalar(&scalar)
+    // TypeContext not used in those tests so can be created from empty KSY
+    let pkg = Package::test(Ksy::default());
+    let ksy = pkg.files.values().next().unwrap();
+    let ctx = PackageContext::new(&pkg);
+    let ctx = ctx.for_file(ksy);
+    OwningNode::from_scalar(&scalar, &ctx.for_type(&ksy.root))
   }
 
   #[test]
@@ -512,8 +520,19 @@ mod convert {
 #[cfg(test)]
 mod evaluation {
   use super::*;
+  use crate::model::{Package, PackageContext};
+  use crate::parser::Ksy;
   use pretty_assertions::assert_eq;
   use OwningNode::*;
+
+  fn parse(expr: &str) -> Result<OwningNode, ModelError> {
+    // TypeContext not used in those tests so can be created from empty KSY
+    let pkg = Package::test(Ksy::default());
+    let ksy = pkg.files.values().next().unwrap();
+    let ctx = PackageContext::new(&pkg);
+    let ctx = ctx.for_file(ksy);
+    OwningNode::parse(expr, &ctx.for_type(&ksy.root))
+  }
 
   /// Check that the unary operators behaves correctly
   mod unary {
@@ -522,25 +541,25 @@ mod evaluation {
 
     #[test]
     fn double_neg() {
-      assert_eq!(OwningNode::parse("-(-x)"), Ok(Attr(FieldName::valid("x").into())));
+      assert_eq!(parse("-(-x)"), Ok(Attr(FieldName::valid("x").into())));
     }
 
     #[test]
     fn double_not() {
-      assert_eq!(OwningNode::parse("not not x"), Ok(Attr(FieldName::valid("x").into())));
+      assert_eq!(parse("not not x"), Ok(Attr(FieldName::valid("x").into())));
     }
 
     #[test]
     fn double_inv() {
-      assert_eq!(OwningNode::parse("~~x"), Ok(Attr(FieldName::valid("x").into())));
+      assert_eq!(parse("~~x"), Ok(Attr(FieldName::valid("x").into())));
     }
   }
 
   #[test]
   fn branch() {
-    assert_eq!(OwningNode::parse("true  ? a : b"), Ok(Attr(FieldName::valid("a").into())));
-    assert_eq!(OwningNode::parse("false ? a : b"), Ok(Attr(FieldName::valid("b").into())));
-    assert_eq!(OwningNode::parse("condition ? a : b"), Ok(Branch {
+    assert_eq!(parse("true  ? a : b"), Ok(Attr(FieldName::valid("a").into())));
+    assert_eq!(parse("false ? a : b"), Ok(Attr(FieldName::valid("b").into())));
+    assert_eq!(parse("condition ? a : b"), Ok(Branch {
       condition: Box::new(Attr(FieldName::valid("condition").into())),
       if_true:   Box::new(Attr(FieldName::valid("a").into())),
       if_false:  Box::new(Attr(FieldName::valid("b").into())),
