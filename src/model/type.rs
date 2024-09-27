@@ -8,6 +8,7 @@ use crate::error::ModelError;
 use crate::model::expressions::OwningNode;
 use crate::model::{Attribute, Enum, EnumName, SeqName, TypeName};
 use crate::parser as p;
+use crate::parser::expressions::{Node, TypeName as TName};
 
 /// Reference to a user-defined type name with an optional parameters.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -18,6 +19,16 @@ pub struct UserTypeRef {
   pub name: TypeName,
   /// Optional arguments for type
   pub args: Vec<OwningNode>,
+}
+impl UserTypeRef {
+  pub(crate) fn validate(name: TName, args: Vec<Node>) -> Result<Self, ModelError> {
+    Ok(Self {
+      //TODO: resolve relative types
+      path: name.scope.path.into_iter().map(TypeName::valid).collect(),
+      name: TypeName::valid(name.name),
+      args: OwningNode::validate_all(args)?,
+    })
+  }
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////

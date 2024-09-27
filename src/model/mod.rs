@@ -763,12 +763,7 @@ impl TypeRef {
           enum_: e.transpose()?,
         }),
         AttrType::User { name, args } => if let None = e {
-          Ok(TypeRef::User(UserTypeRef {
-            //TODO: resolve relative types
-            path: name.scope.path.into_iter().map(TypeName::valid).collect(),
-            name: TypeName::valid(name.name),
-            args: OwningNode::validate_all(args)?,
-          }))
+          Ok(TypeRef::User(UserTypeRef::validate(name, args)?))
         } else {
           enum_err()
         }
