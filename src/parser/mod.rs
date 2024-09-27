@@ -25,7 +25,7 @@ mod names;
 mod utils;
 
 /// Variants of endianness of integer attribute types
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub enum ByteOrder {
   /// Little-Endian
@@ -35,7 +35,7 @@ pub enum ByteOrder {
 }
 
 /// Variants of bit order of bit-sized integers
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub enum BitOrder {
   /// Little-Endian
@@ -89,7 +89,7 @@ impl From<Contents> for Vec<u8> {
   }
 }
 /// List of all built-in types
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq)]
 #[allow(non_camel_case_types)]
 pub enum Builtin {
   /// 1-byte unsigned integer.
@@ -235,7 +235,7 @@ pub enum TypeRef {
 pub type Type = Variant<TypeRef>;
 
 /// Attribute repetition variants
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub enum Repeat {
   /// Repeat until the end of the current stream.
