@@ -1,4 +1,5 @@
 use std::fmt;
+use std::borrow::Borrow;
 use std::hash::Hash;
 
 use serde::de::{Deserializer, Error, Visitor};
@@ -18,6 +19,12 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Default, Serialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[serde(transparent)]
 pub struct Name(pub String);
+impl Borrow<str> for Name {
+  #[inline]
+  fn borrow(&self) -> &str {
+    &self.0
+  }
+}
 impl<'de> Deserialize<'de> for Name {
   fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
   where

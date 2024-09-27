@@ -28,6 +28,7 @@ pub mod expressions;
 mod name;
 mod package;
 mod r#type;
+mod validator;
 
 pub use name::{
   EnumName, EnumVariantName, FieldName, Name, OptionalName, ParamName, SeqName, TypeName,
@@ -35,6 +36,7 @@ pub use name::{
 pub use package::{ImportLoader, Package};
 pub use r#enum::Enum;
 pub use r#type::{Root, UserType, UserTypeRef};
+pub use validator::{FileContext, PackageContext, TypeContext};
 
 /// Contains helper structures for implementing `validate` methods.
 ///

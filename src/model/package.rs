@@ -106,6 +106,24 @@ impl Package {
   pub fn validate(self) -> Result<Vec<Root>, ModelError> {
     self.files.iter().map(|(_, ksy)| Root::validate(ksy)).collect()
   }
+
+  /// Creates a new package from one file for tests. Cannot handle imports
+  #[cfg(test)]
+  pub(crate) fn test(ksy: Ksy) -> Self {
+    struct NoneLoader;
+    impl ImportLoader for NoneLoader {
+      type Id = ();
+      type Error = ();
+
+      fn new_id(&mut self, _base: Self::Id, _import: &Import) -> Self::Id {
+        panic!("never called in tests")
+      }
+      fn load(&mut self, _id: Self::Id) -> Result<Ksy, Self::Error> {
+        panic!("never called in tests")
+      }
+    }
+    Self::new((), Name(String::new()), ksy, NoneLoader).unwrap()
+  }
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
