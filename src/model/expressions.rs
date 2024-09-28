@@ -244,8 +244,12 @@ impl From<Number> for OwningNode {
 impl<'a> From<&'a Number> for OwningNode {
   #[inline]
   fn from(number: &'a Number) -> Self {
-    // SAFETY: conversion from numerical Node into OwningNode always successful
-    Self::validate(Node::from(number)).expect("Number -> Node conversion should be always success")
+    match Node::from(number) {
+      Node::Int(n) => Self::Int(n),
+      Node::Float(n) => Self::Float(n),
+      // SAFETY: conversion from number returns only numerical Nodes
+      _ => unreachable!("Number -> Node conversion produces only Int and Float"),
+    }
   }
 }
 
