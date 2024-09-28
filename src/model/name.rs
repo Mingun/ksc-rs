@@ -52,7 +52,7 @@ impl<Tag> Name<Tag> {
   /// Checks that the name contains only valid characters and creates a new one.
   ///
   /// Valid names matches the following regexp: `$[a-zA-Z][a-zA-Z0-9_]*^`.
-  pub fn validate(name: p::Name) -> Result<Self, ModelError> {
+  pub fn validate(name: &p::Name) -> Result<Self, ModelError> {
     Ok(Self::valid(parse_name(&name.0)?))
   }
 }
@@ -105,7 +105,7 @@ impl<Tag> TryFrom<p::Name> for Name<Tag> {
   type Error = ModelError;
 
   fn try_from(name: p::Name) -> Result<Self, Self::Error> {
-    Self::validate(name)
+    Self::validate(&name)
   }
 }
 
@@ -177,19 +177,16 @@ impl EnumPath {
   /// If `data` is empty, error is returned.
   ///
   /// Valid names in path matches following regexp: `$[a-zA-Z][a-zA-Z0-9_]*^`.
-  pub fn validate(mut data: p::Path) -> Result<Self, ModelError> {
-    let len = data.0.len();
-    if len < 1 {
-      return Err(ModelError::Validation("enum name is empty".into()));
+  pub fn validate(data: &p::Path) -> Result<Self, ModelError> {
+    if let Some(name) = data.0.last() {
+      let len = data.0.len() - 1;
+      let mut path = Vec::with_capacity(len);
+      for name in data.0.iter().take(len) {
+        path.push(TypeName::validate(name)?);
+      }
+      return Ok(Self { path, name: EnumName::validate(&name)? });
     }
-
-    let len = len - 1;
-    let name = data.0.remove(len);
-    let mut path = Vec::with_capacity(len);
-    for name in data.0.into_iter() {
-      path.push(TypeName::validate(name)?);
-    }
-    Ok(Self { path, name: EnumName::validate(name)? })
+    Err(ModelError::Validation("enum name is empty".into()))
   }
 }
 
@@ -198,27 +195,27 @@ enum Tag {}
 
 #[test]
 fn ascii() {
-  assert_eq!(Name::<Tag>::validate(p::Name("valid".into())),       Ok(Name::valid("valid")));
-  assert_eq!(Name::<Tag>::validate(p::Name("also_valid_".into())), Ok(Name::valid("also_valid_")));
+  assert_eq!(Name::<Tag>::validate(&p::Name("valid".into())),       Ok(Name::valid("valid")));
+  assert_eq!(Name::<Tag>::validate(&p::Name("also_valid_".into())), Ok(Name::valid("also_valid_")));
 }
 
 #[test]
 fn with_numbers() {
-  assert_eq!(Name::<Tag>::validate(p::Name("val1d".into())),       Ok(Name::valid("val1d")));
-  assert_eq!(Name::<Tag>::validate(p::Name("als0_val1d_".into())), Ok(Name::valid("als0_val1d_")));
+  assert_eq!(Name::<Tag>::validate(&p::Name("val1d".into())),       Ok(Name::valid("val1d")));
+  assert_eq!(Name::<Tag>::validate(&p::Name("als0_val1d_".into())), Ok(Name::valid("als0_val1d_")));
 }
 
 #[test]
 fn start_with_number() {
-  Name::<Tag>::validate(p::Name("1-not-a-name".into())).unwrap_err();
+  Name::<Tag>::validate(&p::Name("1-not-a-name".into())).unwrap_err();
 }
 
 #[test]
 fn start_with_underscore() {
-  Name::<Tag>::validate(p::Name("_not_valid".into())).unwrap_err();
+  Name::<Tag>::validate(&p::Name("_not_valid".into())).unwrap_err();
 }
 
 #[test]
 fn empty() {
-  Name::<Tag>::validate(p::Name("".into())).unwrap_err();
+  Name::<Tag>::validate(&p::Name("".into())).unwrap_err();
 }

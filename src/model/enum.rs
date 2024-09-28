@@ -21,15 +21,15 @@ impl Enum {
   /// Creates definition of enumeration by validating a data structure from a [`parser`] module.
   ///
   /// [`parser`]: crate::parser
-  pub fn validate(spec: p::Enum) -> Result<Self, ModelError> {
-    let iter = spec.0.into_iter();
+  pub fn validate(spec: &p::Enum) -> Result<Self, ModelError> {
+    let iter = spec.0.iter();
     let cap = iter.size_hint().1.unwrap_or(0);
     let mut result = IndexMap::with_capacity(cap);
     let mut names = HashSet::with_capacity(cap);
 
     for (k, v) in iter {
       let k = Self::validate_key(k)?;
-      let v = EnumVariant::validate(v)?;
+      let v = EnumVariant::validate(&v)?;
 
       if !names.insert(v.name.clone()) {
         return Err(Validation(format!("name `{}` was previously defined", v.name).into()));
@@ -46,7 +46,7 @@ impl Enum {
     Ok(Self(result))
   }
 
-  fn validate_key(key: p::Scalar) -> Result<i64, ModelError> {
+  fn validate_key(key: &p::Scalar) -> Result<i64, ModelError> {
     match key {
       p::Scalar::Null => Err(Validation(format!(
         "expected integral constant in range [{}, {}], found null",
@@ -106,10 +106,10 @@ impl EnumVariant {
   /// Creates definition of enumeration by validating a data structure from a [`parser`] module.
   ///
   /// [`parser`]: crate::parser
-  pub fn validate(value: p::EnumValue) -> Result<Self, ModelError> {
+  pub fn validate(value: &p::EnumValue) -> Result<Self, ModelError> {
     let name = match value {
       p::EnumValue::Name(name) => EnumValueName::validate(name)?,
-      p::EnumValue::Full(info) => match info.id {
+      p::EnumValue::Full(info) => match &info.id {
         p::Identifier::Name(name) => EnumValueName::validate(name)?,
         p::Identifier::Bool(true) => EnumValueName::valid("true"),
         p::Identifier::Bool(false) => EnumValueName::valid("false"),
@@ -146,7 +146,7 @@ mod tests {
     ").unwrap();
 
     assert_eq!(
-      Enum::validate(ksy),
+      Enum::validate(&ksy),
       Ok(Enum(indexmap![
         1 => variant("true"),
         2 => variant("false"),
@@ -164,7 +164,7 @@ mod tests {
     ").unwrap();
 
     assert_eq!(
-      Enum::validate(ksy),
+      Enum::validate(&ksy),
       Ok(Enum(indexmap![
         0x1 => variant("true"),
         0x2 => variant("false"),
@@ -181,7 +181,7 @@ mod tests {
     ").unwrap();
 
     assert_eq!(
-      Enum::validate(ksy),
+      Enum::validate(&ksy),
       Err(Validation("name `one` was previously defined".into())),
     );
   }
@@ -200,7 +200,7 @@ mod tests {
       ").unwrap();
 
       assert_eq!(
-        Enum::validate(ksy),
+        Enum::validate(&ksy),
         Err(Validation("value `1` was previously defined".into())),
       );
     }
@@ -213,7 +213,7 @@ mod tests {
       ").unwrap();
 
       assert_eq!(
-        Enum::validate(ksy),
+        Enum::validate(&ksy),
         Err(Validation("value `1` was previously defined".into())),
       );
     }
@@ -226,7 +226,7 @@ mod tests {
       ").unwrap();
 
       assert_eq!(
-        Enum::validate(ksy),
+        Enum::validate(&ksy),
         Err(Validation("value `1` was previously defined".into())),
       );
     }
@@ -239,7 +239,7 @@ mod tests {
       ").unwrap();
 
       assert_eq!(
-        Enum::validate(ksy),
+        Enum::validate(&ksy),
         Err(Validation("value `1` was previously defined".into())),
       );
     }
@@ -252,7 +252,7 @@ mod tests {
       ").unwrap();
 
       assert_eq!(
-        Enum::validate(ksy),
+        Enum::validate(&ksy),
         Err(Validation("expected integral constant in range [-9223372036854775808, 9223372036854775807], found string `1_1`".into())),
       );
     }
@@ -269,7 +269,7 @@ mod tests {
       ", i64::MIN)).unwrap();
 
       assert_eq!(
-        Enum::validate(ksy),
+        Enum::validate(&ksy),
         Ok(Enum(indexmap![i64::MIN => variant("one")])),
       );
     }
@@ -281,7 +281,7 @@ mod tests {
       ", i64::MIN))).unwrap();
 
       assert_eq!(
-        Enum::validate(ksy),
+        Enum::validate(&ksy),
         Ok(Enum(indexmap![i64::MIN => variant("one")])),
       );
     }
@@ -293,7 +293,7 @@ mod tests {
       ").unwrap();
 
       assert_eq!(
-        Enum::validate(ksy),
+        Enum::validate(&ksy),
         Err(Validation("expected integral constant in range [-9223372036854775808, 9223372036854775807], found string `-9_223_372_036_854_775_808`".into())),
       );
     }
@@ -310,7 +310,7 @@ mod tests {
       ", i64::MAX)).unwrap();
 
       assert_eq!(
-        Enum::validate(ksy),
+        Enum::validate(&ksy),
         Ok(Enum(indexmap![i64::MAX => variant("one")])),
       );
     }
@@ -322,7 +322,7 @@ mod tests {
       ", i64::MAX)).unwrap();
 
       assert_eq!(
-        Enum::validate(ksy),
+        Enum::validate(&ksy),
         Ok(Enum(indexmap![i64::MAX => variant("one")])),
       );
     }
@@ -334,7 +334,7 @@ mod tests {
       ").unwrap();
 
       assert_eq!(
-        Enum::validate(ksy),
+        Enum::validate(&ksy),
         Err(Validation("expected integral constant in range [-9223372036854775808, 9223372036854775807], found string `9_223_372_036_854_775_807`".into())),
       );
     }
@@ -352,7 +352,7 @@ mod tests {
       ", i64::MIN as i128 - 1)).unwrap();
 
       assert_eq!(
-        Enum::validate(ksy),
+        Enum::validate(&ksy),
         Err(Validation("expected integral constant in range [-9223372036854775808, 9223372036854775807], found -9223372036854775809".into())),
       );
     }
@@ -364,7 +364,7 @@ mod tests {
       ", i64::MAX as i128 + 1)).unwrap();
 
       assert_eq!(
-        Enum::validate(ksy),
+        Enum::validate(&ksy),
         Err(Validation("expected integral constant in range [-9223372036854775808, 9223372036854775807], found number `9223372036854775808`".into())),
       );
 
@@ -374,7 +374,7 @@ mod tests {
       ", u64::MAX as i128 + 1)).unwrap();
 
       assert_eq!(
-        Enum::validate(ksy),
+        Enum::validate(&ksy),
         Err(Validation("expected integral constant in range [-9223372036854775808, 9223372036854775807], found 18446744073709551616".into())),
       );*/
     }
@@ -386,7 +386,7 @@ mod tests {
       ").unwrap();
 
       assert_eq!(
-        Enum::validate(ksy),
+        Enum::validate(&ksy),
         Err(Validation("expected integral constant in range [-9223372036854775808, 9223372036854775807], found string `111_111_111_111_111_111_111_111_111`".into())),
       );
     }

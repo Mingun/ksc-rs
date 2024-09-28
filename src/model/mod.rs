@@ -80,8 +80,8 @@ mod helpers {
   /// Transitional structure, that contains all data, affecting size of field.
   /// That structure will be cloned for each case in switch-on types.
   #[derive(Clone)]
-  pub struct Size {
-    pub size: Option<p::Count>,
+  pub struct Size<'a> {
+    pub size: Option<&'a p::Count>,
     pub size_eos: Option<bool>,
 
     pub terminator: Option<u8>,
@@ -95,10 +95,10 @@ mod helpers {
   /// Transitional structure, that contains all data from parser structure,
   /// used to determine type for model.
   #[derive(Clone)]
-  pub struct TypeProps {
-    pub enum_:      Option<p::Path>,
-    pub contents:   Option<p::Contents>,
-    pub encoding:   Inheritable<String>,
+  pub struct TypeProps<'a> {
+    pub enum_:      Option<&'a p::Path>,
+    pub contents:   Option<&'a p::Contents>,
+    pub encoding:   Inheritable<&'a String>,
     pub endian:     Option<p::Variant<p::ByteOrder>>,
     pub bit_endian: Option<p::BitOrder>,
   }
@@ -113,7 +113,7 @@ pub struct ProcessAlgo {
   pub args: Vec<OwningNode>,
 }
 impl ProcessAlgo {
-  fn validate(algo: p::ProcessAlgo) -> Result<Self, ModelError> {
+  fn validate(algo: &p::ProcessAlgo) -> Result<Self, ModelError> {
     let r = parse_process(&algo.0)?;
     Ok(Self {
       path: r.path.into_iter().map(|n| n.into()).collect(),
@@ -128,10 +128,10 @@ impl ProcessAlgo {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Condition(OwningNode);
 impl Condition {
-  fn validate(data: p::Condition) -> Result<Self, ModelError> {
+  fn validate(data: &p::Condition) -> Result<Self, ModelError> {
     Ok(match data {
-      p::Condition::Expr(expr)   => Self(OwningNode::parse(&expr)?),
-      p::Condition::Value(value) => Self(OwningNode::Bool(value)),
+      p::Condition::Expr(expr)   => Self(OwningNode::parse(expr)?),
+      p::Condition::Value(value) => Self(OwningNode::Bool(*value)),
     })
   }
 }
@@ -150,10 +150,10 @@ macro_rules! usize_expr {
     #[derive(Clone, Debug, PartialEq)]
     pub struct $to(OwningNode);
     impl $to {
-      fn validate(data: $from) -> Result<Self, ModelError> {
+      fn validate(data: &$from) -> Result<Self, ModelError> {
         Ok(match data {
           p::Expression::Expr(expr)   => Self(OwningNode::parse(&expr)?),
-          p::Expression::Value(value) => Self(OwningNode::Int(value.into())),
+          p::Expression::Value(value) => Self(OwningNode::Int((*value).into())),
         })
       }
     }
@@ -252,8 +252,8 @@ pub enum Repeat {
 }
 impl Repeat {
   fn validate(repeat: Option<p::Repeat>,
-              repeat_expr: Option<p::Count>,
-              repeat_until: Option<p::Condition>,
+              repeat_expr: Option<&p::Count>,
+              repeat_until: Option<&p::Condition>,
   ) -> Result<Self, ModelError> {
     use p::Repeat::*;
     use ModelError::*;
@@ -684,7 +684,7 @@ impl TypeRef {
     }
   }
 
-  fn validate(type_ref: Option<p::TypeRef>, props: helpers::TypeProps) -> Result<Self, ModelError> {
+  fn validate(type_ref: Option<&p::TypeRef>, props: helpers::TypeProps) -> Result<Self, ModelError> {
     lazy_static! {
       static ref BITS: Regex = Regex::new("^b([0-9]+)$").expect("incorrect BITS regexp");
     }
@@ -703,10 +703,10 @@ impl TypeRef {
       None => Err(Validation(format!("unable to use type `{:?}` without default endianness", t).into())),
     };
     // Extract encoding of string
-    let encoding = |e: helpers::Inheritable<String>| match e {
+    let encoding = |e: helpers::Inheritable<&String>| match e {
       Undefined    => Err(Validation("string requires encoding".into())),
-      Default(enc) => Ok(enc),
-      Defined(enc) => Ok(enc),
+      Default(enc) => Ok(enc.clone()),
+      Defined(enc) => Ok(enc.clone()),
     };
     // Produces error of illegal use of enum
     let enum_err = || Err(Validation("`enum` can be used only with integral (`u*`, `s*` and `b*`) types".into()));
@@ -751,7 +751,7 @@ impl TypeRef {
       (Some(Builtin(str)),     _, None, None) => Ok(TypeRef::String(encoding(props.encoding)?)),
       (Some(Builtin(strz)),    _, None, None) => Ok(TypeRef::String(encoding(props.encoding)?)),
 
-      (Some(User(name)), None, None, e) => match parse_type_ref(&name)? {
+      (Some(User(name)), None, None, e) => match parse_type_ref(name)? {
         AttrType::Bits { size, order } => Ok(Enum {
           // For backward-compatibility with the Kaitai Struct 0.8 bit order by default
           // is Big-Endian
@@ -770,7 +770,7 @@ impl TypeRef {
         }
       },
 
-      (None, None, Some(content), None) => Ok(TypeRef::Fixed(content.into())),
+      (None, None, Some(content), None) => Ok(TypeRef::Fixed(content.clone().into())),
       (None, None, None, None)          => Ok(TypeRef::Bytes),
 
       (_, Some(_), _, _) => Err(Validation("`encoding` can be specified only for `type: str` or `type: strz`".into())),
@@ -823,7 +823,7 @@ impl Chunk {
   /// - `size`: attributes that affects the field size
   /// - `check_size`: if `true` then in a compatible mode check for allow
   ///   `size` / `size-eos` together with built-in types will be performed
-  fn validate(type_ref: Option<p::TypeRef>,
+  fn validate(type_ref: Option<&p::TypeRef>,
               props: helpers::TypeProps,
               mut size: helpers::Size,
               check_size: bool,
@@ -909,18 +909,18 @@ impl Attribute {
       (Some(_), Unsized(_, m)) => Unsized(0usize.into(), m),
     }
   }
-  fn validate(attr: p::Attribute, defaults: p::Defaults) -> Result<Self, ModelError> {
+  fn validate(attr: &p::Attribute, defaults: p::Defaults) -> Result<Self, ModelError> {
     use p::Variant::*;
 
     let mut props = helpers::TypeProps {
-      enum_:      attr.enum_,
-      contents:   attr.contents,
-      encoding:   helpers::Inheritable::from(attr.encoding, defaults.encoding),
+      enum_:      attr.enum_.as_ref(),
+      contents:   attr.contents.as_ref(),
+      encoding:   helpers::Inheritable::from(attr.encoding.as_ref(), defaults.encoding.as_ref()),
       endian:     defaults.endian,
       bit_endian: defaults.bit_endian,
     };
     let size = helpers::Size {
-      size:       attr.size,
+      size:       attr.size.as_ref(),
       size_eos:   attr.size_eos,
 
       terminator: attr.terminator,
@@ -931,7 +931,7 @@ impl Attribute {
       pad_right:  attr.pad_right,
     };
     Ok(Self {
-      chunk:     match attr.type_ {
+      chunk:     match &attr.type_ {
         None             => Variant::Fixed(Chunk::validate(None,      props, size, true)?),
         Some(Fixed(val)) => Variant::Fixed(Chunk::validate(Some(val), props, size, true)?),
         Some(Choice { switch_on, cases }) => {
@@ -949,9 +949,9 @@ impl Attribute {
           }
         }
       },
-      repeat:    Repeat::validate(attr.repeat, attr.repeat_expr, attr.repeat_until)?,
-      condition: attr.condition.map(Condition::validate).transpose()?,
-      process:   attr.process.map(ProcessAlgo::validate).transpose()?,
+      repeat:    Repeat::validate(attr.repeat, attr.repeat_expr.as_ref(), attr.repeat_until.as_ref())?,
+      condition: attr.condition.as_ref().map(Condition::validate).transpose()?,
+      process:   attr.process.as_ref().map(ProcessAlgo::validate).transpose()?,
     })
   }
 }
@@ -1417,7 +1417,7 @@ mod repeat {
     fn negative() {
       let rep = Repeat::validate(
         Some(p::Repeat::Expr),
-        Some(p::Count::Expr("-42".into())),
+        Some(&p::Count::Expr("-42".into())),
         None,
       );
 
@@ -1436,7 +1436,7 @@ mod repeat {
     fn zero() {
       let rep = Repeat::validate(
         Some(p::Repeat::Expr),
-        Some(p::Count::Value(0)),
+        Some(&p::Count::Value(0)),
         None,
       );
 
@@ -1455,7 +1455,7 @@ mod repeat {
     fn positive() {
       let rep = Repeat::validate(
         Some(p::Repeat::Expr),
-        Some(p::Count::Value(42)),
+        Some(&p::Count::Value(42)),
         None,
       );
       assert_eq!(rep, Ok(Repeat::Count(Count(OwningNode::Int(42.into())))));
@@ -1469,7 +1469,7 @@ mod repeat {
     fn variable() {
       let rep = Repeat::validate(
         Some(p::Repeat::Expr),
-        Some(p::Count::Expr("expr".into())),
+        Some(&p::Count::Expr("expr".into())),
         None,
       );
       assert_eq!(rep, Ok(Repeat::Count(Count(OwningNode::Attr(FieldName::valid("expr").into())))));
@@ -1484,7 +1484,7 @@ mod repeat {
       let rep = Repeat::validate(
         Some(p::Repeat::Expr),
         None,
-        Some(p::Condition::Expr("until".into())),
+        Some(&p::Condition::Expr("until".into())),
       );
       assert_eq!(rep, Err(Validation("missed `repeat-expr`".into())));
     }
@@ -1500,7 +1500,7 @@ mod repeat {
       fn negative() {
         let rep = Repeat::validate(
           None,
-          Some(p::Count::Expr("-42".into())),
+          Some(&p::Count::Expr("-42".into())),
           None,
         );
 
@@ -1518,7 +1518,7 @@ mod repeat {
       fn zero() {
         let rep = Repeat::validate(
           None,
-          Some(p::Count::Value(0)),
+          Some(&p::Count::Value(0)),
           None,
         );
 
@@ -1536,7 +1536,7 @@ mod repeat {
       fn positive() {
         let rep = Repeat::validate(
           None,
-          Some(p::Count::Value(42)),
+          Some(&p::Count::Value(42)),
           None,
         );
 
@@ -1554,7 +1554,7 @@ mod repeat {
       fn variable() {
         let rep = Repeat::validate(
           None,
-          Some(p::Count::Expr("expr".into())),
+          Some(&p::Count::Expr("expr".into())),
           None,
         );
 
@@ -1593,7 +1593,7 @@ mod repeat {
       let rep = Repeat::validate(
         Some(p::Repeat::Until),
         None,
-        Some(p::Condition::Value(true)),
+        Some(&p::Condition::Value(true)),
       );
       assert_eq!(rep, Ok(Repeat::Until(Condition(OwningNode::Bool(true)))));
     }
@@ -1607,7 +1607,7 @@ mod repeat {
       let rep = Repeat::validate(
         Some(p::Repeat::Until),
         None,
-        Some(p::Condition::Value(false)),
+        Some(&p::Condition::Value(false)),
       );
 
       #[cfg(feature = "compatible")]
@@ -1626,7 +1626,7 @@ mod repeat {
       let rep = Repeat::validate(
         Some(p::Repeat::Until),
         None,
-        Some(p::Condition::Expr("until".into())),
+        Some(&p::Condition::Expr("until".into())),
       );
       assert_eq!(rep, Ok(Repeat::Until(Condition(OwningNode::Attr(FieldName::valid("until").into())))));
     }
@@ -1639,7 +1639,7 @@ mod repeat {
     fn repeat_expr() {
       let rep = Repeat::validate(
         Some(p::Repeat::Until),
-        Some(p::Count::Expr("expr".into())),
+        Some(&p::Count::Expr("expr".into())),
         None,
       );
       assert_eq!(rep, Err(Validation("missed `repeat-until`".into())));
@@ -1657,7 +1657,7 @@ mod repeat {
         let rep = Repeat::validate(
           None,
           None,
-          Some(p::Condition::Value(true)),
+          Some(&p::Condition::Value(true)),
         );
 
         #[cfg(feature = "compatible")]
@@ -1675,7 +1675,7 @@ mod repeat {
         let rep = Repeat::validate(
           None,
           None,
-          Some(p::Condition::Value(false)),
+          Some(&p::Condition::Value(false)),
         );
 
         #[cfg(feature = "compatible")]
@@ -1693,7 +1693,7 @@ mod repeat {
         let rep = Repeat::validate(
           None,
           None,
-          Some(p::Condition::Expr("until".into())),
+          Some(&p::Condition::Expr("until".into())),
         );
 
         #[cfg(feature = "compatible")]
@@ -1730,7 +1730,7 @@ mod repeat {
     fn repeat_expr() {
       let rep = Repeat::validate(
         Some(p::Repeat::Eos),
-        Some(p::Count::Expr("expr".into())),
+        Some(&p::Count::Expr("expr".into())),
         None,
       );
       assert_eq!(rep, Err(Validation("`repeat-expr` requires `repeat: expr`".into())));
@@ -1745,7 +1745,7 @@ mod repeat {
       let rep = Repeat::validate(
         Some(p::Repeat::Eos),
         None,
-        Some(p::Condition::Expr("until".into())),
+        Some(&p::Condition::Expr("until".into())),
       );
       assert_eq!(rep, Err(Validation("`repeat-until` requires `repeat: until`".into())));
     }
@@ -1759,8 +1759,8 @@ mod repeat {
     fn repeat_expr_until() {
       let rep = Repeat::validate(
         Some(p::Repeat::Eos),
-        Some(p::Count::Expr("expr".into())),
-        Some(p::Condition::Expr("until".into())),
+        Some(&p::Count::Expr("expr".into())),
+        Some(&p::Condition::Expr("until".into())),
       );
       assert_eq!(rep, Err(Validation("either `repeat-expr` or `repeat-until` must be specified".into())));
     }
@@ -1774,8 +1774,8 @@ mod repeat {
   fn repeat_expr_until() {
     let rep = Repeat::validate(
       None,
-      Some(p::Count::Expr("expr".into())),
-      Some(p::Condition::Expr("until".into())),
+      Some(&p::Count::Expr("expr".into())),
+      Some(&p::Condition::Expr("until".into())),
     );
     assert_eq!(rep, Err(Validation("either `repeat-expr` or `repeat-until` must be specified".into())));
   }
@@ -2508,7 +2508,7 @@ mod sizeof {
     /// Helper method to create attributes from their KSY representation with additional attributes
     fn from_ksy_with(ksy: &str, defaults: p::Defaults) -> Result<Attribute, ModelError> {
       let attr: p::Attribute = serde_yml::from_str(ksy).unwrap();
-      Attribute::validate(attr, defaults)
+      Attribute::validate(&attr, defaults)
     }
 
     macro_rules! type_check_size {

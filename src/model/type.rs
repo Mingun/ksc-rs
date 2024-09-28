@@ -71,27 +71,27 @@ impl UserType {
     })
   }
 
-  fn validate(spec: p::TypeSpec, mut defaults: p::Defaults) -> Result<Self, ModelError> {
+  fn validate(spec: &p::TypeSpec, mut defaults: p::Defaults) -> Result<Self, ModelError> {
     // Merge type defaults with inherited defaults
-    if let Some(def) = spec.default {
+    if let Some(def) = spec.default.clone() {
       defaults.endian     = def.endian.or(defaults.endian);
       defaults.bit_endian = def.bit_endian.or(defaults.bit_endian);
       defaults.encoding   = def.encoding.or(defaults.encoding);
     }
 
-    let fields = Self::check_duplicates(spec.seq.map(|s| s.into_iter().enumerate()), |(i, mut spec)| {
+    let fields = Self::check_duplicates(spec.seq.as_ref().map(|s| s.into_iter().enumerate()), |(i, spec)| {
       Ok((
-        SeqName::validate(i, spec.id.take())?,
+        SeqName::validate(i, spec.id.clone())?,
         Attribute::validate(spec, defaults.clone())?,
       ))
     })?;
-    let types = Self::check_duplicates(spec.types, |(name, spec)| {
+    let types = Self::check_duplicates(spec.types.as_ref(), |(name, spec)| {
       Ok((
         TypeName::validate(name)?,
         UserType::validate(spec, defaults.clone())?,
       ))
     })?;
-    let enums = Self::check_duplicates(spec.enums, |(name, spec)| {
+    let enums = Self::check_duplicates(spec.enums.as_ref(), |(name, spec)| {
       Ok((
         EnumName::validate(name)?,
         Enum::validate(spec)?,
@@ -122,13 +122,13 @@ impl TryFrom<p::Ksy> for Root {
   fn try_from(data: p::Ksy) -> Result<Self, Self::Error> {
     use p::Identifier::*;
 
-    let name = match data.meta.id {
+    let name = match &data.meta.id {
       None              => TypeName::valid("root"),
       Some(Bool(true))  => TypeName::valid("r#true"),
       Some(Bool(false)) => TypeName::valid("r#false"),
       Some(Name(name))  => TypeName::validate(name)?,
     };
-    let type_ = UserType::validate(data.root, data.meta.defaults.into())?;
+    let type_ = UserType::validate(&data.root, data.meta.defaults.into())?;
 
     Ok(Self { name, type_ })
   }
