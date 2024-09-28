@@ -98,7 +98,7 @@ mod helpers {
     pub enum_:      Option<&'a p::Path>,
     pub contents:   Option<&'a p::Contents>,
     pub encoding:   Inheritable<&'a String>,
-    pub endian:     Option<p::Variant<p::ByteOrder>>,
+    pub endian:     Option<&'a p::Variant<p::ByteOrder>>,
     pub bit_endian: Option<p::BitOrder>,
   }
 }
@@ -696,7 +696,7 @@ impl TypeRef {
     use ModelError::*;
     use TypeRef::{Enum, F32, F64};
 
-    let endian = props.endian.as_ref();
+    let endian = props.endian;
     let endian = |t| match endian {
       Some(e) => Ok(ByteOrder::try_from(e.clone())?),
       None => Err(Validation(format!("unable to use type `{:?}` without default endianness", t).into())),
@@ -908,14 +908,14 @@ impl Attribute {
       (Some(_), Unsized(_, m)) => Unsized(0usize.into(), m),
     }
   }
-  fn validate(attr: &p::Attribute, defaults: p::Defaults) -> Result<Self, ModelError> {
+  fn validate(attr: &p::Attribute, defaults: &p::Defaults) -> Result<Self, ModelError> {
     use p::Variant::*;
 
     let mut props = helpers::TypeProps {
       enum_:      attr.enum_.as_ref(),
       contents:   attr.contents.as_ref(),
       encoding:   helpers::Inheritable::from(attr.encoding.as_ref(), defaults.encoding.as_ref()),
-      endian:     defaults.endian,
+      endian:     defaults.endian.as_ref(),
       bit_endian: defaults.bit_endian,
     };
     let size = helpers::Size {
@@ -2507,7 +2507,7 @@ mod sizeof {
     /// Helper method to create attributes from their KSY representation with additional attributes
     fn from_ksy_with(ksy: &str, defaults: p::Defaults) -> Result<Attribute, ModelError> {
       let attr: p::Attribute = serde_yml::from_str(ksy).unwrap();
-      Attribute::validate(&attr, defaults)
+      Attribute::validate(&attr, &defaults)
     }
 
     macro_rules! type_check_size {

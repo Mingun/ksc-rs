@@ -82,7 +82,7 @@ impl UserType {
     let fields = Self::check_duplicates(spec.seq.as_ref().map(|s| s.into_iter().enumerate()), |(i, spec)| {
       Ok((
         SeqName::validate(i, spec.id.clone())?,
-        Attribute::validate(spec, defaults.clone())?,
+        Attribute::validate(spec, &defaults)?,
       ))
     })?;
     let types = Self::check_duplicates(spec.types.as_ref(), |(name, spec)| {
