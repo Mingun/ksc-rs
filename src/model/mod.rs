@@ -208,10 +208,10 @@ impl<T, U: TryInto<T>> TryFrom<p::Variant<U>> for Variant<T>
       Choice { switch_on, cases } => {
         let mut new_cases = IndexMap::with_capacity(cases.len());
         for (k, v) in cases.into_iter() {
-          new_cases.insert(k.try_into()?, v.try_into().map_err(Into::into)?);
+          new_cases.insert(OwningNode::from_scalar(&k)?, v.try_into().map_err(Into::into)?);
         }
         Ok(Variant::Choice {
-          switch_on: switch_on.try_into()?,
+          switch_on: OwningNode::from_scalar(&switch_on)?,
           cases: new_cases,
         })
       }
@@ -940,10 +940,10 @@ impl Attribute {
           let mut new_cases = IndexMap::with_capacity(cases.len());
           for (k, val) in cases.into_iter() {
             let chunk = Chunk::validate(Some(val), &props, size.clone(), false)?;
-            new_cases.insert(k.try_into()?, chunk);
+            new_cases.insert(OwningNode::from_scalar(k)?, chunk);
           }
           Variant::Choice {
-            switch_on: switch_on.try_into()?,
+            switch_on: OwningNode::from_scalar(switch_on)?,
             cases: new_cases,
           }
         }

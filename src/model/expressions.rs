@@ -125,6 +125,21 @@ impl OwningNode {
   pub fn parse(expr: &str) -> Result<Self, ModelError> {
     Self::validate(parse_single(expr)?)
   }
+  /// Converts scalar YAML value into expression node. [`Scalar::Null`] translated
+  /// into an error, [`Scalar::String`] parsed as [expression].
+  ///
+  /// [expression]: crate::model::expressions
+  pub fn from_scalar(scalar: &Scalar) -> Result<Self, ModelError> {
+    match scalar {
+      Scalar::Null => Err(ModelError::Validation(
+        "Expected expression, but null found (note that `null` literal in YAML is \
+         equivalent of absence of any value, use 'null' if you want to refer to name `null`)".into()
+      )),
+      Scalar::Bool(val) => Ok(Self::Bool(*val)),
+      Scalar::Number(n) => Ok(n.into()),
+      Scalar::String(val) => Ok(Self::parse(val)?),
+    }
+  }
   /// Performs a semantic validation of raw parsed expression
   pub fn validate(node: Node) -> Result<Self, ModelError> {
     use OwningNode::*;
@@ -231,31 +246,6 @@ impl<'a> From<&'a Number> for OwningNode {
   fn from(number: &'a Number) -> Self {
     // SAFETY: conversion from numerical Node into OwningNode always successful
     Self::validate(Node::from(number)).expect("Number -> Node conversion should be always success")
-  }
-}
-impl TryFrom<Scalar> for OwningNode {
-  type Error = ModelError;
-
-  #[inline]
-  fn try_from(scalar: Scalar) -> Result<Self, Self::Error> {
-    TryFrom::try_from(&scalar)
-  }
-}
-impl<'a> TryFrom<&'a Scalar> for OwningNode {
-  type Error = ModelError;
-
-  fn try_from(scalar: &'a Scalar) -> Result<Self, Self::Error> {
-    use ModelError::*;
-    use Scalar::*;
-
-    match scalar {
-      Null        => Err(Validation(
-        "Expected expression, but null found (note that `null` literal in YAML is \
-         equivalent of absence of any value, use 'null' if you want to refer to name `null`)".into())),
-      Bool(val)   => Ok(Self::Bool(*val)),
-      Number(n)   => Ok(n.into()),
-      String(val) => Ok(Self::parse(val)?),
-    }
   }
 }
 
@@ -407,19 +397,23 @@ mod convert {
   use pretty_assertions::assert_eq;
   use OwningNode::*;
 
+  fn from_scalar(scalar: Scalar) -> Result<OwningNode, ModelError> {
+    OwningNode::from_scalar(&scalar)
+  }
+
   #[test]
   fn from_null() {
-    assert!(OwningNode::try_from(Scalar::Null).is_err());
+    assert!(from_scalar(Scalar::Null).is_err());
   }
 
   #[test]
   fn from_true() {
-    assert_eq!(OwningNode::try_from(Scalar::Bool(true)), Ok(Bool(true)));
+    assert_eq!(from_scalar(Scalar::Bool(true)), Ok(Bool(true)));
   }
 
   #[test]
   fn from_false() {
-    assert_eq!(OwningNode::try_from(Scalar::Bool(false)), Ok(Bool(false)));
+    assert_eq!(from_scalar(Scalar::Bool(false)), Ok(Bool(false)));
   }
 
   mod integer {
@@ -428,17 +422,17 @@ mod convert {
 
     #[test]
     fn from_zero() {
-      assert_eq!(OwningNode::try_from(Scalar::Number(0u64.into())), Ok(Int(0.into())));
+      assert_eq!(from_scalar(Scalar::Number(0u64.into())), Ok(Int(0.into())));
     }
 
     #[test]
     fn from_positive() {
-      assert_eq!(OwningNode::try_from(Scalar::Number(42u64.into())), Ok(Int(42.into())));
+      assert_eq!(from_scalar(Scalar::Number(42u64.into())), Ok(Int(42.into())));
     }
 
     #[test]
     fn from_negative() {
-      assert_eq!(OwningNode::try_from(Scalar::Number((-42i64).into())), Ok(Int((-42).into())));
+      assert_eq!(from_scalar(Scalar::Number((-42i64).into())), Ok(Int((-42).into())));
     }
   }
 
@@ -448,24 +442,24 @@ mod convert {
 
     #[test]
     fn from_zero() {
-      assert_eq!(OwningNode::try_from(Scalar::Number(0.0.into())), Ok(Float(0.into())));
+      assert_eq!(from_scalar(Scalar::Number(0.0.into())), Ok(Float(0.into())));
     }
 
     #[test]
     fn from_positive() {
-      assert_eq!(OwningNode::try_from(Scalar::Number(4.5.into())), Ok(Float((45, 1).into())));
+      assert_eq!(from_scalar(Scalar::Number(4.5.into())), Ok(Float((45, 1).into())));
     }
 
     #[test]
     fn from_negative() {
-      assert_eq!(OwningNode::try_from(Scalar::Number((-4.5).into())), Ok(Float((-45, 1).into())));
+      assert_eq!(from_scalar(Scalar::Number((-4.5).into())), Ok(Float((-45, 1).into())));
     }
   }
 
   #[test]
   fn from_string() {
-    assert_eq!(OwningNode::try_from(Scalar::String("id".into())), Ok(Attr(FieldName::valid("id").into())));
-    assert_eq!(OwningNode::try_from(Scalar::String("x + 2".into())), Ok(Binary {
+    assert_eq!(from_scalar(Scalar::String("id".into())), Ok(Attr(FieldName::valid("id").into())));
+    assert_eq!(from_scalar(Scalar::String("x + 2".into())), Ok(Binary {
       op: BinaryOp::Add,
       left:  Box::new(Attr(FieldName::valid("x").into())),
       right: Box::new(Int(2.into())),
