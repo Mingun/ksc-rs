@@ -94,7 +94,6 @@ mod helpers {
 
   /// Transitional structure, that contains all data from parser structure,
   /// used to determine type for model.
-  #[derive(Clone)]
   pub struct TypeProps<'a> {
     pub enum_:      Option<&'a p::Path>,
     pub contents:   Option<&'a p::Contents>,
@@ -684,7 +683,7 @@ impl TypeRef {
     }
   }
 
-  fn validate(type_ref: Option<&p::TypeRef>, props: helpers::TypeProps) -> Result<Self, ModelError> {
+  fn validate(type_ref: Option<&p::TypeRef>, props: &helpers::TypeProps) -> Result<Self, ModelError> {
     lazy_static! {
       static ref BITS: Regex = Regex::new("^b([0-9]+)$").expect("incorrect BITS regexp");
     }
@@ -697,16 +696,16 @@ impl TypeRef {
     use ModelError::*;
     use TypeRef::{Enum, F32, F64};
 
-    let endian = props.endian;
+    let endian = props.endian.as_ref();
     let endian = |t| match endian {
-      Some(e) => Ok(ByteOrder::try_from(e)?),
+      Some(e) => Ok(ByteOrder::try_from(e.clone())?),
       None => Err(Validation(format!("unable to use type `{:?}` without default endianness", t).into())),
     };
     // Extract encoding of string
-    let encoding = |e: helpers::Inheritable<&String>| match e {
+    let encoding = |e: &helpers::Inheritable<&String>| match e {
       Undefined    => Err(Validation("string requires encoding".into())),
-      Default(enc) => Ok(enc.clone()),
-      Defined(enc) => Ok(enc.clone()),
+      Default(enc) => Ok((*enc).clone()),
+      Defined(enc) => Ok((*enc).clone()),
     };
     // Produces error of illegal use of enum
     let enum_err = || Err(Validation("`enum` can be used only with integral (`u*`, `s*` and `b*`) types".into()));
@@ -748,8 +747,8 @@ impl TypeRef {
       (Some(Builtin(f8be)), None, None, None) => Ok(F64(ByteOrder::Fixed(Be))),
       (Some(Builtin(f8le)), None, None, None) => Ok(F64(ByteOrder::Fixed(Le))),
 
-      (Some(Builtin(str)),     _, None, None) => Ok(TypeRef::String(encoding(props.encoding)?)),
-      (Some(Builtin(strz)),    _, None, None) => Ok(TypeRef::String(encoding(props.encoding)?)),
+      (Some(Builtin(str)),     _, None, None) => Ok(TypeRef::String(encoding(&props.encoding)?)),
+      (Some(Builtin(strz)),    _, None, None) => Ok(TypeRef::String(encoding(&props.encoding)?)),
 
       (Some(User(name)), None, None, e) => match parse_type_ref(name)? {
         AttrType::Bits { size, order } => Ok(Enum {
@@ -824,7 +823,7 @@ impl Chunk {
   /// - `check_size`: if `true` then in a compatible mode check for allow
   ///   `size` / `size-eos` together with built-in types will be performed
   fn validate(type_ref: Option<&p::TypeRef>,
-              props: helpers::TypeProps,
+              props: &helpers::TypeProps,
               mut size: helpers::Size,
               check_size: bool,
   ) -> Result<Self, ModelError> {
@@ -932,15 +931,15 @@ impl Attribute {
     };
     Ok(Self {
       chunk:     match &attr.type_ {
-        None             => Variant::Fixed(Chunk::validate(None,      props, size, true)?),
-        Some(Fixed(val)) => Variant::Fixed(Chunk::validate(Some(val), props, size, true)?),
+        None             => Variant::Fixed(Chunk::validate(None,      &props, size, true)?),
+        Some(Fixed(val)) => Variant::Fixed(Chunk::validate(Some(val), &props, size, true)?),
         Some(Choice { switch_on, cases }) => {
           // Because in switch-on expression encoding defined not at the same level, as type
           // (not in `case:` clause), we make it inherited
           props.encoding = props.encoding.to_inherited();
           let mut new_cases = IndexMap::with_capacity(cases.len());
           for (k, val) in cases.into_iter() {
-            let chunk = Chunk::validate(Some(val), props.clone(), size.clone(), false)?;
+            let chunk = Chunk::validate(Some(val), &props, size.clone(), false)?;
             new_cases.insert(k.try_into()?, chunk);
           }
           Variant::Choice {
