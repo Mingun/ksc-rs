@@ -226,6 +226,30 @@ impl<T> Variant<T> {
       }
     }
   }
+  fn validate_ref<'a, U>(data: &'a p::Variant<U>, ctx: &TypeContext) -> Result<Self, ModelError>
+  where
+    T: TryFrom<&'a U>,
+    T::Error: Into<ModelError>,
+  {
+    use p::Variant::*;
+
+    match data {
+      Fixed(val) => Ok(Self::Fixed(val.try_into().map_err(Into::into)?)),
+      Choice { switch_on, cases } => {
+        let mut new_cases = IndexMap::with_capacity(cases.len());
+        for (k, v) in cases.iter() {
+          new_cases.insert(
+            OwningNode::from_scalar(k, ctx)?,
+            v.try_into().map_err(Into::into)?,
+          );
+        }
+        Ok(Self::Choice {
+          switch_on: OwningNode::from_scalar(switch_on, ctx)?,
+          cases: new_cases,
+        })
+      }
+    }
+  }
 }
 impl Variant<Chunk> {
   /// Calculates combined size of all chunks in this container.
