@@ -114,7 +114,13 @@ pub enum Node<'input> {
   },
 }
 impl<'input> From<Number> for Node<'input> {
+  #[inline]
   fn from(number: Number) -> Self {
+    From::from(&number)
+  }
+}
+impl<'a, 'input> From<&'a Number> for Node<'input> {
+  fn from(number: &'a Number) -> Self {
     if let Some(n) = number.as_u64() {
       return Node::Int(n.into());
     }

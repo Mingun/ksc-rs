@@ -223,6 +223,12 @@ impl OwningNode {
 impl From<Number> for OwningNode {
   #[inline]
   fn from(number: Number) -> Self {
+    From::from(&number)
+  }
+}
+impl<'a> From<&'a Number> for OwningNode {
+  #[inline]
+  fn from(number: &'a Number) -> Self {
     // SAFETY: conversion from numerical Node into OwningNode always successful
     Self::validate(Node::from(number)).expect("Number -> Node conversion should be always success")
   }
@@ -230,7 +236,15 @@ impl From<Number> for OwningNode {
 impl TryFrom<Scalar> for OwningNode {
   type Error = ModelError;
 
+  #[inline]
   fn try_from(scalar: Scalar) -> Result<Self, Self::Error> {
+    TryFrom::try_from(&scalar)
+  }
+}
+impl<'a> TryFrom<&'a Scalar> for OwningNode {
+  type Error = ModelError;
+
+  fn try_from(scalar: &'a Scalar) -> Result<Self, Self::Error> {
     use ModelError::*;
     use Scalar::*;
 
@@ -238,9 +252,9 @@ impl TryFrom<Scalar> for OwningNode {
       Null        => Err(Validation(
         "Expected expression, but null found (note that `null` literal in YAML is \
          equivalent of absence of any value, use 'null' if you want to refer to name `null`)".into())),
-      Bool(val)   => Ok(Self::Bool(val)),
+      Bool(val)   => Ok(Self::Bool(*val)),
       Number(n)   => Ok(n.into()),
-      String(val) => Ok(Self::parse(&val)?),
+      String(val) => Ok(Self::parse(val)?),
     }
   }
 }
