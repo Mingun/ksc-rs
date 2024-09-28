@@ -3,6 +3,7 @@
 //TODO: Describe the language
 
 use std::char;
+use std::fmt;
 use std::iter::FromIterator;
 
 use bigdecimal::num_bigint::BigInt;
@@ -206,6 +207,22 @@ pub struct Scope<'input> {
   /// Names of types defining this scope.
   pub path: Vec<&'input str>,
 }
+impl<'input> fmt::Display for Scope<'input> {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    if self.absolute {
+      f.write_str("::")?;
+    }
+    let mut it = self.path.iter();
+    if let Some(name) = it.next() {
+      f.write_str(name)?;
+    }
+    for name in it {
+      f.write_str("::")?;
+      f.write_str(name)?;
+    }
+    Ok(())
+  }
+}
 
 /// A possible qualified type name, used in references
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -214,6 +231,15 @@ pub struct TypeName<'input> {
   pub scope: Scope<'input>,
   /// A local name of the referenced type
   pub name: &'input str,
+}
+impl<'input> fmt::Display for TypeName<'input> {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    self.scope.fmt(f)?;
+    if !self.scope.path.is_empty() {
+      f.write_str("::")?;
+    }
+    f.write_str(self.name)
+  }
 }
 
 /// Represents a reference to a type definition, used in the cast and sizeof
