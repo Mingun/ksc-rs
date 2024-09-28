@@ -195,22 +195,22 @@ pub enum Variant<T> {
     cases: IndexMap<OwningNode, T>,
   },
 }
-impl<T, U: TryInto<T>> TryFrom<p::Variant<U>> for Variant<T>
-  where U::Error: Into<ModelError>,
-{
-  type Error = ModelError;
-
-  fn try_from(data: p::Variant<U>) -> Result<Self, Self::Error> {
+impl<T> Variant<T> {
+  fn validate<U>(data: p::Variant<U>) -> Result<Self, ModelError>
+  where
+    T: TryFrom<U>,
+    T::Error: Into<ModelError>,
+  {
     use p::Variant::*;
 
     match data {
-      Fixed(val) => Ok(Variant::Fixed(val.try_into().map_err(Into::into)?)),
+      Fixed(val) => Ok(Self::Fixed(val.try_into().map_err(Into::into)?)),
       Choice { switch_on, cases } => {
         let mut new_cases = IndexMap::with_capacity(cases.len());
         for (k, v) in cases.into_iter() {
           new_cases.insert(OwningNode::from_scalar(&k)?, v.try_into().map_err(Into::into)?);
         }
-        Ok(Variant::Choice {
+        Ok(Self::Choice {
           switch_on: OwningNode::from_scalar(&switch_on)?,
           cases: new_cases,
         })
@@ -698,7 +698,7 @@ impl TypeRef {
 
     let endian = props.endian;
     let endian = |t| match endian {
-      Some(e) => Ok(ByteOrder::try_from(e.clone())?),
+      Some(e) => Ok(ByteOrder::validate(e.clone())?),
       None => Err(Validation(format!("unable to use type `{:?}` without default endianness", t).into())),
     };
     // Extract encoding of string
