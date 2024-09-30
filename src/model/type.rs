@@ -123,10 +123,10 @@ impl TryFrom<p::Ksy> for Root {
     use p::Identifier::*;
 
     let name = match &data.meta.id {
-      None              => TypeName::valid("root"),
-      Some(Bool(true))  => TypeName::valid("r#true"),
-      Some(Bool(false)) => TypeName::valid("r#false"),
+      Some(Bool(true))  => TypeName::valid("true"),
+      Some(Bool(false)) => TypeName::valid("false"),
       Some(Name(name))  => TypeName::validate(name)?,
+      None => return Err(ModelError::Validation("`meta/id` is not defined".into())),
     };
     let type_ = UserType::validate(&data.root, data.meta.defaults.into())?;
 
