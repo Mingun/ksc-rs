@@ -109,11 +109,7 @@ impl EnumVariant {
   pub fn validate(value: &p::EnumValue) -> Result<Self, ModelError> {
     let name = match value {
       p::EnumValue::Name(name) => EnumValueName::validate(name)?,
-      p::EnumValue::Full(info) => match &info.id {
-        p::Identifier::Name(name) => EnumValueName::validate(name)?,
-        p::Identifier::Bool(true) => EnumValueName::valid("true"),
-        p::Identifier::Bool(false) => EnumValueName::valid("false"),
-      },
+      p::EnumValue::Full(info) => EnumValueName::validate(&info.id)?,
     };
     Ok(Self { name })
   }

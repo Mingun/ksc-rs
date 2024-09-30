@@ -120,12 +120,8 @@ impl TryFrom<p::Ksy> for Root {
   type Error = ModelError;
 
   fn try_from(data: p::Ksy) -> Result<Self, Self::Error> {
-    use p::Identifier::*;
-
     let name = match &data.meta.id {
-      Some(Bool(true))  => TypeName::valid("true"),
-      Some(Bool(false)) => TypeName::valid("false"),
-      Some(Name(name))  => TypeName::validate(name)?,
+      Some(name) => TypeName::validate(name)?,
       None => return Err(ModelError::Validation("`meta/id` is not defined".into())),
     };
     let type_ = UserType::validate(&data.root, data.meta.defaults.into())?;

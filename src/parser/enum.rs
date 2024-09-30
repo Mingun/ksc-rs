@@ -7,14 +7,14 @@ use serde::ser::{SerializeMap, Serializer};
 use serde::{Deserialize, Serialize};
 use serde_yml::{Number, Value};
 
-use crate::parser::{Doc, Identifier, Name, OneOrMany, Scalar, UserName};
+use crate::parser::{Doc, Name, OneOrMany, Scalar, UserName};
 
 /// Detailed information about enum variant
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub struct EnumVariant {
   /// Symbolic or boolean alias for numeric constant.
-  pub id: Identifier,
+  pub id: Name,
   /// Documentation for constant.
   #[serde(flatten)]
   pub doc: Doc,

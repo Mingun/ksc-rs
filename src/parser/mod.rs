@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use serde_yml::{Number, Value};
 
 pub use doc::{Doc, DocRef, XRef, XRefs};
-pub use names::{Identifier, Import, Name, Path, ProcessAlgo, UserName};
+pub use names::{Import, Name, Path, ProcessAlgo, UserName};
 pub use r#enum::{Enum, EnumValue, EnumVariant};
 pub use utils::{Expression, OneOrMany, Scalar, Variant};
 
@@ -316,7 +316,7 @@ pub struct MetaSpec {//TODO: json: разделить информацию в с
   /// It would be converted to suit general formatting rules of a language
   /// and used as the name of class.
   #[serde(skip_serializing_if = "Option::is_none")]
-  pub id: Option<Identifier>,
+  pub id: Option<Name>,
   /// Free-form text string that is a longer title of this `.ksy` file.
   #[serde(skip_serializing_if = "Option::is_none")]
   pub title: Option<String>,
