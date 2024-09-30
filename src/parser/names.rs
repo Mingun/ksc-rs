@@ -109,14 +109,6 @@ pub struct UserName(pub String);
 #[serde(transparent)]
 pub struct ProcessAlgo(pub String);
 
-/// Relative or absolute path to another `.ksy` file to import
-/// (**without** the `.ksy` extension).
-///
-/// Pattern: `^(.*/)?[a-z][a-z0-9_]*$`.
-#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[serde(transparent)]
-pub struct Import(pub Name);
-
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #[cfg(test)]

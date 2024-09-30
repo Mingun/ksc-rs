@@ -14,13 +14,15 @@ use serde::{Deserialize, Serialize};
 use serde_yml::{Number, Value};
 
 pub use doc::{Doc, DocRef, XRef, XRefs};
-pub use names::{Import, Name, Path, ProcessAlgo, UserName};
+pub use names::{Name, Path, ProcessAlgo, UserName};
+pub use import::Import;
 pub use r#enum::{Enum, EnumValue, EnumVariant};
 pub use utils::{Expression, OneOrMany, Scalar, Variant};
 
 mod doc;
 mod r#enum;
 pub mod expressions;
+mod import;
 mod names;
 mod utils;
 
