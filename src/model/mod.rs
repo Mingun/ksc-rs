@@ -2,6 +2,8 @@
 //! Unlike structures from [`parser`] module that module contains validated
 //! structures, that represent only valid constructs of kaitai struct language.
 //!
+//! The entry point is a [`Package`] struct.
+//!
 //! [`parser`]: crate::parser
 
 use std::cmp;
@@ -24,11 +26,13 @@ use crate::parser::expressions::{parse_process, parse_type_ref, AttrType};
 mod r#enum;
 pub mod expressions;
 mod name;
+mod package;
 mod r#type;
 
 pub use name::{
   EnumName, EnumPath, EnumValueName, FieldName, Name, OptionalName, ParamName, SeqName, TypeName,
 };
+pub use package::{ImportLoader, Package};
 pub use r#enum::Enum;
 pub use r#type::{Root, UserType, UserTypeRef};
 
