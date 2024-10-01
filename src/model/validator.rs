@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 
 use crate::model::Package;
+use crate::parser::expressions::{Scope, TypeName};
 use crate::parser::{Ksy, Name, TypeSpec};
 
 /// `TypeId` uses equivalence of pointers to compare equivalent types
@@ -117,6 +118,12 @@ impl<'p> FileContext<'p> {
       context,
     }
   }
+
+  /// Helper method, returns type context for the top-level type in a file.
+  /// Useful when need to deal with absolute paths.
+  pub fn for_root<'a>(&'a self) -> TypeContext<'a> {
+    self.for_type(&self.ksy.root)
+  }
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -135,6 +142,34 @@ impl<'t> TypeContext<'t> {
   /// - an unknown type
   fn parent(&self, type_id: &TypeId<'t>) -> Option<&'t TypeSpec> {
     Some(*self.file.ctx.parents.get(type_id)?)
+  }
+
+  /// Resolves type by its reference relatively to the contextual type.
+  ///
+  /// If type with `ref_.name` is defined inside `self.context`, then reference to it
+  /// is returned. Otherwise go to the parent type and repeat search in it.
+  ///
+  /// # Parameters
+  /// - `ref_`: the reference to the user-defined Kaitai type
+  ///
+  /// Returns `None` if type cannot be resolved.
+  fn resolve_type(&self, ref_: &TypeName) -> Option<&'t TypeSpec> {
+    if ref_.scope.absolute {
+      self.file.for_root().resolve_scoped_type(&ref_.scope, ref_.name)
+    } else {
+      self.resolve_scoped_type(&ref_.scope, ref_.name)
+    }
+  }
+
+  fn resolve_scoped_type(&self, scope: &Scope, name: &str) -> Option<&'t TypeSpec> {
+    if scope.path.is_empty() {
+      // just one name
+      self.resolve_type_name(name)
+    } else {
+      // name with path or one name under root
+      let ty = self.resolve_type_path(&scope.path)?;
+      ty.types.as_ref()?.get(name)
+    }
   }
 
   /// Resolves type by its path relatively to the contextual type.
@@ -514,5 +549,294 @@ mod tests {
     assert_eq!(resolve(&resolver, &["two"]), Some(child_122_ptr)); // self-reference
     assert_eq!(resolve(&resolver, &["two", "one"]), None);
     assert_eq!(resolve(&resolver, &["two", "unk"]), None);
+  }
+
+  /// Checks that the type specified by a reference can be correctly found in a complex hierarchy of types
+  mod resolve_type {
+    use super::*;
+    use pretty_assertions::assert_eq;
+
+    /// We want to check that concrete objects is returned instead of checking that
+    /// the object with the same structure is returned
+    fn resolve(resolver: &TypeContext, ref_: &TypeName) -> Option<*const TypeSpec> {
+      resolver.resolve_type(ref_).map(|t| t as *const TypeSpec)
+    }
+
+    #[test]
+    fn relative() {
+      let pkg = Package::test(setup());
+      let ctx = PackageContext::new(&pkg);
+      let ksy = pkg.files.values().next().unwrap();
+      let context = ctx.for_file(ksy);
+
+      let child_1 = ksy.root.types.as_ref().unwrap().get("child_1").expect("`child_1` not found");
+      let child_2 = ksy.root.types.as_ref().unwrap().get("child_2").expect("`child_2` not found");
+
+      let child_11 = child_1.types.as_ref().unwrap().get("one").expect("`child_11` not found");
+      let child_12 = child_1.types.as_ref().unwrap().get("two").expect("`child_12` not found");
+
+      let child_21 = child_2.types.as_ref().unwrap().get("one").expect("`child_21` not found");
+      let child_22 = child_2.types.as_ref().unwrap().get("two").expect("`child_22` not found");
+
+      let child_121 = child_12.types.as_ref().unwrap().get("one").expect("`child_121` not found");
+      let child_122 = child_12.types.as_ref().unwrap().get("two").expect("`child_122` not found");
+
+      let root_ptr = &ksy.root as *const TypeSpec;
+      let child_11_ptr = child_11 as *const TypeSpec;
+      let child_21_ptr = child_21 as *const TypeSpec;
+      let child_121_ptr = child_121 as *const TypeSpec;
+
+      // Kaitai path: root
+      let rty_ref = TypeName {
+        scope: Scope {
+          absolute: false,
+          path: Vec::new(),
+        },
+        name: "root",
+      };
+      // Kaitai path: unknown
+      let unknown = TypeName {
+        scope: Scope {
+          absolute: false,
+          path: Vec::new(),
+        },
+        name: "unknown",
+      };
+
+      // Kaitai path: one
+      let one_ref = TypeName {
+        scope: Scope {
+          absolute: false,
+          path: Vec::new(),
+        },
+        name: "one",
+      };
+      // Kaitai path: one::two
+      let one_two = TypeName {
+        scope: Scope {
+          absolute: false,
+          path: vec!["one"],
+        },
+        name: "two",
+      };
+      // Kaitai path: one::unknown
+      let one_unk = TypeName {
+        scope: Scope {
+          absolute: false,
+          path: vec!["one"],
+        },
+        name: "unknown",
+      };
+
+      // Kaitai path: two::one
+      let two_one = TypeName {
+        scope: Scope {
+          absolute: false,
+          path: vec!["two"],
+        },
+        name: "one",
+      };
+
+      let resolver = context.for_type(&ksy.root);
+      assert_eq!(resolve(&resolver, &rty_ref), Some(root_ptr)); // self-reference
+      assert_eq!(resolve(&resolver, &unknown), None);
+      assert_eq!(resolve(&resolver, &one_ref), None);
+      assert_eq!(resolve(&resolver, &one_two), None);
+      assert_eq!(resolve(&resolver, &one_unk), None);
+      assert_eq!(resolve(&resolver, &two_one), None);
+
+      let resolver = context.for_type(child_1);
+      assert_eq!(resolve(&resolver, &rty_ref), Some(root_ptr));
+      assert_eq!(resolve(&resolver, &unknown), None);
+      assert_eq!(resolve(&resolver, &one_ref), Some(child_11_ptr));
+      assert_eq!(resolve(&resolver, &one_two), None);
+      assert_eq!(resolve(&resolver, &one_unk), None);
+      assert_eq!(resolve(&resolver, &two_one), Some(child_121_ptr));
+
+      let resolver = context.for_type(child_2);
+      assert_eq!(resolve(&resolver, &rty_ref), Some(root_ptr));
+      assert_eq!(resolve(&resolver, &unknown), None);
+      assert_eq!(resolve(&resolver, &one_ref), Some(child_21_ptr));
+      assert_eq!(resolve(&resolver, &one_two), None);
+      assert_eq!(resolve(&resolver, &one_unk), None);
+      assert_eq!(resolve(&resolver, &two_one), None);
+
+      let resolver = context.for_type(child_11);
+      assert_eq!(resolve(&resolver, &rty_ref), Some(root_ptr));
+      assert_eq!(resolve(&resolver, &unknown), None);
+      assert_eq!(resolve(&resolver, &one_ref), Some(child_11_ptr)); // self-reference
+      assert_eq!(resolve(&resolver, &one_two), None);
+      assert_eq!(resolve(&resolver, &one_unk), None);
+      assert_eq!(resolve(&resolver, &two_one), Some(child_121_ptr));
+
+      let resolver = context.for_type(child_12);
+      assert_eq!(resolve(&resolver, &rty_ref), Some(root_ptr));
+      assert_eq!(resolve(&resolver, &unknown), None);
+      assert_eq!(resolve(&resolver, &one_ref), Some(child_121_ptr));
+      assert_eq!(resolve(&resolver, &one_two), None);
+      assert_eq!(resolve(&resolver, &one_unk), None);
+      assert_eq!(resolve(&resolver, &two_one), Some(child_121_ptr));
+
+      let resolver = context.for_type(child_21);
+      assert_eq!(resolve(&resolver, &rty_ref), Some(root_ptr));
+      assert_eq!(resolve(&resolver, &unknown), None);
+      assert_eq!(resolve(&resolver, &one_ref), Some(child_21_ptr)); // self-reference
+      assert_eq!(resolve(&resolver, &one_two), None);
+      assert_eq!(resolve(&resolver, &one_unk), None);
+      assert_eq!(resolve(&resolver, &two_one), None);
+
+      let resolver = context.for_type(child_22);
+      assert_eq!(resolve(&resolver, &rty_ref), Some(root_ptr));
+      assert_eq!(resolve(&resolver, &unknown), None);
+      assert_eq!(resolve(&resolver, &one_ref), Some(child_21_ptr));
+      assert_eq!(resolve(&resolver, &one_two), None);
+      assert_eq!(resolve(&resolver, &one_unk), None);
+      assert_eq!(resolve(&resolver, &two_one), None);
+
+      let resolver = context.for_type(child_121);
+      assert_eq!(resolve(&resolver, &rty_ref), Some(root_ptr));
+      assert_eq!(resolve(&resolver, &unknown), None);
+      assert_eq!(resolve(&resolver, &one_ref), Some(child_121_ptr)); // self-reference
+      assert_eq!(resolve(&resolver, &one_two), None);
+      assert_eq!(resolve(&resolver, &one_unk), None);
+      assert_eq!(resolve(&resolver, &two_one), Some(child_121_ptr));
+
+      let resolver = context.for_type(child_122);
+      assert_eq!(resolve(&resolver, &rty_ref), Some(root_ptr));
+      assert_eq!(resolve(&resolver, &unknown), None);
+      assert_eq!(resolve(&resolver, &one_ref), Some(child_121_ptr));
+      assert_eq!(resolve(&resolver, &one_two), None);
+      assert_eq!(resolve(&resolver, &one_unk), None);
+      assert_eq!(resolve(&resolver, &two_one), None);
+    }
+
+    #[test]
+    fn absolute() {
+      let pkg = Package::test(setup());
+      let ctx = PackageContext::new(&pkg);
+      let ksy = pkg.files.values().next().unwrap();
+      let context = ctx.for_file(ksy);
+
+      let child_1 = ksy.root.types.as_ref().unwrap().get("child_1").expect("`child_1` not found");
+      let child_2 = ksy.root.types.as_ref().unwrap().get("child_2").expect("`child_2` not found");
+
+      let child_11 = child_1.types.as_ref().unwrap().get("one").expect("`child_11` not found");
+      let child_12 = child_1.types.as_ref().unwrap().get("two").expect("`child_12` not found");
+
+      let child_21 = child_2.types.as_ref().unwrap().get("one").expect("`child_21` not found");
+      let child_22 = child_2.types.as_ref().unwrap().get("two").expect("`child_22` not found");
+
+      let child_121 = child_12.types.as_ref().unwrap().get("one").expect("`child_121` not found");
+      let child_122 = child_12.types.as_ref().unwrap().get("two").expect("`child_122` not found");
+
+      let root_ptr = &ksy.root as *const TypeSpec;
+      let child_1_ptr = child_1 as *const TypeSpec;
+      let child_11_ptr = child_11 as *const TypeSpec;
+
+      // Kaitai path: ::root
+      let rty_ref = TypeName {
+        scope: Scope {
+          absolute: true,
+          path: Vec::new(),
+        },
+        name: "root",
+      };
+      // Kaitai path: ::unknown
+      let unknown = TypeName {
+        scope: Scope {
+          absolute: true,
+          path: Vec::new(),
+        },
+        name: "unknown",
+      };
+
+      // Kaitai path: ::child_1
+      let ch1_ref = TypeName {
+        scope: Scope {
+          absolute: true,
+          path: Vec::new(),
+        },
+        name: "child_1",
+      };
+      // Kaitai path: ::child_1::one
+      let ch1_one = TypeName {
+        scope: Scope {
+          absolute: true,
+          path: vec!["child_1"],
+        },
+        name: "one",
+      };
+      // Kaitai path: ::child_1::unknown
+      let ch1_unk = TypeName {
+        scope: Scope {
+          absolute: true,
+          path: vec!["child_1"],
+        },
+        name: "unknown",
+      };
+
+      let resolver = context.for_type(&ksy.root);
+      assert_eq!(resolve(&resolver, &rty_ref), Some(root_ptr)); // self-reference
+      assert_eq!(resolve(&resolver, &unknown), None);
+      assert_eq!(resolve(&resolver, &ch1_ref), Some(child_1_ptr));
+      assert_eq!(resolve(&resolver, &ch1_one), Some(child_11_ptr));
+      assert_eq!(resolve(&resolver, &ch1_unk), None);
+
+      let resolver = context.for_type(child_1);
+      assert_eq!(resolve(&resolver, &rty_ref), Some(root_ptr));
+      assert_eq!(resolve(&resolver, &unknown), None);
+      assert_eq!(resolve(&resolver, &ch1_ref), Some(child_1_ptr)); // self-reference
+      assert_eq!(resolve(&resolver, &ch1_one), Some(child_11_ptr));
+      assert_eq!(resolve(&resolver, &ch1_unk), None);
+
+      let resolver = context.for_type(child_2);
+      assert_eq!(resolve(&resolver, &rty_ref), Some(root_ptr));
+      assert_eq!(resolve(&resolver, &unknown), None);
+      assert_eq!(resolve(&resolver, &ch1_ref), Some(child_1_ptr));
+      assert_eq!(resolve(&resolver, &ch1_one), Some(child_11_ptr));
+      assert_eq!(resolve(&resolver, &ch1_unk), None);
+
+      let resolver = context.for_type(child_11);
+      assert_eq!(resolve(&resolver, &rty_ref), Some(root_ptr));
+      assert_eq!(resolve(&resolver, &unknown), None);
+      assert_eq!(resolve(&resolver, &ch1_ref), Some(child_1_ptr));
+      assert_eq!(resolve(&resolver, &ch1_one), Some(child_11_ptr));
+      assert_eq!(resolve(&resolver, &ch1_unk), None);
+
+      let resolver = context.for_type(child_12);
+      assert_eq!(resolve(&resolver, &rty_ref), Some(root_ptr));
+      assert_eq!(resolve(&resolver, &unknown), None);
+      assert_eq!(resolve(&resolver, &ch1_ref), Some(child_1_ptr));
+      assert_eq!(resolve(&resolver, &ch1_one), Some(child_11_ptr));
+      assert_eq!(resolve(&resolver, &ch1_unk), None);
+
+      let resolver = context.for_type(child_21);
+      assert_eq!(resolve(&resolver, &rty_ref), Some(root_ptr));
+      assert_eq!(resolve(&resolver, &unknown), None);
+      assert_eq!(resolve(&resolver, &ch1_ref), Some(child_1_ptr));
+      assert_eq!(resolve(&resolver, &ch1_one), Some(child_11_ptr));
+      assert_eq!(resolve(&resolver, &ch1_unk), None);
+
+      let resolver = context.for_type(child_22);
+      assert_eq!(resolve(&resolver, &rty_ref), Some(root_ptr));
+      assert_eq!(resolve(&resolver, &unknown), None);
+      assert_eq!(resolve(&resolver, &ch1_ref), Some(child_1_ptr));
+      assert_eq!(resolve(&resolver, &ch1_one), Some(child_11_ptr));
+      assert_eq!(resolve(&resolver, &ch1_unk), None);
+
+      let resolver = context.for_type(child_121);
+      assert_eq!(resolve(&resolver, &rty_ref), Some(root_ptr));
+      assert_eq!(resolve(&resolver, &unknown), None);
+      assert_eq!(resolve(&resolver, &ch1_ref), Some(child_1_ptr));
+      assert_eq!(resolve(&resolver, &ch1_one), Some(child_11_ptr));
+      assert_eq!(resolve(&resolver, &ch1_unk), None);
+
+      let resolver = context.for_type(child_122);
+      assert_eq!(resolve(&resolver, &rty_ref), Some(root_ptr));
+      assert_eq!(resolve(&resolver, &unknown), None);
+      assert_eq!(resolve(&resolver, &ch1_ref), Some(child_1_ptr));
+      assert_eq!(resolve(&resolver, &ch1_one), Some(child_11_ptr));
+      assert_eq!(resolve(&resolver, &ch1_unk), None);
+    }
   }
 }
