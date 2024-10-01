@@ -14,7 +14,6 @@ pub mod parser;
 mod formats {
   use crate::model::Root;
   use crate::parser::Ksy;
-  use std::convert::TryInto;
   use std::fs::File;
   use test_generator::test_resources;
 
@@ -45,7 +44,7 @@ mod formats {
       return;
     }
 
-    let _: Root = ksy.try_into().expect(&format!("incorrect KSY {}", resource));
+    let _ = Root::validate(&ksy).expect(&format!("incorrect KSY {}", resource));
   }
 
   #[test_resources("test-data/formats_err/**/*.ksy")]

@@ -1,4 +1,3 @@
-use std::convert::TryFrom;
 use std::fmt::Display;
 use std::hash::Hash;
 
@@ -116,15 +115,13 @@ pub struct Root {
   /// Definition of type
   pub type_: UserType,
 }
-impl TryFrom<p::Ksy> for Root {
-  type Error = ModelError;
-
-  fn try_from(data: p::Ksy) -> Result<Self, Self::Error> {
+impl Root {
+  pub(crate) fn validate(data: &p::Ksy) -> Result<Self, ModelError> {
     let name = match &data.meta.id {
       Some(name) => TypeName::validate(name)?,
       None => return Err(ModelError::Validation("`meta/id` is not defined".into())),
     };
-    let type_ = UserType::validate(&data.root, data.meta.defaults.into())?;
+    let type_ = UserType::validate(&data.root, data.meta.defaults.clone().into())?;
 
     Ok(Self { name, type_ })
   }

@@ -32,10 +32,10 @@ pub use name::{
 pub use r#enum::Enum;
 pub use r#type::{Root, UserType, UserTypeRef};
 
-/// Contains helper structures for implementing `TryFrom`.
+/// Contains helper structures for implementing `validate` methods.
 ///
-/// `TryFrom` takes ownership of large parser structures, but not all fields
-/// of that structure used in every single `TryFrom` implementation. This module
+/// `validate` takes large parser structures, but not all fields
+/// of that structures used in every single `validate` implementation. This module
 /// contains helper structures, that contains only necessary subset of fields.
 /// Advantages over just unnamed tuples is names of fields.
 mod helpers {
@@ -995,7 +995,7 @@ mod size {
       - id: field
         size: 5
     "#).unwrap();
-    let root = Root::try_from(ksy).expect("`size` defines size");
+    let root = Root::validate(&ksy).expect("`size` defines size");
     assert_eq!(root, Root {
       name: TypeName::valid("test"),
       type_: UserType {
@@ -1018,7 +1018,7 @@ mod size {
       - id: field
         size-eos: true
     "#).unwrap();
-    let root = Root::try_from(ksy).expect("`size-eos` defines size");
+    let root = Root::validate(&ksy).expect("`size-eos` defines size");
     assert_eq!(root, Root {
       name: TypeName::valid("test"),
       type_: UserType {
@@ -1041,7 +1041,7 @@ mod size {
       - id: field
         terminator: 5
     "#).unwrap();
-    let root = Root::try_from(ksy).expect("`terminator` defines size");
+    let root = Root::validate(&ksy).expect("`terminator` defines size");
     assert_eq!(root, Root {
       name: TypeName::valid("test"),
       type_: UserType {
@@ -1065,7 +1065,7 @@ mod size {
         type: strz
         encoding: UTF-8
     "#).unwrap();
-    let root = Root::try_from(ksy).expect("`strz` defines size (because of implicit `terminator=0`)");
+    let root = Root::validate(&ksy).expect("`strz` defines size (because of implicit `terminator=0`)");
     assert_eq!(root, Root {
       name: TypeName::valid("test"),
       type_: UserType {
@@ -1095,7 +1095,7 @@ mod size {
           - id: field
             type: {}
         "#, stringify!($builtin))).unwrap();
-        let root = Root::try_from(ksy).expect(&format!("`{}` has natural size", stringify!($builtin)));
+        let root = Root::validate(&ksy).expect(&format!("`{}` has natural size", stringify!($builtin)));
         assert_eq!(root, Root {
           name: TypeName::valid("test"),
           type_: UserType {
@@ -1165,7 +1165,7 @@ mod strz {
         type: strz
         encoding: UTF-8
     "#).unwrap();
-    let _ = Root::try_from(ksy).expect("`strz` not requires explicit size");
+    let _ = Root::validate(&ksy).expect("`strz` not requires explicit size");
   }
 
   #[test]
@@ -1182,7 +1182,7 @@ mod strz {
             2: u4be
         encoding: UTF-8
     "#).unwrap();
-    let _ = Root::try_from(ksy).expect("`strz` not requires explicit size");
+    let _ = Root::validate(&ksy).expect("`strz` not requires explicit size");
   }
 }
 
@@ -1193,7 +1193,6 @@ mod encoding {
       mod $type_name {
         #[test]
         fn simple() {
-          use std::convert::TryFrom;
           let ksy: crate::parser::Ksy = serde_yml::from_str(&format!(r#"
           meta:
             id: missing_encoding
@@ -1202,12 +1201,11 @@ mod encoding {
               type: {}
               size: 1
           "#, stringify!($type_name))).unwrap();
-          let _ = crate::model::Root::try_from(ksy).expect_err(&format!("`{}` requires `encoding`", stringify!($type_name)));
+          let _ = crate::model::Root::validate(&ksy).expect_err(&format!("`{}` requires `encoding`", stringify!($type_name)));
         }
 
         #[test]
         fn choice() {
-          use std::convert::TryFrom;
           let ksy: crate::parser::Ksy = serde_yml::from_str(&format!(r#"
           meta:
             id: missing_encoding
@@ -1220,7 +1218,7 @@ mod encoding {
                   2: u1
               size: 1
           "#, stringify!($type_name))).unwrap();
-          let _ = crate::model::Root::try_from(ksy).expect_err(&format!("`{}` requires `encoding`", stringify!($type_name)));
+          let _ = crate::model::Root::validate(&ksy).expect_err(&format!("`{}` requires `encoding`", stringify!($type_name)));
         }
       }
     };
@@ -1243,7 +1241,7 @@ mod inheritance {
             let s = stringify!($builtin);
             let t = &format!($template, s);
             let ksy: p::Ksy = serde_yml::from_str(t).unwrap();
-            let _ = Root::try_from(ksy).expect(&format!("inherited `encoding` and `endian` for `{}`\n{}", s, t));
+            let _ = Root::validate(&ksy).expect(&format!("inherited `encoding` and `endian` for `{}`\n{}", s, t));
           };
         }
         test!(u1);
@@ -1381,7 +1379,7 @@ mod duplicate {
       - id: field
         size: 2
     "#).unwrap();
-    let _ = Root::try_from(ksy).expect_err("duplicated fields must raise error");
+    let _ = Root::validate(&ksy).expect_err("duplicated fields must raise error");
   }
 }
 
