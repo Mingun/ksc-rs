@@ -160,6 +160,7 @@ fn import() {
           base.push(comp.into());
         }
       }
+      base.push(import.name.0.clone());
       base
     }
 

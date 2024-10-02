@@ -4,6 +4,8 @@ use std::hash::Hash;
 use serde::de::{Deserialize, Deserializer, Error, Visitor};
 use serde::ser::{Serialize, Serializer};
 
+use crate::parser::Name;
+
 /// Relative or absolute path to another `.ksy` file to import
 /// (**without** the `.ksy` extension).
 ///
@@ -14,6 +16,8 @@ pub struct Import {
   pub absolute: bool,
   /// Components of the path, parts between `/`.
   pub components: Vec<String>,
+  /// Name of the imported type
+  pub name: Name,
 }
 impl fmt::Display for Import {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -24,7 +28,7 @@ impl fmt::Display for Import {
       f.write_str(comp)?;
       f.write_char('/')?;
     }
-    Ok(())
+    f.write_str(&self.name.0)
   }
 }
 impl<'de> Deserialize<'de> for Import {
@@ -49,9 +53,13 @@ impl<'de> Deserialize<'de> for Import {
         } else {
           (false, v)
         };
+        let mut components: Vec<_> = path.split('/').map(|comp| comp.to_owned()).collect();
+        // We will check name on validation phase
+        let name = Name(components.pop().unwrap_or_default());
         Ok(Import {
           absolute,
-          components: path.split('/').map(|comp| comp.to_owned()).collect(),
+          components,
+          name,
         })
       }
 
@@ -61,7 +69,8 @@ impl<'de> Deserialize<'de> for Import {
       {
         Ok(Import {
           absolute: false,
-          components: vec![v.to_string()],
+          components: Vec::new(),
+          name: Name(v.to_string()),
         })
       }
       // Numbers are not allowed, because +123 we can convert only to "123".
@@ -102,11 +111,13 @@ mod tests {
       assert_eq!(meta.imports, Some(vec![
         Import {
           absolute: false,
-          components: vec!["single1".into()],
+          components: Vec::new(),
+          name: Name("single1".into()),
         },
         Import {
           absolute: false,
-          components: vec!["single2".into()],
+          components: Vec::new(),
+          name: Name("single2".into()),
         },
       ]));
     }
@@ -147,11 +158,13 @@ mod tests {
       assert_eq!(meta.imports, Some(vec![
         Import {
           absolute: false,
-          components: vec!["true".into()],
+          components: Vec::new(),
+          name: Name("true".into()),
         },
         Import {
           absolute: false,
-          components: vec!["false".into()],
+          components: Vec::new(),
+          name: Name("false".into()),
         },
       ]));
     }
@@ -171,8 +184,8 @@ mod tests {
             "123".into(),
             "-456".into(),
             "+789".into(),
-            "file.ext".into(),
           ],
+          name: Name("file.ext".into()),
         },
       ]));
     }
@@ -192,11 +205,13 @@ mod tests {
       assert_eq!(meta.imports, Some(vec![
         Import {
           absolute: true,
-          components: vec!["single1".into()],
+          components: Vec::new(),
+          name: Name("single1".into()),
         },
         Import {
           absolute: true,
-          components: vec!["single2".into()],
+          components: Vec::new(),
+          name: Name("single2".into()),
         },
       ]));
     }
@@ -212,15 +227,18 @@ mod tests {
       assert_eq!(meta.imports, Some(vec![
         Import {
           absolute: true,
-          components: vec!["123".into()],
+          components: Vec::new(),
+          name: Name("123".into()),
         },
         Import {
           absolute: true,
-          components: vec!["-456".into()],
+          components: Vec::new(),
+          name: Name("-456".into()),
         },
         Import {
           absolute: true,
-          components: vec!["+789".into()],
+          components: Vec::new(),
+          name: Name("+789".into()),
         },
       ]));
     }
@@ -236,15 +254,18 @@ mod tests {
       assert_eq!(meta.imports, Some(vec![
         Import {
           absolute: true,
-          components: vec!["1.23".into()],
+          components: Vec::new(),
+          name: Name("1.23".into()),
         },
         Import {
           absolute: true,
-          components: vec!["-4.56".into()],
+          components: Vec::new(),
+          name: Name("-4.56".into()),
         },
         Import {
           absolute: true,
-          components: vec!["+7.89".into()],
+          components: Vec::new(),
+          name: Name("+7.89".into()),
         },
       ]));
     }
@@ -259,11 +280,13 @@ mod tests {
       assert_eq!(meta.imports, Some(vec![
         Import {
           absolute: true,
-          components: vec!["true".into()],
+          components: Vec::new(),
+          name: Name("true".into()),
         },
         Import {
           absolute: true,
-          components: vec!["false".into()],
+          components: Vec::new(),
+          name: Name("false".into()),
         },
       ]));
     }
@@ -283,8 +306,8 @@ mod tests {
             "123".into(),
             "-456".into(),
             "+789".into(),
-            "file.ext".into(),
           ],
+          name: Name("file.ext".into()),
         },
       ]));
     }

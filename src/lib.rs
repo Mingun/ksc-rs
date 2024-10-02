@@ -31,6 +31,7 @@ mod formats {
     for comp in &import.components {
       base.push(comp);
     }
+    base.push(&import.name.0);
     base.set_extension("ksy");
     base
   }
