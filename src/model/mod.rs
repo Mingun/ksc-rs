@@ -1297,6 +1297,8 @@ mod inheritance {
     seq:
       - id: field
         type: {}
+    types:
+      user_type: {{}}
   "#);
 
   test_encoding_and_endian!(sub_type, r#"
@@ -1309,6 +1311,7 @@ mod inheritance {
         seq:
           - id: field
             type: {}
+      user_type: {{}}
   "#);
 
   test_encoding_and_endian!(meta_in_sub_type, r#"
@@ -1322,6 +1325,7 @@ mod inheritance {
         seq:
           - id: field
             type: {}
+      user_type: {{}}
   "#);
 
   mod switch_on_type {
@@ -1339,6 +1343,8 @@ mod inheritance {
             cases:
               1: {}
               2: u1 # sized type
+      types:
+        user_type: {{}}
     "#);
     test_encoding_and_endian!(with_unsized, r#"
       meta:
@@ -1352,19 +1358,25 @@ mod inheritance {
             cases:
               1: {}
               2: strz # unsized type
+      types:
+        user_type: {{}}
     "#);
     test_encoding_and_endian!(with_unknown_sized, r#"
       meta:
         id: switch_on_type
         encoding: UTF-8
         endian: be
+        ks-opaque-types: true
       seq:
         - id: field
           type:
             switch-on: 1
             cases:
               1: {}
+              # This type is opaque and its size is unknown
               2: unknown_sized
+      types:
+        user_type: {{}}
     "#);
   }
 }
