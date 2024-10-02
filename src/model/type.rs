@@ -24,6 +24,11 @@ pub struct UserTypeRef {
 }
 impl UserTypeRef {
   pub(crate) fn validate(name: TName, args: Vec<Node>, ctx: &TypeContext) -> Result<Self, ModelError> {
+    if let Err(_) = ctx.resolve_type(&name) {
+      if !ctx.allow_opaque_types() {
+        return Err(ModelError::Validation(format!("unknown type `{name}`").into()));
+      }
+    }
     Ok(Self {
       //TODO: resolve relative types
       path: name.scope.path.into_iter().map(TypeName::valid).collect(),

@@ -160,6 +160,11 @@ pub struct TypeContext<'t> {
 }
 
 impl<'t> TypeContext<'t> {
+  /// Returns whether types not defined in current file is allowed or not
+  pub fn allow_opaque_types(&self) -> bool {
+    self.file.ksy.meta.ks_opaque_types.unwrap_or_default()
+  }
+
   /// Returns the surrounding type of the specified type or `None` if type is
   /// - a root type
   /// - an imported type
@@ -177,7 +182,7 @@ impl<'t> TypeContext<'t> {
   /// - `ref_`: the reference to the user-defined Kaitai type
   ///
   /// Returns `None` if type cannot be resolved.
-  fn resolve_type<'n>(&self, ref_: &'n TypeName) -> Result<&'t TypeSpec, ResolveError<'n>> {
+  pub fn resolve_type<'n>(&self, ref_: &'n TypeName) -> Result<&'t TypeSpec, ResolveError<'n>> {
     if ref_.scope.absolute {
       self.file.for_root().resolve_scoped_type(&ref_.scope, ref_.name)
     } else {
