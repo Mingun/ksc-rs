@@ -104,7 +104,8 @@ mod formats {
     // Directory with `ksc` crate
     let ksc_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
 
-    let package = Package::new(id, ksy, FileLoader {
+    let name = ksy.meta.id.clone().expect("missing `meta/id`");
+    let package = Package::new(id, name, ksy, FileLoader {
       abs_roots: vec![
         ksc_dir.join("formats"),
         ksc_dir.join("test-data").join("formats"),

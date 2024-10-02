@@ -1,9 +1,9 @@
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::Hash;
 
 use crate::error::ModelError;
 use crate::model::Root;
-use crate::parser::{Import, Ksy};
+use crate::parser::{Import, Name, Ksy};
 
 /// Loader used to handle imported kaitai types in `meta.imports` section.
 pub trait ImportLoader {
@@ -50,20 +50,25 @@ pub struct Package {
   /// that should be processed together because they are linked by import relations.
   ///
   /// Usually this list is filled automatically by creating a package using [`Self::new`] method.
-  pub files: Vec<Ksy>,
+  pub files: HashMap<Name, Ksy>,
 }
 impl Package {
   /// Recursively loads all imported files using the provided loader,
   /// returning a package with all loaded files.
   ///
   /// Returns the first error returned by the loader.
-  pub fn new<L>(mut id: L::Id, mut ksy: Ksy, mut loader: L) -> Result<Self, L::Error>
+  pub fn new<L>(
+    mut id: L::Id,
+    mut name: Name,
+    mut ksy: Ksy,
+    mut loader: L,
+  ) -> Result<Self, L::Error>
   where
     L: ImportLoader,
   {
     let mut to_load = VecDeque::new();
     let mut loaded = HashSet::new();
-    let mut files = Vec::new();
+    let mut files = HashMap::new();
 
     'external: loop {
       if let Some(imports) = &ksy.meta.imports {
@@ -71,14 +76,14 @@ impl Package {
           let new_id = loader.new_id(id.clone(), import);
           // If such file was already loaded, do not try to load it again
           if new_id != id && !loaded.contains(&new_id) {
-            to_load.push_back(new_id);
+            to_load.push_back((import.name.clone(), new_id));
           }
         }
       }
       loaded.insert(id);
-      files.push(ksy);
+      files.insert(name, ksy);
 
-      while let Some(new_id) = to_load.pop_front() {
+      while let Some((new_name, new_id)) = to_load.pop_front() {
         // Even when we filter already loaded files before insert into `to_load`,
         // we still can insert duplicated entries to `to_load` because we can have
         // two files, that requested loading of the same file, but which have not
@@ -87,6 +92,7 @@ impl Package {
           continue;
         }
         id = new_id;
+        name = new_name;
         ksy = loader.load(id.clone())?;
         continue 'external;
       }
@@ -98,7 +104,7 @@ impl Package {
 
   /// Performs validation of a set of KS files and create a list of models for them.
   pub fn validate(self) -> Result<Vec<Root>, ModelError> {
-    self.files.iter().map(Root::validate).collect()
+    self.files.iter().map(|(_, ksy)| Root::validate(ksy)).collect()
   }
 }
 
@@ -197,7 +203,12 @@ fn import() {
     already_read: &mut already_read,
   };
 
-  let package = Package::new(vec![start_id], ksy1, loader).unwrap();
+  let package = Package::new(
+    vec![start_id.clone()],
+    Name(start_id),
+    ksy1,
+    loader,
+  ).unwrap();
 
   assert_eq!(package.files.len(), 4);
   assert_eq!(already_read.len(), 4);
