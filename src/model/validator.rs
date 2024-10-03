@@ -4,8 +4,8 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 
 use crate::model::Package;
-use crate::parser::expressions::{Scope, TypeName};
-use crate::parser::{Ksy, Name, TypeSpec};
+use crate::parser::expressions::{EnumRef, Scope, TypeName};
+use crate::parser::{Enum, Ksy, Name, TypeSpec};
 
 /// `TypeId` uses equivalence of pointers to compare equivalent types
 #[derive(Debug)]
@@ -32,12 +32,15 @@ impl<'t> Hash for TypeId<'t> {
 pub enum ResolveError<'n> {
   /// Specified type cannot be resolved
   UnknownType(&'n str),
+  /// Specified enum cannot be resolved
+  UnknownEnum(&'n str),
 }
 
 impl<'n> fmt::Display for ResolveError<'n> {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     match self {
       Self::UnknownType(n) => write!(f, "unknown type `{n}`"),
+      Self::UnknownEnum(n) => write!(f, "unknown enum `{n}`"),
     }
   }
 }
@@ -289,6 +292,80 @@ impl<'t> TypeContext<'t> {
       };
     }
   }
+
+  /// Resolves enum by its reference relatively to the contextual type.
+  ///
+  /// If enum with `ref_.name` is defined inside `self.context`, then reference to it
+  /// is returned. Otherwise go to the parent type and repeat search in it.
+  ///
+  /// # Parameters
+  /// - `scope`: the type from which enum should be taken
+  /// - `name`: the name of an enum to get
+  ///
+  /// Returns `None` if enum cannot be resolved.
+  fn resolve_enum<'n>(&self, ref_: &'n EnumRef) -> Result<&'t Enum, ResolveError<'n>> {
+    if ref_.scope.absolute {
+      self.file.for_root().resolve_scoped_enum(&ref_.scope, ref_.name)
+    } else {
+      self.resolve_scoped_enum(&ref_.scope, ref_.name)
+    }
+  }
+
+  fn resolve_scoped_enum<'n>(
+    &self,
+    scope: &'n Scope,
+    name: &'n str,
+  ) -> Result<&'t Enum, ResolveError<'n>> {
+    if scope.path.is_empty() {
+      // just one name
+      self.resolve_enum_name(name)
+    } else {
+      // name with path or one name under root
+      let ty = self.resolve_type_path(&scope.path)?;
+      if let Some(enums) = &ty.enums {
+        if let Some(e) = enums.get(name) {
+          return Ok(e);
+        }
+      }
+      Err(ResolveError::UnknownEnum(name))
+    }
+  }
+
+  /// Resolves enum by name relatively to the contextual type.
+  ///
+  /// If enum with `name` is defined inside `self.context`, then reference to it
+  /// is returned. Otherwise go to the parent type and repeat search in it.
+  ///
+  /// # Parameters
+  /// - `name`: the name of the enum to resolve
+  ///
+  /// Returns `None` if enum cannot be resolved.
+  fn resolve_enum_name<'n>(&self, name: &'n str) -> Result<&'t Enum, ResolveError<'n>> {
+    let mut context = self.context;
+    loop {
+      if let Some(enums) = &context.enums {
+        if let Some(e) = enums.get(name) {
+          return Ok(e);
+        }
+      }
+
+      // Not found in current type, try in parent
+      let ctx = TypeId(context);
+
+      // If current type is root type and we still not found an enum, it is unknown
+      if ctx == TypeId(&self.file.ksy.root) {
+        return Err(ResolveError::UnknownEnum(name));
+      }
+
+      // Because `context` is not root (checked above) missing parent means unknown enum
+      // Do not look up into imports, because enums cannot be directly imported.
+      // Only types can be imported
+      context = match self.parent(&ctx) {
+        Some(parent) => parent,
+        None => return Err(ResolveError::UnknownEnum(name)),
+      };
+    }
+  }
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -303,15 +380,23 @@ mod tests {
     serde_yml::from_str("
     meta:
       id: root
+    enums:
+      e: {} # e_root
     types:
       child_1:
         types:
-          one: {} # child_11
-          two:    # child_12
+          one: # child_11
+            enums:
+              e: {} # e_11
+          two: # child_12
+            enums:
+              e: {} # e_12
             types:
               one: {} # child_121
               two: {} # child_122
       child_2:
+        enums:
+          e: {} # e_2
         types:
           one: {} # child_21
           two: {} # child_22
@@ -882,6 +967,348 @@ mod tests {
       assert_eq!(resolve(&resolver, &ch1_ref), Ok(child_1_ptr));
       assert_eq!(resolve(&resolver, &ch1_one), Ok(child_11_ptr));
       assert_eq!(resolve(&resolver, &ch1_unk), Err(UnknownType("unknown")));
+    }
+  }
+
+  /// Checks that the enum specified by a name can be correctly found in a complex hierarchy of types
+  #[test]
+  fn resolve_enum_name() {
+    let pkg = Package::test(setup());
+    let ctx = PackageContext::new(&pkg);
+    let ksy = pkg.files.values().next().unwrap();
+    let context = ctx.for_file(ksy);
+
+    let child_1 = ksy.root.types.as_ref().unwrap().get("child_1").expect("`child_1` not found");
+    let child_2 = ksy.root.types.as_ref().unwrap().get("child_2").expect("`child_2` not found");
+
+    let child_11 = child_1.types.as_ref().unwrap().get("one").expect("`child_11` not found");
+    let child_12 = child_1.types.as_ref().unwrap().get("two").expect("`child_12` not found");
+
+    let child_21 = child_2.types.as_ref().unwrap().get("one").expect("`child_21` not found");
+    let child_22 = child_2.types.as_ref().unwrap().get("two").expect("`child_22` not found");
+
+    let child_121 = child_12.types.as_ref().unwrap().get("one").expect("`child_121` not found");
+    let child_122 = child_12.types.as_ref().unwrap().get("two").expect("`child_122` not found");
+
+    let e_root = ksy.root.enums.as_ref().unwrap().get("e").expect("`e_root` not found") as *const Enum;
+    let e_11 = child_11.enums.as_ref().unwrap().get("e").expect("`e_11` not found") as *const Enum;
+    let e_12 = child_12.enums.as_ref().unwrap().get("e").expect("`e_12` not found") as *const Enum;
+    let e_2 = child_2.enums.as_ref().unwrap().get("e").expect("`e_2` not found") as *const Enum;
+
+    /// We want to check that concrete objects is returned instead of checking that
+    /// the object with the same structure is returned
+    fn resolve<'n>(
+      resolver: &TypeContext,
+      name: &'n str,
+    ) -> Result<*const Enum, ResolveError<'n>> {
+      resolver.resolve_enum_name(name).map(|e| e as *const Enum)
+    }
+
+    let resolver = context.for_type(&ksy.root);
+    assert_eq!(resolve(&resolver, "e"), Ok(e_root));
+    assert_eq!(resolve(&resolver, "unknown"), Err(UnknownEnum("unknown")));
+
+    let resolver = context.for_type(child_1);
+    assert_eq!(resolve(&resolver, "e"), Ok(e_root));
+    assert_eq!(resolve(&resolver, "unknown"), Err(UnknownEnum("unknown")));
+
+    let resolver = context.for_type(child_2);
+    assert_eq!(resolve(&resolver, "e"), Ok(e_2));
+    assert_eq!(resolve(&resolver, "unknown"), Err(UnknownEnum("unknown")));
+
+    let resolver = context.for_type(child_11);
+    assert_eq!(resolve(&resolver, "e"), Ok(e_11));
+    assert_eq!(resolve(&resolver, "unknown"), Err(UnknownEnum("unknown")));
+
+    let resolver = context.for_type(child_12);
+    assert_eq!(resolve(&resolver, "e"), Ok(e_12));
+    assert_eq!(resolve(&resolver, "unknown"), Err(UnknownEnum("unknown")));
+
+    let resolver = context.for_type(child_21);
+    assert_eq!(resolve(&resolver, "e"), Ok(e_2));
+    assert_eq!(resolve(&resolver, "unknown"), Err(UnknownEnum("unknown")));
+
+    let resolver = context.for_type(child_22);
+    assert_eq!(resolve(&resolver, "e"), Ok(e_2));
+    assert_eq!(resolve(&resolver, "unknown"), Err(UnknownEnum("unknown")));
+
+    let resolver = context.for_type(child_121);
+    assert_eq!(resolve(&resolver, "e"), Ok(e_12));
+    assert_eq!(resolve(&resolver, "unknown"), Err(UnknownEnum("unknown")));
+
+    let resolver = context.for_type(child_122);
+    assert_eq!(resolve(&resolver, "e"), Ok(e_12));
+    assert_eq!(resolve(&resolver, "unknown"), Err(UnknownEnum("unknown")));
+  }
+
+  /// Checks that the enum specified by a reference can be correctly found in a complex hierarchy of types
+  mod resolve_enum {
+    use super::*;
+    use pretty_assertions::assert_eq;
+
+    /// We want to check that concrete objects is returned instead of checking that
+    /// the object with the same structure is returned
+    fn resolve<'n>(
+      resolver: &TypeContext,
+      ref_: &'n EnumRef,
+    ) -> Result<*const Enum, ResolveError<'n>> {
+      resolver.resolve_enum(ref_).map(|e| e as *const Enum)
+    }
+
+    #[test]
+    fn relative() {
+      let pkg = Package::test(setup());
+      let ctx = PackageContext::new(&pkg);
+      let ksy = pkg.files.values().next().unwrap();
+      let context = ctx.for_file(ksy);
+
+      let child_1 = ksy.root.types.as_ref().unwrap().get("child_1").expect("`child_1` not found");
+      let child_2 = ksy.root.types.as_ref().unwrap().get("child_2").expect("`child_2` not found");
+
+      let child_11 = child_1.types.as_ref().unwrap().get("one").expect("`child_11` not found");
+      let child_12 = child_1.types.as_ref().unwrap().get("two").expect("`child_12` not found");
+
+      let child_21 = child_2.types.as_ref().unwrap().get("one").expect("`child_21` not found");
+      let child_22 = child_2.types.as_ref().unwrap().get("two").expect("`child_22` not found");
+
+      let child_121 = child_12.types.as_ref().unwrap().get("one").expect("`child_121` not found");
+      let child_122 = child_12.types.as_ref().unwrap().get("two").expect("`child_122` not found");
+
+      let e_root = ksy.root.enums.as_ref().unwrap().get("e").expect("`e_root` not found") as *const Enum;
+      let e_11 = child_11.enums.as_ref().unwrap().get("e").expect("`e_11` not found") as *const Enum;
+      let e_12 = child_12.enums.as_ref().unwrap().get("e").expect("`e_12` not found") as *const Enum;
+      let e_2 = child_2.enums.as_ref().unwrap().get("e").expect("`e_2` not found") as *const Enum;
+
+      // Kaitai path: e
+      let none = EnumRef {
+        scope: Scope {
+          absolute: false,
+          path: Vec::new(),
+        },
+        name: "e",
+      };
+      // Kaitai path: one::e
+      let one_e = EnumRef {
+        scope: Scope {
+          absolute: false,
+          path: vec!["one"],
+        },
+        name: "e",
+      };
+      // Kaitai path: one::unknown
+      let one_unk = EnumRef {
+        scope: Scope {
+          absolute: false,
+          path: vec!["one"],
+        },
+        name: "unknown",
+      };
+      // Kaitai path: one::two::e
+      let one_two = EnumRef {
+        scope: Scope {
+          absolute: false,
+          path: vec!["one", "two"],
+        },
+        name: "e",
+      };
+      // Kaitai path: unknown::e
+      let unknown = EnumRef {
+        scope: Scope {
+          absolute: false,
+          path: vec!["unknown"],
+        },
+        name: "e",
+      };
+
+      let resolver = context.for_type(&ksy.root);
+      assert_eq!(resolve(&resolver, &none), Ok(e_root));
+      assert_eq!(resolve(&resolver, &one_e), Err(UnknownType("one")));
+      assert_eq!(resolve(&resolver, &one_two), Err(UnknownType("one")));
+      assert_eq!(resolve(&resolver, &one_unk), Err(UnknownType("one")));
+      assert_eq!(resolve(&resolver, &unknown), Err(UnknownType("unknown")));
+
+      let resolver = context.for_type(child_1);
+      assert_eq!(resolve(&resolver, &none), Ok(e_root));
+      assert_eq!(resolve(&resolver, &one_e), Ok(e_11));
+      assert_eq!(resolve(&resolver, &one_two), Err(UnknownType("two")));
+      assert_eq!(resolve(&resolver, &one_unk), Err(UnknownEnum("unknown")));
+      assert_eq!(resolve(&resolver, &unknown), Err(UnknownType("unknown")));
+
+      let resolver = context.for_type(child_2);
+      assert_eq!(resolve(&resolver, &none), Ok(e_2));
+      assert_eq!(resolve(&resolver, &one_e), Err(UnknownEnum("e")));
+      assert_eq!(resolve(&resolver, &one_two), Err(UnknownType("two")));
+      assert_eq!(resolve(&resolver, &one_unk), Err(UnknownEnum("unknown")));
+      assert_eq!(resolve(&resolver, &unknown), Err(UnknownType("unknown")));
+
+      let resolver = context.for_type(child_11);
+      assert_eq!(resolve(&resolver, &none), Ok(e_11));
+      assert_eq!(resolve(&resolver, &one_e), Ok(e_11));
+      assert_eq!(resolve(&resolver, &one_two), Err(UnknownType("two")));
+      assert_eq!(resolve(&resolver, &one_unk), Err(UnknownEnum("unknown")));
+      assert_eq!(resolve(&resolver, &unknown), Err(UnknownType("unknown")));
+
+      let resolver = context.for_type(child_12);
+      assert_eq!(resolve(&resolver, &none), Ok(e_12));
+      assert_eq!(resolve(&resolver, &one_e), Err(UnknownEnum("e")));
+      assert_eq!(resolve(&resolver, &one_two), Err(UnknownType("two")));
+      assert_eq!(resolve(&resolver, &one_unk), Err(UnknownEnum("unknown")));
+      assert_eq!(resolve(&resolver, &unknown), Err(UnknownType("unknown")));
+
+      let resolver = context.for_type(child_21);
+      assert_eq!(resolve(&resolver, &none), Ok(e_2));
+      assert_eq!(resolve(&resolver, &one_e), Err(UnknownEnum("e")));
+      assert_eq!(resolve(&resolver, &one_two), Err(UnknownType("two")));
+      assert_eq!(resolve(&resolver, &one_unk), Err(UnknownEnum("unknown")));
+      assert_eq!(resolve(&resolver, &unknown), Err(UnknownType("unknown")));
+
+      let resolver = context.for_type(child_22);
+      assert_eq!(resolve(&resolver, &none), Ok(e_2));
+      assert_eq!(resolve(&resolver, &one_e), Err(UnknownEnum("e")));
+      assert_eq!(resolve(&resolver, &one_two), Err(UnknownType("two")));
+      assert_eq!(resolve(&resolver, &one_unk), Err(UnknownEnum("unknown")));
+      assert_eq!(resolve(&resolver, &unknown), Err(UnknownType("unknown")));
+
+      let resolver = context.for_type(child_121);
+      assert_eq!(resolve(&resolver, &none), Ok(e_12));
+      assert_eq!(resolve(&resolver, &one_e), Err(UnknownEnum("e")));
+      assert_eq!(resolve(&resolver, &one_two), Err(UnknownType("two")));
+      assert_eq!(resolve(&resolver, &one_unk), Err(UnknownEnum("unknown")));
+      assert_eq!(resolve(&resolver, &unknown), Err(UnknownType("unknown")));
+
+      let resolver = context.for_type(child_122);
+      assert_eq!(resolve(&resolver, &none), Ok(e_12));
+      assert_eq!(resolve(&resolver, &one_e), Err(UnknownEnum("e")));
+      assert_eq!(resolve(&resolver, &one_two), Err(UnknownType("two")));
+      assert_eq!(resolve(&resolver, &one_unk), Err(UnknownEnum("unknown")));
+      assert_eq!(resolve(&resolver, &unknown), Err(UnknownType("unknown")));
+    }
+
+    #[test]
+    fn absolute() {
+      let pkg = Package::test(setup());
+      let ctx = PackageContext::new(&pkg);
+      let ksy = pkg.files.values().next().unwrap();
+      let context = ctx.for_file(ksy);
+
+      let child_1 = ksy.root.types.as_ref().unwrap().get("child_1").expect("`child_1` not found");
+      let child_2 = ksy.root.types.as_ref().unwrap().get("child_2").expect("`child_2` not found");
+
+      let child_11 = child_1.types.as_ref().unwrap().get("one").expect("`child_11` not found");
+      let child_12 = child_1.types.as_ref().unwrap().get("two").expect("`child_12` not found");
+
+      let child_21 = child_2.types.as_ref().unwrap().get("one").expect("`child_21` not found");
+      let child_22 = child_2.types.as_ref().unwrap().get("two").expect("`child_22` not found");
+
+      let child_121 = child_12.types.as_ref().unwrap().get("one").expect("`child_121` not found");
+      let child_122 = child_12.types.as_ref().unwrap().get("two").expect("`child_122` not found");
+
+      let e_root = ksy.root.enums.as_ref().unwrap().get("e").expect("`e_root` not found") as *const Enum;
+      let e_11 = child_11.enums.as_ref().unwrap().get("e").expect("`e_11` not found") as *const Enum;
+
+      // Kaitai path: ::e
+      let none = EnumRef {
+        scope: Scope {
+          absolute: true,
+          path: Vec::new(),
+        },
+        name: "e",
+      };
+      // Kaitai path: ::child_1::e
+      let ch1_e = EnumRef {
+        scope: Scope {
+          absolute: true,
+          path: vec!["child_1"],
+        },
+        name: "e",
+      };
+      // Kaitai path: ::child_1::unknown
+      let ch1_unk = EnumRef {
+        scope: Scope {
+          absolute: true,
+          path: vec!["child_1"],
+        },
+        name: "unknown",
+      };
+      // Kaitai path: ::child_1::one::e
+      let ch1_one = EnumRef {
+        scope: Scope {
+          absolute: true,
+          path: vec!["child_1", "one"],
+        },
+        name: "e",
+      };
+      // Kaitai path: ::unknown::e
+      let unknown = EnumRef {
+        scope: Scope {
+          absolute: true,
+          path: vec!["unknown"],
+        },
+        name: "e",
+      };
+
+      let resolver = context.for_type(&ksy.root);
+      assert_eq!(resolve(&resolver, &none), Ok(e_root));
+      assert_eq!(resolve(&resolver, &ch1_e), Err(UnknownEnum("e")));
+      assert_eq!(resolve(&resolver, &ch1_one), Ok(e_11));
+      assert_eq!(resolve(&resolver, &ch1_unk), Err(UnknownEnum("unknown")));
+      assert_eq!(resolve(&resolver, &unknown), Err(UnknownType("unknown")));
+
+      let resolver = context.for_type(child_1);
+      assert_eq!(resolve(&resolver, &none), Ok(e_root));
+      assert_eq!(resolve(&resolver, &ch1_e), Err(UnknownEnum("e")));
+      assert_eq!(resolve(&resolver, &ch1_one), Ok(e_11));
+      assert_eq!(resolve(&resolver, &ch1_unk), Err(UnknownEnum("unknown")));
+      assert_eq!(resolve(&resolver, &unknown), Err(UnknownType("unknown")));
+
+      let resolver = context.for_type(child_2);
+      assert_eq!(resolve(&resolver, &none), Ok(e_root));
+      assert_eq!(resolve(&resolver, &ch1_e), Err(UnknownEnum("e")));
+      assert_eq!(resolve(&resolver, &ch1_one), Ok(e_11));
+      assert_eq!(resolve(&resolver, &ch1_unk), Err(UnknownEnum("unknown")));
+      assert_eq!(resolve(&resolver, &unknown), Err(UnknownType("unknown")));
+
+      let resolver = context.for_type(child_11);
+      assert_eq!(resolve(&resolver, &none), Ok(e_root));
+      assert_eq!(resolve(&resolver, &ch1_e), Err(UnknownEnum("e")));
+      assert_eq!(resolve(&resolver, &ch1_one), Ok(e_11));
+      assert_eq!(resolve(&resolver, &ch1_unk), Err(UnknownEnum("unknown")));
+      assert_eq!(resolve(&resolver, &unknown), Err(UnknownType("unknown")));
+
+      let resolver = context.for_type(child_12);
+      assert_eq!(resolve(&resolver, &none), Ok(e_root));
+      assert_eq!(resolve(&resolver, &ch1_e), Err(UnknownEnum("e")));
+      assert_eq!(resolve(&resolver, &ch1_one), Ok(e_11));
+      assert_eq!(resolve(&resolver, &ch1_unk), Err(UnknownEnum("unknown")));
+      assert_eq!(resolve(&resolver, &unknown), Err(UnknownType("unknown")));
+
+      let resolver = context.for_type(child_21);
+      assert_eq!(resolve(&resolver, &none), Ok(e_root));
+      assert_eq!(resolve(&resolver, &ch1_e), Err(UnknownEnum("e")));
+      assert_eq!(resolve(&resolver, &ch1_one), Ok(e_11));
+      assert_eq!(resolve(&resolver, &ch1_unk), Err(UnknownEnum("unknown")));
+      assert_eq!(resolve(&resolver, &unknown), Err(UnknownType("unknown")));
+
+      let resolver = context.for_type(child_22);
+      assert_eq!(resolve(&resolver, &none), Ok(e_root));
+      assert_eq!(resolve(&resolver, &ch1_e), Err(UnknownEnum("e")));
+      assert_eq!(resolve(&resolver, &ch1_one), Ok(e_11));
+      assert_eq!(resolve(&resolver, &ch1_unk), Err(UnknownEnum("unknown")));
+      assert_eq!(resolve(&resolver, &unknown), Err(UnknownType("unknown")));
+
+      let resolver = context.for_type(child_121);
+      assert_eq!(resolve(&resolver, &none), Ok(e_root));
+      assert_eq!(resolve(&resolver, &ch1_e), Err(UnknownEnum("e")));
+      assert_eq!(resolve(&resolver, &ch1_one), Ok(e_11));
+      assert_eq!(resolve(&resolver, &ch1_unk), Err(UnknownEnum("unknown")));
+      assert_eq!(resolve(&resolver, &unknown), Err(UnknownType("unknown")));
+
+      let resolver = context.for_type(child_122);
+      assert_eq!(resolve(&resolver, &none), Ok(e_root));
+      assert_eq!(resolve(&resolver, &ch1_e), Err(UnknownEnum("e")));
+      assert_eq!(resolve(&resolver, &ch1_one), Ok(e_11));
+      assert_eq!(resolve(&resolver, &ch1_unk), Err(UnknownEnum("unknown")));
+      assert_eq!(resolve(&resolver, &unknown), Err(UnknownType("unknown")));
     }
   }
 }
