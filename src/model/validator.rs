@@ -174,7 +174,7 @@ impl<'t> TypeContext<'t> {
   /// - `ref_`: the reference to the user-defined Kaitai type
   ///
   /// Returns `None` if type cannot be resolved.
-  fn resolve_type(&self, ref_: &TypeName) -> Option<&'t TypeSpec> {
+  fn resolve_type<'n>(&self, ref_: &'n TypeName) -> Result<&'t TypeSpec, ResolveError<'n>> {
     if ref_.scope.absolute {
       self.file.for_root().resolve_scoped_type(&ref_.scope, ref_.name)
     } else {
@@ -182,14 +182,23 @@ impl<'t> TypeContext<'t> {
     }
   }
 
-  fn resolve_scoped_type(&self, scope: &Scope, name: &str) -> Option<&'t TypeSpec> {
+  fn resolve_scoped_type<'n>(
+    &self,
+    scope: &'n Scope,
+    name: &'n str,
+  ) -> Result<&'t TypeSpec, ResolveError<'n>> {
     if scope.path.is_empty() {
       // just one name
       self.resolve_type_name(name)
     } else {
       // name with path or one name under root
       let ty = self.resolve_type_path(&scope.path)?;
-      ty.types.as_ref()?.get(name)
+      if let Some(types) = &ty.types {
+        if let Some(ty) = types.get(name) {
+          return Ok(ty);
+        }
+      }
+      Err(ResolveError::UnknownType(name))
     }
   }
 
@@ -594,7 +603,7 @@ mod tests {
 
     /// We want to check that concrete objects is returned instead of checking that
     /// the object with the same structure is returned
-    fn resolve(resolver: &TypeContext, ref_: &TypeName) -> Option<*const TypeSpec> {
+    fn resolve<'n>(resolver: &TypeContext, ref_: &'n TypeName) -> Result<*const TypeSpec, ResolveError<'n>> {
       resolver.resolve_type(ref_).map(|t| t as *const TypeSpec)
     }
 
@@ -674,76 +683,76 @@ mod tests {
       };
 
       let resolver = context.for_type(&ksy.root);
-      assert_eq!(resolve(&resolver, &rty_ref), Some(root_ptr)); // self-reference
-      assert_eq!(resolve(&resolver, &unknown), None);
-      assert_eq!(resolve(&resolver, &one_ref), None);
-      assert_eq!(resolve(&resolver, &one_two), None);
-      assert_eq!(resolve(&resolver, &one_unk), None);
-      assert_eq!(resolve(&resolver, &two_one), None);
+      assert_eq!(resolve(&resolver, &rty_ref), Ok(root_ptr)); // self-reference
+      assert_eq!(resolve(&resolver, &unknown), Err(UnknownType("unknown")));
+      assert_eq!(resolve(&resolver, &one_ref), Err(UnknownType("one")));
+      assert_eq!(resolve(&resolver, &one_two), Err(UnknownType("one")));
+      assert_eq!(resolve(&resolver, &one_unk), Err(UnknownType("one")));
+      assert_eq!(resolve(&resolver, &two_one), Err(UnknownType("two")));
 
       let resolver = context.for_type(child_1);
-      assert_eq!(resolve(&resolver, &rty_ref), Some(root_ptr));
-      assert_eq!(resolve(&resolver, &unknown), None);
-      assert_eq!(resolve(&resolver, &one_ref), Some(child_11_ptr));
-      assert_eq!(resolve(&resolver, &one_two), None);
-      assert_eq!(resolve(&resolver, &one_unk), None);
-      assert_eq!(resolve(&resolver, &two_one), Some(child_121_ptr));
+      assert_eq!(resolve(&resolver, &rty_ref), Ok(root_ptr));
+      assert_eq!(resolve(&resolver, &unknown), Err(UnknownType("unknown")));
+      assert_eq!(resolve(&resolver, &one_ref), Ok(child_11_ptr));
+      assert_eq!(resolve(&resolver, &one_two), Err(UnknownType("two")));
+      assert_eq!(resolve(&resolver, &one_unk), Err(UnknownType("unknown")));
+      assert_eq!(resolve(&resolver, &two_one), Ok(child_121_ptr));
 
       let resolver = context.for_type(child_2);
-      assert_eq!(resolve(&resolver, &rty_ref), Some(root_ptr));
-      assert_eq!(resolve(&resolver, &unknown), None);
-      assert_eq!(resolve(&resolver, &one_ref), Some(child_21_ptr));
-      assert_eq!(resolve(&resolver, &one_two), None);
-      assert_eq!(resolve(&resolver, &one_unk), None);
-      assert_eq!(resolve(&resolver, &two_one), None);
+      assert_eq!(resolve(&resolver, &rty_ref), Ok(root_ptr));
+      assert_eq!(resolve(&resolver, &unknown), Err(UnknownType("unknown")));
+      assert_eq!(resolve(&resolver, &one_ref), Ok(child_21_ptr));
+      assert_eq!(resolve(&resolver, &one_two), Err(UnknownType("two")));
+      assert_eq!(resolve(&resolver, &one_unk), Err(UnknownType("unknown")));
+      assert_eq!(resolve(&resolver, &two_one), Err(UnknownType("one")));
 
       let resolver = context.for_type(child_11);
-      assert_eq!(resolve(&resolver, &rty_ref), Some(root_ptr));
-      assert_eq!(resolve(&resolver, &unknown), None);
-      assert_eq!(resolve(&resolver, &one_ref), Some(child_11_ptr)); // self-reference
-      assert_eq!(resolve(&resolver, &one_two), None);
-      assert_eq!(resolve(&resolver, &one_unk), None);
-      assert_eq!(resolve(&resolver, &two_one), Some(child_121_ptr));
+      assert_eq!(resolve(&resolver, &rty_ref), Ok(root_ptr));
+      assert_eq!(resolve(&resolver, &unknown), Err(UnknownType("unknown")));
+      assert_eq!(resolve(&resolver, &one_ref), Ok(child_11_ptr)); // self-reference
+      assert_eq!(resolve(&resolver, &one_two), Err(UnknownType("two")));
+      assert_eq!(resolve(&resolver, &one_unk), Err(UnknownType("unknown")));
+      assert_eq!(resolve(&resolver, &two_one), Ok(child_121_ptr));
 
       let resolver = context.for_type(child_12);
-      assert_eq!(resolve(&resolver, &rty_ref), Some(root_ptr));
-      assert_eq!(resolve(&resolver, &unknown), None);
-      assert_eq!(resolve(&resolver, &one_ref), Some(child_121_ptr));
-      assert_eq!(resolve(&resolver, &one_two), None);
-      assert_eq!(resolve(&resolver, &one_unk), None);
-      assert_eq!(resolve(&resolver, &two_one), Some(child_121_ptr));
+      assert_eq!(resolve(&resolver, &rty_ref), Ok(root_ptr));
+      assert_eq!(resolve(&resolver, &unknown), Err(UnknownType("unknown")));
+      assert_eq!(resolve(&resolver, &one_ref), Ok(child_121_ptr));
+      assert_eq!(resolve(&resolver, &one_two), Err(UnknownType("two")));
+      assert_eq!(resolve(&resolver, &one_unk), Err(UnknownType("unknown")));
+      assert_eq!(resolve(&resolver, &two_one), Ok(child_121_ptr));
 
       let resolver = context.for_type(child_21);
-      assert_eq!(resolve(&resolver, &rty_ref), Some(root_ptr));
-      assert_eq!(resolve(&resolver, &unknown), None);
-      assert_eq!(resolve(&resolver, &one_ref), Some(child_21_ptr)); // self-reference
-      assert_eq!(resolve(&resolver, &one_two), None);
-      assert_eq!(resolve(&resolver, &one_unk), None);
-      assert_eq!(resolve(&resolver, &two_one), None);
+      assert_eq!(resolve(&resolver, &rty_ref), Ok(root_ptr));
+      assert_eq!(resolve(&resolver, &unknown), Err(UnknownType("unknown")));
+      assert_eq!(resolve(&resolver, &one_ref), Ok(child_21_ptr)); // self-reference
+      assert_eq!(resolve(&resolver, &one_two), Err(UnknownType("two")));
+      assert_eq!(resolve(&resolver, &one_unk), Err(UnknownType("unknown")));
+      assert_eq!(resolve(&resolver, &two_one), Err(UnknownType("one")));
 
       let resolver = context.for_type(child_22);
-      assert_eq!(resolve(&resolver, &rty_ref), Some(root_ptr));
-      assert_eq!(resolve(&resolver, &unknown), None);
-      assert_eq!(resolve(&resolver, &one_ref), Some(child_21_ptr));
-      assert_eq!(resolve(&resolver, &one_two), None);
-      assert_eq!(resolve(&resolver, &one_unk), None);
-      assert_eq!(resolve(&resolver, &two_one), None);
+      assert_eq!(resolve(&resolver, &rty_ref), Ok(root_ptr));
+      assert_eq!(resolve(&resolver, &unknown), Err(UnknownType("unknown")));
+      assert_eq!(resolve(&resolver, &one_ref), Ok(child_21_ptr));
+      assert_eq!(resolve(&resolver, &one_two), Err(UnknownType("two")));
+      assert_eq!(resolve(&resolver, &one_unk), Err(UnknownType("unknown")));
+      assert_eq!(resolve(&resolver, &two_one), Err(UnknownType("one")));
 
       let resolver = context.for_type(child_121);
-      assert_eq!(resolve(&resolver, &rty_ref), Some(root_ptr));
-      assert_eq!(resolve(&resolver, &unknown), None);
-      assert_eq!(resolve(&resolver, &one_ref), Some(child_121_ptr)); // self-reference
-      assert_eq!(resolve(&resolver, &one_two), None);
-      assert_eq!(resolve(&resolver, &one_unk), None);
-      assert_eq!(resolve(&resolver, &two_one), Some(child_121_ptr));
+      assert_eq!(resolve(&resolver, &rty_ref), Ok(root_ptr));
+      assert_eq!(resolve(&resolver, &unknown), Err(UnknownType("unknown")));
+      assert_eq!(resolve(&resolver, &one_ref), Ok(child_121_ptr)); // self-reference
+      assert_eq!(resolve(&resolver, &one_two), Err(UnknownType("two")));
+      assert_eq!(resolve(&resolver, &one_unk), Err(UnknownType("unknown")));
+      assert_eq!(resolve(&resolver, &two_one), Ok(child_121_ptr));
 
       let resolver = context.for_type(child_122);
-      assert_eq!(resolve(&resolver, &rty_ref), Some(root_ptr));
-      assert_eq!(resolve(&resolver, &unknown), None);
-      assert_eq!(resolve(&resolver, &one_ref), Some(child_121_ptr));
-      assert_eq!(resolve(&resolver, &one_two), None);
-      assert_eq!(resolve(&resolver, &one_unk), None);
-      assert_eq!(resolve(&resolver, &two_one), None);
+      assert_eq!(resolve(&resolver, &rty_ref), Ok(root_ptr));
+      assert_eq!(resolve(&resolver, &unknown), Err(UnknownType("unknown")));
+      assert_eq!(resolve(&resolver, &one_ref), Ok(child_121_ptr));
+      assert_eq!(resolve(&resolver, &one_two), Err(UnknownType("two")));
+      assert_eq!(resolve(&resolver, &one_unk), Err(UnknownType("unknown")));
+      assert_eq!(resolve(&resolver, &two_one), Err(UnknownType("one")));
     }
 
     #[test]
@@ -812,67 +821,67 @@ mod tests {
       };
 
       let resolver = context.for_type(&ksy.root);
-      assert_eq!(resolve(&resolver, &rty_ref), Some(root_ptr)); // self-reference
-      assert_eq!(resolve(&resolver, &unknown), None);
-      assert_eq!(resolve(&resolver, &ch1_ref), Some(child_1_ptr));
-      assert_eq!(resolve(&resolver, &ch1_one), Some(child_11_ptr));
-      assert_eq!(resolve(&resolver, &ch1_unk), None);
+      assert_eq!(resolve(&resolver, &rty_ref), Ok(root_ptr)); // self-reference
+      assert_eq!(resolve(&resolver, &unknown), Err(UnknownType("unknown")));
+      assert_eq!(resolve(&resolver, &ch1_ref), Ok(child_1_ptr));
+      assert_eq!(resolve(&resolver, &ch1_one), Ok(child_11_ptr));
+      assert_eq!(resolve(&resolver, &ch1_unk), Err(UnknownType("unknown")));
 
       let resolver = context.for_type(child_1);
-      assert_eq!(resolve(&resolver, &rty_ref), Some(root_ptr));
-      assert_eq!(resolve(&resolver, &unknown), None);
-      assert_eq!(resolve(&resolver, &ch1_ref), Some(child_1_ptr)); // self-reference
-      assert_eq!(resolve(&resolver, &ch1_one), Some(child_11_ptr));
-      assert_eq!(resolve(&resolver, &ch1_unk), None);
+      assert_eq!(resolve(&resolver, &rty_ref), Ok(root_ptr));
+      assert_eq!(resolve(&resolver, &unknown), Err(UnknownType("unknown")));
+      assert_eq!(resolve(&resolver, &ch1_ref), Ok(child_1_ptr)); // self-reference
+      assert_eq!(resolve(&resolver, &ch1_one), Ok(child_11_ptr));
+      assert_eq!(resolve(&resolver, &ch1_unk), Err(UnknownType("unknown")));
 
       let resolver = context.for_type(child_2);
-      assert_eq!(resolve(&resolver, &rty_ref), Some(root_ptr));
-      assert_eq!(resolve(&resolver, &unknown), None);
-      assert_eq!(resolve(&resolver, &ch1_ref), Some(child_1_ptr));
-      assert_eq!(resolve(&resolver, &ch1_one), Some(child_11_ptr));
-      assert_eq!(resolve(&resolver, &ch1_unk), None);
+      assert_eq!(resolve(&resolver, &rty_ref), Ok(root_ptr));
+      assert_eq!(resolve(&resolver, &unknown), Err(UnknownType("unknown")));
+      assert_eq!(resolve(&resolver, &ch1_ref), Ok(child_1_ptr));
+      assert_eq!(resolve(&resolver, &ch1_one), Ok(child_11_ptr));
+      assert_eq!(resolve(&resolver, &ch1_unk), Err(UnknownType("unknown")));
 
       let resolver = context.for_type(child_11);
-      assert_eq!(resolve(&resolver, &rty_ref), Some(root_ptr));
-      assert_eq!(resolve(&resolver, &unknown), None);
-      assert_eq!(resolve(&resolver, &ch1_ref), Some(child_1_ptr));
-      assert_eq!(resolve(&resolver, &ch1_one), Some(child_11_ptr));
-      assert_eq!(resolve(&resolver, &ch1_unk), None);
+      assert_eq!(resolve(&resolver, &rty_ref), Ok(root_ptr));
+      assert_eq!(resolve(&resolver, &unknown), Err(UnknownType("unknown")));
+      assert_eq!(resolve(&resolver, &ch1_ref), Ok(child_1_ptr));
+      assert_eq!(resolve(&resolver, &ch1_one), Ok(child_11_ptr));
+      assert_eq!(resolve(&resolver, &ch1_unk), Err(UnknownType("unknown")));
 
       let resolver = context.for_type(child_12);
-      assert_eq!(resolve(&resolver, &rty_ref), Some(root_ptr));
-      assert_eq!(resolve(&resolver, &unknown), None);
-      assert_eq!(resolve(&resolver, &ch1_ref), Some(child_1_ptr));
-      assert_eq!(resolve(&resolver, &ch1_one), Some(child_11_ptr));
-      assert_eq!(resolve(&resolver, &ch1_unk), None);
+      assert_eq!(resolve(&resolver, &rty_ref), Ok(root_ptr));
+      assert_eq!(resolve(&resolver, &unknown), Err(UnknownType("unknown")));
+      assert_eq!(resolve(&resolver, &ch1_ref), Ok(child_1_ptr));
+      assert_eq!(resolve(&resolver, &ch1_one), Ok(child_11_ptr));
+      assert_eq!(resolve(&resolver, &ch1_unk), Err(UnknownType("unknown")));
 
       let resolver = context.for_type(child_21);
-      assert_eq!(resolve(&resolver, &rty_ref), Some(root_ptr));
-      assert_eq!(resolve(&resolver, &unknown), None);
-      assert_eq!(resolve(&resolver, &ch1_ref), Some(child_1_ptr));
-      assert_eq!(resolve(&resolver, &ch1_one), Some(child_11_ptr));
-      assert_eq!(resolve(&resolver, &ch1_unk), None);
+      assert_eq!(resolve(&resolver, &rty_ref), Ok(root_ptr));
+      assert_eq!(resolve(&resolver, &unknown), Err(UnknownType("unknown")));
+      assert_eq!(resolve(&resolver, &ch1_ref), Ok(child_1_ptr));
+      assert_eq!(resolve(&resolver, &ch1_one), Ok(child_11_ptr));
+      assert_eq!(resolve(&resolver, &ch1_unk), Err(UnknownType("unknown")));
 
       let resolver = context.for_type(child_22);
-      assert_eq!(resolve(&resolver, &rty_ref), Some(root_ptr));
-      assert_eq!(resolve(&resolver, &unknown), None);
-      assert_eq!(resolve(&resolver, &ch1_ref), Some(child_1_ptr));
-      assert_eq!(resolve(&resolver, &ch1_one), Some(child_11_ptr));
-      assert_eq!(resolve(&resolver, &ch1_unk), None);
+      assert_eq!(resolve(&resolver, &rty_ref), Ok(root_ptr));
+      assert_eq!(resolve(&resolver, &unknown), Err(UnknownType("unknown")));
+      assert_eq!(resolve(&resolver, &ch1_ref), Ok(child_1_ptr));
+      assert_eq!(resolve(&resolver, &ch1_one), Ok(child_11_ptr));
+      assert_eq!(resolve(&resolver, &ch1_unk), Err(UnknownType("unknown")));
 
       let resolver = context.for_type(child_121);
-      assert_eq!(resolve(&resolver, &rty_ref), Some(root_ptr));
-      assert_eq!(resolve(&resolver, &unknown), None);
-      assert_eq!(resolve(&resolver, &ch1_ref), Some(child_1_ptr));
-      assert_eq!(resolve(&resolver, &ch1_one), Some(child_11_ptr));
-      assert_eq!(resolve(&resolver, &ch1_unk), None);
+      assert_eq!(resolve(&resolver, &rty_ref), Ok(root_ptr));
+      assert_eq!(resolve(&resolver, &unknown), Err(UnknownType("unknown")));
+      assert_eq!(resolve(&resolver, &ch1_ref), Ok(child_1_ptr));
+      assert_eq!(resolve(&resolver, &ch1_one), Ok(child_11_ptr));
+      assert_eq!(resolve(&resolver, &ch1_unk), Err(UnknownType("unknown")));
 
       let resolver = context.for_type(child_122);
-      assert_eq!(resolve(&resolver, &rty_ref), Some(root_ptr));
-      assert_eq!(resolve(&resolver, &unknown), None);
-      assert_eq!(resolve(&resolver, &ch1_ref), Some(child_1_ptr));
-      assert_eq!(resolve(&resolver, &ch1_one), Some(child_11_ptr));
-      assert_eq!(resolve(&resolver, &ch1_unk), None);
+      assert_eq!(resolve(&resolver, &rty_ref), Ok(root_ptr));
+      assert_eq!(resolve(&resolver, &unknown), Err(UnknownType("unknown")));
+      assert_eq!(resolve(&resolver, &ch1_ref), Ok(child_1_ptr));
+      assert_eq!(resolve(&resolver, &ch1_one), Ok(child_11_ptr));
+      assert_eq!(resolve(&resolver, &ch1_unk), Err(UnknownType("unknown")));
     }
   }
 }
