@@ -36,7 +36,7 @@ pub use name::{
 pub use package::{ImportLoader, Package};
 pub use r#enum::Enum;
 pub use r#type::{Root, UserType, UserTypeRef};
-pub use validator::{FileContext, PackageContext, TypeContext};
+pub use validator::{FileContext, PackageContext, ResolveError, TypeContext};
 
 /// Contains helper structures for implementing `validate` methods.
 ///

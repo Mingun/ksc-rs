@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use std::error::Error;
+use std::fmt;
 use std::hash::{Hash, Hasher};
 
 use crate::model::Package;
@@ -22,6 +24,25 @@ impl<'t> Hash for TypeId<'t> {
     ptr.hash(state);
   }
 }
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+/// Possible errors returned when try to resolve names of various things.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ResolveError<'n> {
+  /// Specified type cannot be resolved
+  UnknownType(&'n str),
+}
+
+impl<'n> fmt::Display for ResolveError<'n> {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match self {
+      Self::UnknownType(n) => write!(f, "unknown type `{n}`"),
+    }
+  }
+}
+
+impl<'n> Error for ResolveError<'n> {}
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -182,16 +203,22 @@ impl<'t> TypeContext<'t> {
   ///   name of type in question
   ///
   /// Returns `None` if type cannot be resolved.
-  fn resolve_type_path(&self, path: &[&str]) -> Option<&'t TypeSpec> {
+  fn resolve_type_path<'n>(&self, path: &'n [&str]) -> Result<&'t TypeSpec, ResolveError<'n>> {
     let mut context = self.context;
     // Resolve types of each elements of a path
     if let [first, rest @ ..] = path {
       context = self.resolve_type_name(first)?;
       for name in rest {
-        context = context.types.as_ref()?.get(*name)?;
+        context = match &context.types {
+          Some(types) => match types.get(*name) {
+            Some(t) => t,
+            None => return Err(ResolveError::UnknownType(*name)),
+          },
+          None => return Err(ResolveError::UnknownType(*name)),
+        };
       }
     }
-    Some(context)
+    Ok(context)
   }
 
   /// Resolves type by name relatively to the contextual type.
@@ -203,7 +230,7 @@ impl<'t> TypeContext<'t> {
   /// - `name`: the name of the type to resolve
   ///
   /// Returns `None` if type cannot be resolved.
-  fn resolve_type_name(&self, name: &str) -> Option<&'t TypeSpec> {
+  fn resolve_type_name<'n>(&self, name: &'n str) -> Result<&'t TypeSpec, ResolveError<'n>> {
     let mut context = self.context;
     loop {
       let ctx = TypeId(context);
@@ -211,12 +238,15 @@ impl<'t> TypeContext<'t> {
       // TODO: Maybe create a fictive root type with real root and all imported types?
       let parent = if ctx == TypeId(&self.file.ksy.root) {
         if id_matches(&self.file.ksy.meta.id, name) {
-          return Some(context);
+          return Ok(context);
         }
         None
       } else {
         // Because `context` is not root (checked above) missing parent means unknown type
-        let parent = self.parent(&ctx)?;
+        let parent = match self.parent(&ctx) {
+          Some(p) => p,
+          None => return Err(ResolveError::UnknownType(name)),
+        };
 
         // Unqualified name firstly tried to resolve to the same type in which context
         // type resolution is performed, so we need to check our name first, but because
@@ -224,7 +254,7 @@ impl<'t> TypeContext<'t> {
         if let Some(types) = &parent.types {
           match types.get(name) {
             // If we found `context` under requested name in parent, return it
-            Some(me) if ctx == TypeId(me) => return Some(context),
+            Some(me) if ctx == TypeId(me) => return Ok(context),
             _ => {},
           }
         }
@@ -234,14 +264,19 @@ impl<'t> TypeContext<'t> {
       // If current type have nested types, try to find in it
       if let Some(types) = &context.types {
         if let Some(t) = types.get(name) {
-          return Some(t);
+          return Ok(t);
         }
       }
 
       // Otherwise try in parent (surrounding) type or in imported types if we under root already
       context = match parent {
         Some(parent) => parent,
-        None => return Some(*self.file.imports.get(name)?),
+        None => {
+          return match self.file.imports.get(name) {
+            Some(t) => Ok(*t),
+            None => Err(ResolveError::UnknownType(name)),
+          };
+        },
       };
     }
   }
@@ -252,6 +287,7 @@ impl<'t> TypeContext<'t> {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use ResolveError::*;
   use pretty_assertions::assert_eq;
 
   fn setup() -> Ksy {
@@ -344,81 +380,81 @@ mod tests {
 
     /// We want to check that concrete objects is returned instead of checking that
     /// the object with the same structure is returned
-    fn resolve(resolver: &TypeContext, name: &str) -> Option<*const TypeSpec> {
+    fn resolve<'n>(resolver: &TypeContext, name: &'n str) -> Result<*const TypeSpec, ResolveError<'n>> {
       resolver.resolve_type_name(name).map(|t| t as *const TypeSpec)
     }
 
     let resolver = context.for_type(&ksy.root);
-    assert_eq!(resolve(&resolver, "root"), Some(root_ptr)); // self-reference
-    assert_eq!(resolve(&resolver, "child_1"), Some(child_1_ptr));
-    assert_eq!(resolve(&resolver, "child_2"), Some(child_2_ptr));
-    assert_eq!(resolve(&resolver, "one"), None);
-    assert_eq!(resolve(&resolver, "two"), None);
-    assert_eq!(resolve(&resolver, "unk"), None);
+    assert_eq!(resolve(&resolver, "root"), Ok(root_ptr)); // self-reference
+    assert_eq!(resolve(&resolver, "child_1"), Ok(child_1_ptr));
+    assert_eq!(resolve(&resolver, "child_2"), Ok(child_2_ptr));
+    assert_eq!(resolve(&resolver, "one"), Err(UnknownType("one")));
+    assert_eq!(resolve(&resolver, "two"), Err(UnknownType("two")));
+    assert_eq!(resolve(&resolver, "unk"), Err(UnknownType("unk")));
 
     let resolver = context.for_type(child_1);
-    assert_eq!(resolve(&resolver, "root"), Some(root_ptr));
-    assert_eq!(resolve(&resolver, "child_1"), Some(child_1_ptr)); // self-reference
-    assert_eq!(resolve(&resolver, "child_2"), Some(child_2_ptr));
-    assert_eq!(resolve(&resolver, "one"), Some(child_11_ptr));
-    assert_eq!(resolve(&resolver, "two"), Some(child_12_ptr));
-    assert_eq!(resolve(&resolver, "unk"), None);
+    assert_eq!(resolve(&resolver, "root"), Ok(root_ptr));
+    assert_eq!(resolve(&resolver, "child_1"), Ok(child_1_ptr)); // self-reference
+    assert_eq!(resolve(&resolver, "child_2"), Ok(child_2_ptr));
+    assert_eq!(resolve(&resolver, "one"), Ok(child_11_ptr));
+    assert_eq!(resolve(&resolver, "two"), Ok(child_12_ptr));
+    assert_eq!(resolve(&resolver, "unk"), Err(UnknownType("unk")));
 
     let resolver = context.for_type(child_2);
-    assert_eq!(resolve(&resolver, "root"), Some(root_ptr));
-    assert_eq!(resolve(&resolver, "child_1"), Some(child_1_ptr));
-    assert_eq!(resolve(&resolver, "child_2"), Some(child_2_ptr)); // self-reference
-    assert_eq!(resolve(&resolver, "one"), Some(child_21_ptr));
-    assert_eq!(resolve(&resolver, "two"), Some(child_22_ptr));
-    assert_eq!(resolve(&resolver, "unk"), None);
+    assert_eq!(resolve(&resolver, "root"), Ok(root_ptr));
+    assert_eq!(resolve(&resolver, "child_1"), Ok(child_1_ptr));
+    assert_eq!(resolve(&resolver, "child_2"), Ok(child_2_ptr)); // self-reference
+    assert_eq!(resolve(&resolver, "one"), Ok(child_21_ptr));
+    assert_eq!(resolve(&resolver, "two"), Ok(child_22_ptr));
+    assert_eq!(resolve(&resolver, "unk"), Err(UnknownType("unk")));
 
     let resolver = context.for_type(child_11);
-    assert_eq!(resolve(&resolver, "root"), Some(root_ptr));
-    assert_eq!(resolve(&resolver, "child_1"), Some(child_1_ptr));
-    assert_eq!(resolve(&resolver, "child_2"), Some(child_2_ptr));
-    assert_eq!(resolve(&resolver, "one"), Some(child_11_ptr)); // self-reference
-    assert_eq!(resolve(&resolver, "two"), Some(child_12_ptr));
-    assert_eq!(resolve(&resolver, "unk"), None);
+    assert_eq!(resolve(&resolver, "root"), Ok(root_ptr));
+    assert_eq!(resolve(&resolver, "child_1"), Ok(child_1_ptr));
+    assert_eq!(resolve(&resolver, "child_2"), Ok(child_2_ptr));
+    assert_eq!(resolve(&resolver, "one"), Ok(child_11_ptr)); // self-reference
+    assert_eq!(resolve(&resolver, "two"), Ok(child_12_ptr));
+    assert_eq!(resolve(&resolver, "unk"), Err(UnknownType("unk")));
 
     let resolver = context.for_type(child_12);
-    assert_eq!(resolve(&resolver, "root"), Some(root_ptr));
-    assert_eq!(resolve(&resolver, "child_1"), Some(child_1_ptr));
-    assert_eq!(resolve(&resolver, "child_2"), Some(child_2_ptr));
-    assert_eq!(resolve(&resolver, "one"), Some(child_121_ptr));
-    assert_eq!(resolve(&resolver, "two"), Some(child_12_ptr)); // self-reference
-    assert_eq!(resolve(&resolver, "unk"), None);
+    assert_eq!(resolve(&resolver, "root"), Ok(root_ptr));
+    assert_eq!(resolve(&resolver, "child_1"), Ok(child_1_ptr));
+    assert_eq!(resolve(&resolver, "child_2"), Ok(child_2_ptr));
+    assert_eq!(resolve(&resolver, "one"), Ok(child_121_ptr));
+    assert_eq!(resolve(&resolver, "two"), Ok(child_12_ptr)); // self-reference
+    assert_eq!(resolve(&resolver, "unk"), Err(UnknownType("unk")));
 
     let resolver = context.for_type(child_21);
-    assert_eq!(resolve(&resolver, "root"), Some(root_ptr));
-    assert_eq!(resolve(&resolver, "child_1"), Some(child_1_ptr));
-    assert_eq!(resolve(&resolver, "child_2"), Some(child_2_ptr));
-    assert_eq!(resolve(&resolver, "one"), Some(child_21_ptr)); // self-reference
-    assert_eq!(resolve(&resolver, "two"), Some(child_22_ptr));
-    assert_eq!(resolve(&resolver, "unk"), None);
+    assert_eq!(resolve(&resolver, "root"), Ok(root_ptr));
+    assert_eq!(resolve(&resolver, "child_1"), Ok(child_1_ptr));
+    assert_eq!(resolve(&resolver, "child_2"), Ok(child_2_ptr));
+    assert_eq!(resolve(&resolver, "one"), Ok(child_21_ptr)); // self-reference
+    assert_eq!(resolve(&resolver, "two"), Ok(child_22_ptr));
+    assert_eq!(resolve(&resolver, "unk"), Err(UnknownType("unk")));
 
     let resolver = context.for_type(child_22);
-    assert_eq!(resolve(&resolver, "root"), Some(root_ptr));
-    assert_eq!(resolve(&resolver, "child_1"), Some(child_1_ptr));
-    assert_eq!(resolve(&resolver, "child_2"), Some(child_2_ptr));
-    assert_eq!(resolve(&resolver, "one"), Some(child_21_ptr));
-    assert_eq!(resolve(&resolver, "two"), Some(child_22_ptr)); // self-reference
-    assert_eq!(resolve(&resolver, "unk"), None);
+    assert_eq!(resolve(&resolver, "root"), Ok(root_ptr));
+    assert_eq!(resolve(&resolver, "child_1"), Ok(child_1_ptr));
+    assert_eq!(resolve(&resolver, "child_2"), Ok(child_2_ptr));
+    assert_eq!(resolve(&resolver, "one"), Ok(child_21_ptr));
+    assert_eq!(resolve(&resolver, "two"), Ok(child_22_ptr)); // self-reference
+    assert_eq!(resolve(&resolver, "unk"), Err(UnknownType("unk")));
 
     let resolver = context.for_type(child_121);
-    assert_eq!(resolve(&resolver, "root"), Some(root_ptr));
-    assert_eq!(resolve(&resolver, "child_1"), Some(child_1_ptr));
-    assert_eq!(resolve(&resolver, "child_2"), Some(child_2_ptr));
-    assert_eq!(resolve(&resolver, "one"), Some(child_121_ptr)); // self-reference
-    assert_eq!(resolve(&resolver, "two"), Some(child_12_ptr));
-    assert_eq!(resolve(&resolver, "unk"), None);
+    assert_eq!(resolve(&resolver, "root"), Ok(root_ptr));
+    assert_eq!(resolve(&resolver, "child_1"), Ok(child_1_ptr));
+    assert_eq!(resolve(&resolver, "child_2"), Ok(child_2_ptr));
+    assert_eq!(resolve(&resolver, "one"), Ok(child_121_ptr)); // self-reference
+    assert_eq!(resolve(&resolver, "two"), Ok(child_12_ptr));
+    assert_eq!(resolve(&resolver, "unk"), Err(UnknownType("unk")));
 
     let resolver = context.for_type(child_122);
-    assert_eq!(resolve(&resolver, "root"), Some(root_ptr));
-    assert_eq!(resolve(&resolver, "child_1"), Some(child_1_ptr));
-    assert_eq!(resolve(&resolver, "child_2"), Some(child_2_ptr));
-    assert_eq!(resolve(&resolver, "one"), Some(child_121_ptr));
-    assert_eq!(resolve(&resolver, "two"), Some(child_122_ptr)); // self-reference
-    assert_eq!(resolve(&resolver, "unk"), None);
+    assert_eq!(resolve(&resolver, "root"), Ok(root_ptr));
+    assert_eq!(resolve(&resolver, "child_1"), Ok(child_1_ptr));
+    assert_eq!(resolve(&resolver, "child_2"), Ok(child_2_ptr));
+    assert_eq!(resolve(&resolver, "one"), Ok(child_121_ptr));
+    assert_eq!(resolve(&resolver, "two"), Ok(child_122_ptr)); // self-reference
+    assert_eq!(resolve(&resolver, "unk"), Err(UnknownType("unk")));
   }
 
   /// Checks that the type specified by a path can be correctly found in a complex hierarchy of types
@@ -456,99 +492,99 @@ mod tests {
 
     /// We want to check that concrete objects is returned instead of checking that
     /// the object with the same structure is returned
-    fn resolve(resolver: &TypeContext, path: &[&str]) -> Option<*const TypeSpec> {
+    fn resolve<'n>(resolver: &TypeContext, path: &'n [&str]) -> Result<*const TypeSpec, ResolveError<'n>> {
       resolver.resolve_type_path(path).map(|t| t as *const TypeSpec)
     }
 
     let resolver = context.for_type(&ksy.root);
-    assert_eq!(resolve(&resolver, &[]), Some(root_ptr)); // self-reference
-    assert_eq!(resolve(&resolver, &["root"]), Some(root_ptr)); // self-reference
-    assert_eq!(resolve(&resolver, &["one"]), None);
-    assert_eq!(resolve(&resolver, &["one", "two"]), None); // 'one' not exist
-    assert_eq!(resolve(&resolver, &["one", "unk"]), None); // 'one' not exist
-    assert_eq!(resolve(&resolver, &["two"]), None);
-    assert_eq!(resolve(&resolver, &["two", "one"]), None); // 'two' not exist
-    assert_eq!(resolve(&resolver, &["two", "unk"]), None); // 'two' not exist
+    assert_eq!(resolve(&resolver, &[]), Ok(root_ptr)); // self-reference
+    assert_eq!(resolve(&resolver, &["root"]), Ok(root_ptr)); // self-reference
+    assert_eq!(resolve(&resolver, &["one"]), Err(UnknownType("one")));
+    assert_eq!(resolve(&resolver, &["one", "two"]), Err(UnknownType("one")));
+    assert_eq!(resolve(&resolver, &["one", "unk"]), Err(UnknownType("one")));
+    assert_eq!(resolve(&resolver, &["two"]), Err(UnknownType("two")));
+    assert_eq!(resolve(&resolver, &["two", "one"]), Err(UnknownType("two")));
+    assert_eq!(resolve(&resolver, &["two", "unk"]), Err(UnknownType("two")));
 
     let resolver = context.for_type(child_1);
-    assert_eq!(resolve(&resolver, &[]), Some(child_1_ptr)); // self-reference
-    assert_eq!(resolve(&resolver, &["root"]), Some(root_ptr));
-    assert_eq!(resolve(&resolver, &["one"]), Some(child_11_ptr));
-    assert_eq!(resolve(&resolver, &["one", "two"]), None);
-    assert_eq!(resolve(&resolver, &["one", "unk"]), None);
-    assert_eq!(resolve(&resolver, &["two"]), Some(child_12_ptr));
-    assert_eq!(resolve(&resolver, &["two", "one"]), Some(child_121_ptr));
-    assert_eq!(resolve(&resolver, &["two", "unk"]), None);
+    assert_eq!(resolve(&resolver, &[]), Ok(child_1_ptr)); // self-reference
+    assert_eq!(resolve(&resolver, &["root"]), Ok(root_ptr));
+    assert_eq!(resolve(&resolver, &["one"]), Ok(child_11_ptr));
+    assert_eq!(resolve(&resolver, &["one", "two"]), Err(UnknownType("two")));
+    assert_eq!(resolve(&resolver, &["one", "unk"]), Err(UnknownType("unk")));
+    assert_eq!(resolve(&resolver, &["two"]), Ok(child_12_ptr));
+    assert_eq!(resolve(&resolver, &["two", "one"]), Ok(child_121_ptr));
+    assert_eq!(resolve(&resolver, &["two", "unk"]), Err(UnknownType("unk")));
 
     let resolver = context.for_type(child_2);
-    assert_eq!(resolve(&resolver, &[]), Some(child_2_ptr)); // self-reference
-    assert_eq!(resolve(&resolver, &["root"]), Some(root_ptr));
-    assert_eq!(resolve(&resolver, &["one"]), Some(child_21_ptr));
-    assert_eq!(resolve(&resolver, &["one", "two"]), None);
-    assert_eq!(resolve(&resolver, &["one", "unk"]), None);
-    assert_eq!(resolve(&resolver, &["two"]), Some(child_22_ptr));
-    assert_eq!(resolve(&resolver, &["two", "one"]), None);
-    assert_eq!(resolve(&resolver, &["two", "unk"]), None);
+    assert_eq!(resolve(&resolver, &[]), Ok(child_2_ptr)); // self-reference
+    assert_eq!(resolve(&resolver, &["root"]), Ok(root_ptr));
+    assert_eq!(resolve(&resolver, &["one"]), Ok(child_21_ptr));
+    assert_eq!(resolve(&resolver, &["one", "two"]), Err(UnknownType("two")));
+    assert_eq!(resolve(&resolver, &["one", "unk"]), Err(UnknownType("unk")));
+    assert_eq!(resolve(&resolver, &["two"]), Ok(child_22_ptr));
+    assert_eq!(resolve(&resolver, &["two", "one"]), Err(UnknownType("one")));
+    assert_eq!(resolve(&resolver, &["two", "unk"]), Err(UnknownType("unk")));
 
     let resolver = context.for_type(child_11);
-    assert_eq!(resolve(&resolver, &[]), Some(child_11_ptr)); // self-reference
-    assert_eq!(resolve(&resolver, &["root"]), Some(root_ptr));
-    assert_eq!(resolve(&resolver, &["one"]), Some(child_11_ptr)); // self-reference
-    assert_eq!(resolve(&resolver, &["one", "two"]), None);
-    assert_eq!(resolve(&resolver, &["one", "unk"]), None);
-    assert_eq!(resolve(&resolver, &["two"]), Some(child_12_ptr));
-    assert_eq!(resolve(&resolver, &["two", "one"]), Some(child_121_ptr));
-    assert_eq!(resolve(&resolver, &["two", "unk"]), None);
+    assert_eq!(resolve(&resolver, &[]), Ok(child_11_ptr)); // self-reference
+    assert_eq!(resolve(&resolver, &["root"]), Ok(root_ptr));
+    assert_eq!(resolve(&resolver, &["one"]), Ok(child_11_ptr)); // self-reference
+    assert_eq!(resolve(&resolver, &["one", "two"]), Err(UnknownType("two")));
+    assert_eq!(resolve(&resolver, &["one", "unk"]), Err(UnknownType("unk")));
+    assert_eq!(resolve(&resolver, &["two"]), Ok(child_12_ptr));
+    assert_eq!(resolve(&resolver, &["two", "one"]), Ok(child_121_ptr));
+    assert_eq!(resolve(&resolver, &["two", "unk"]), Err(UnknownType("unk")));
 
     let resolver = context.for_type(child_12);
-    assert_eq!(resolve(&resolver, &[]), Some(child_12_ptr)); // self-reference
-    assert_eq!(resolve(&resolver, &["root"]), Some(root_ptr));
-    assert_eq!(resolve(&resolver, &["one"]), Some(child_121_ptr));
-    assert_eq!(resolve(&resolver, &["one", "two"]), None);
-    assert_eq!(resolve(&resolver, &["one", "unk"]), None);
-    assert_eq!(resolve(&resolver, &["two"]), Some(child_12_ptr)); // self-reference
-    assert_eq!(resolve(&resolver, &["two", "one"]), Some(child_121_ptr));
-    assert_eq!(resolve(&resolver, &["two", "unk"]), None);
+    assert_eq!(resolve(&resolver, &[]), Ok(child_12_ptr)); // self-reference
+    assert_eq!(resolve(&resolver, &["root"]), Ok(root_ptr));
+    assert_eq!(resolve(&resolver, &["one"]), Ok(child_121_ptr));
+    assert_eq!(resolve(&resolver, &["one", "two"]), Err(UnknownType("two")));
+    assert_eq!(resolve(&resolver, &["one", "unk"]), Err(UnknownType("unk")));
+    assert_eq!(resolve(&resolver, &["two"]), Ok(child_12_ptr)); // self-reference
+    assert_eq!(resolve(&resolver, &["two", "one"]), Ok(child_121_ptr));
+    assert_eq!(resolve(&resolver, &["two", "unk"]), Err(UnknownType("unk")));
 
     let resolver = context.for_type(child_21);
-    assert_eq!(resolve(&resolver, &[]), Some(child_21_ptr)); // self-reference
-    assert_eq!(resolve(&resolver, &["root"]), Some(root_ptr));
-    assert_eq!(resolve(&resolver, &["one"]), Some(child_21_ptr)); // self-reference
-    assert_eq!(resolve(&resolver, &["one", "two"]), None);
-    assert_eq!(resolve(&resolver, &["one", "unk"]), None);
-    assert_eq!(resolve(&resolver, &["two"]), Some(child_22_ptr));
-    assert_eq!(resolve(&resolver, &["two", "one"]), None);
-    assert_eq!(resolve(&resolver, &["two", "unk"]), None);
+    assert_eq!(resolve(&resolver, &[]), Ok(child_21_ptr)); // self-reference
+    assert_eq!(resolve(&resolver, &["root"]), Ok(root_ptr));
+    assert_eq!(resolve(&resolver, &["one"]), Ok(child_21_ptr)); // self-reference
+    assert_eq!(resolve(&resolver, &["one", "two"]), Err(UnknownType("two")));
+    assert_eq!(resolve(&resolver, &["one", "unk"]), Err(UnknownType("unk")));
+    assert_eq!(resolve(&resolver, &["two"]), Ok(child_22_ptr));
+    assert_eq!(resolve(&resolver, &["two", "one"]), Err(UnknownType("one")));
+    assert_eq!(resolve(&resolver, &["two", "unk"]), Err(UnknownType("unk")));
 
     let resolver = context.for_type(child_22);
-    assert_eq!(resolve(&resolver, &[]), Some(child_22_ptr)); // self-reference
-    assert_eq!(resolve(&resolver, &["root"]), Some(root_ptr));
-    assert_eq!(resolve(&resolver, &["one"]), Some(child_21_ptr));
-    assert_eq!(resolve(&resolver, &["one", "two"]), None);
-    assert_eq!(resolve(&resolver, &["one", "unk"]), None);
-    assert_eq!(resolve(&resolver, &["two"]), Some(child_22_ptr)); // self-reference
-    assert_eq!(resolve(&resolver, &["two", "one"]), None);
-    assert_eq!(resolve(&resolver, &["two", "unk"]), None);
+    assert_eq!(resolve(&resolver, &[]), Ok(child_22_ptr)); // self-reference
+    assert_eq!(resolve(&resolver, &["root"]), Ok(root_ptr));
+    assert_eq!(resolve(&resolver, &["one"]), Ok(child_21_ptr));
+    assert_eq!(resolve(&resolver, &["one", "two"]), Err(UnknownType("two")));
+    assert_eq!(resolve(&resolver, &["one", "unk"]), Err(UnknownType("unk")));
+    assert_eq!(resolve(&resolver, &["two"]), Ok(child_22_ptr)); // self-reference
+    assert_eq!(resolve(&resolver, &["two", "one"]), Err(UnknownType("one")));
+    assert_eq!(resolve(&resolver, &["two", "unk"]), Err(UnknownType("unk")));
 
     let resolver = context.for_type(child_121);
-    assert_eq!(resolve(&resolver, &[]), Some(child_121_ptr)); // self-reference
-    assert_eq!(resolve(&resolver, &["root"]), Some(root_ptr));
-    assert_eq!(resolve(&resolver, &["one"]), Some(child_121_ptr)); // self-reference
-    assert_eq!(resolve(&resolver, &["one", "two"]), None);
-    assert_eq!(resolve(&resolver, &["one", "unk"]), None);
-    assert_eq!(resolve(&resolver, &["two"]), Some(child_12_ptr));
-    assert_eq!(resolve(&resolver, &["two", "one"]), Some(child_121_ptr)); // self-reference
-    assert_eq!(resolve(&resolver, &["two", "unk"]), None);
+    assert_eq!(resolve(&resolver, &[]), Ok(child_121_ptr)); // self-reference
+    assert_eq!(resolve(&resolver, &["root"]), Ok(root_ptr));
+    assert_eq!(resolve(&resolver, &["one"]), Ok(child_121_ptr)); // self-reference
+    assert_eq!(resolve(&resolver, &["one", "two"]), Err(UnknownType("two")));
+    assert_eq!(resolve(&resolver, &["one", "unk"]), Err(UnknownType("unk")));
+    assert_eq!(resolve(&resolver, &["two"]), Ok(child_12_ptr));
+    assert_eq!(resolve(&resolver, &["two", "one"]), Ok(child_121_ptr)); // self-reference
+    assert_eq!(resolve(&resolver, &["two", "unk"]), Err(UnknownType("unk")));
 
     let resolver = context.for_type(child_122);
-    assert_eq!(resolve(&resolver, &[]), Some(child_122_ptr)); // self-reference
-    assert_eq!(resolve(&resolver, &["root"]), Some(root_ptr));
-    assert_eq!(resolve(&resolver, &["one"]), Some(child_121_ptr));
-    assert_eq!(resolve(&resolver, &["one", "two"]), None);
-    assert_eq!(resolve(&resolver, &["one", "unk"]), None);
-    assert_eq!(resolve(&resolver, &["two"]), Some(child_122_ptr)); // self-reference
-    assert_eq!(resolve(&resolver, &["two", "one"]), None);
-    assert_eq!(resolve(&resolver, &["two", "unk"]), None);
+    assert_eq!(resolve(&resolver, &[]), Ok(child_122_ptr)); // self-reference
+    assert_eq!(resolve(&resolver, &["root"]), Ok(root_ptr));
+    assert_eq!(resolve(&resolver, &["one"]), Ok(child_121_ptr));
+    assert_eq!(resolve(&resolver, &["one", "two"]), Err(UnknownType("two")));
+    assert_eq!(resolve(&resolver, &["one", "unk"]), Err(UnknownType("unk")));
+    assert_eq!(resolve(&resolver, &["two"]), Ok(child_122_ptr)); // self-reference
+    assert_eq!(resolve(&resolver, &["two", "one"]), Err(UnknownType("one")));
+    assert_eq!(resolve(&resolver, &["two", "unk"]), Err(UnknownType("unk")));
   }
 
   /// Checks that the type specified by a reference can be correctly found in a complex hierarchy of types
