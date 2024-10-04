@@ -226,10 +226,28 @@ impl<'input> fmt::Display for Scope<'input> {
   }
 }
 
+/// A possible qualified enum name, used in references
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct EnumRef<'input> {
+  /// A scope (set of nested types) in which enum is defined
+  pub scope: Scope<'input>,
+  /// A local name of the referenced enum
+  pub name: &'input str,
+}
+impl<'input> fmt::Display for EnumRef<'input> {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    self.scope.fmt(f)?;
+    if !self.scope.path.is_empty() {
+      f.write_str("::")?;
+    }
+    f.write_str(self.name)
+  }
+}
+
 /// A possible qualified type name, used in references
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TypeName<'input> {
-  /// A scope in which type is defined
+  /// A scope (set of nested types) in which type is defined
   pub scope: Scope<'input>,
   /// A local name of the referenced type
   pub name: &'input str,
@@ -544,6 +562,21 @@ peg::parser! {
     /// [`type`]: crate::parser::Attribute::type_
     pub rule parse_type_ref() -> AttrType<'input>
       = _ r:(bits_type() / user_type()) _ EOS() { r };
+
+    /// Entry point for parsing [`enum`] field value.
+    ///
+    /// [`enum`]: crate::parser::Attribute::enum_
+    pub rule parse_enum_ref() -> EnumRef<'input>
+      = _ absolute:"::"? _ path:name() ++ (_ "::" _) _ EOS() {
+        let mut path = path;
+        // `path` guarantee that path will contain at least one element
+        //TODO: use unwrap_unchecked when it's stabilized
+        let name = path.pop().unwrap();
+        EnumRef {
+          scope: Scope { absolute: absolute.is_some(), path },
+          name,
+        }
+      };
 
     /// Entry point for parsing [`process`] field value.
     ///
