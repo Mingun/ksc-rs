@@ -268,6 +268,15 @@ pub struct TypeRef<'input> {
   /// If `true` then reference represents an array of the specified type.
   pub array: bool,
 }
+impl<'input> fmt::Display for TypeRef<'input> {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    self.name.fmt(f)?;
+    if self.array {
+      f.write_str("[]")?;
+    }
+    Ok(())
+  }
+}
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -299,6 +308,17 @@ pub enum ContextVar {
   /// `_is_le`.
   IsLe,//TODO: what's this?
 }
+impl fmt::Display for ContextVar {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match self {
+      Self::Index =>    f.write_str("_index"),
+      Self::Value =>    f.write_str("_"),
+      Self::RawValue => f.write_str("_buf"),
+      Self::SwitchOn => f.write_str("_on"),
+      Self::IsLe =>     f.write_str("_is_le"),
+    }
+  }
+}
 
 /// Attributes of types.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -323,6 +343,17 @@ pub enum Attr<'input> {
   SizeOf,
   /// User-defined attribute of the type
   User(&'input str),
+}
+impl<'input> fmt::Display for Attr<'input> {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match self {
+      Self::Stream =>  f.write_str("_io"),
+      Self::Root =>    f.write_str("_root"),
+      Self::Parent =>  f.write_str("_parent"),
+      Self::SizeOf =>  f.write_str("_sizeof"),
+      Self::User(n) => f.write_str(n),
+    }
+  }
 }
 
 /// List of possible unary operations
