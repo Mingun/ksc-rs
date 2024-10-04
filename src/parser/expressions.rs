@@ -192,6 +192,8 @@ impl<'input> From<Attr<'input>> for Node<'input> {
   }
 }
 
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
 /// A scope in which types and enums are defined, used to resolve references
 /// to them in the expressions.
 ///
@@ -266,6 +268,8 @@ pub struct TypeRef<'input> {
   /// If `true` then reference represents an array of the specified type.
   pub array: bool,
 }
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /// Free variables available in some contexts
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -428,6 +432,8 @@ enum Postfix<'input> {
   Field(Attr<'input>),
 }
 
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
 /// Helper function to convert escape codes to characters
 #[inline]
 fn to_char(number: &str, radix: u32) -> Result<char, &'static str> {
@@ -485,6 +491,8 @@ fn left_associative<'i, T>(mut left: Node<'i>, tail: T) -> Node<'i>
   }
   left
 }
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
 
 peg::parser! {
   /// Contains generated parser for Kaitai Struct expression language.
@@ -745,6 +753,8 @@ peg::parser! {
       };
   }
 }
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #[cfg(test)]
 mod parse {
