@@ -40,10 +40,8 @@ pub enum Node<'input> {
   Attr(Attr<'input>),
   /// Reference to an enum variant.
   EnumVariant {
-    /// A type that defines this enum.
-    scope: Scope<'input>,
-    /// An enum name.
-    name: &'input str,
+    /// A reference to an enum, optionally with the surrounding types.
+    enum_: EnumRef<'input>,
     /// An enum variant.
     variant: &'input str,
   },
@@ -202,7 +200,7 @@ impl<'input> From<Attr<'input>> for Node<'input> {
 /// scope that matches the language best practices.
 ///
 /// [type names]: crate::parser::TypeSpec::types
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Scope<'input> {
   /// Path starts from a top-level type of the current KSY file.
   pub absolute: bool,
@@ -668,8 +666,10 @@ peg::parser! {
         let name    = path.pop().unwrap();
 
         Node::EnumVariant {
-          scope: Scope { absolute: absolute.is_some(), path },
-          name,
+          enum_: EnumRef {
+            scope: Scope { absolute: absolute.is_some(), path },
+            name,
+          },
           variant,
         }
       };
@@ -1382,12 +1382,58 @@ mod parse {
     use super::*;
     use pretty_assertions::assert_eq;
 
+    /// Wrapper, for use with https://github.com/fasterthanlime/pegviz
+    fn parse(input: &str) -> Result<EnumRef, ParseError<LineCol>> {
+      println!("Use https://github.com/fasterthanlime/pegviz to decode the following trace");
+      println!("[PEG_INPUT_START]\n{}\n[PEG_TRACE_START]", input);
+      let result = parse_enum_ref(input);
+      println!("[PEG_TRACE_STOP]");
+      result
+    }
+
+    #[test]
+    fn enum_ref() {
+      assert_eq!(parse(" port "), Ok(
+        EnumRef {
+          scope: Scope { absolute: false, path: vec![] },
+          name: "port",
+        }
+      ));
+      assert_eq!(parse(" some_type :: port "), Ok(
+        EnumRef {
+          scope: Scope { absolute: false, path: vec!["some_type"] },
+          name: "port",
+        }
+      ));
+      assert_eq!(parse("parent_type::child_type::port"), Ok(
+        EnumRef {
+          scope: Scope { absolute: false, path: vec!["parent_type", "child_type"] },
+          name: "port",
+        }
+      ));
+
+      assert_eq!(parse(" :: port "), Ok(
+        EnumRef {
+          scope: Scope { absolute: true, path: vec![] },
+          name: "port",
+        }
+      ));
+      assert_eq!(parse(" :: parent_type::child_type::port"), Ok(
+        EnumRef {
+          scope: Scope { absolute: true, path: vec!["parent_type", "child_type"] },
+          name: "port",
+        }
+      ));
+    }
+
     #[test]
     fn variant() {
       assert_eq!(parse_single("port::http"), Ok(
         EnumVariant {
-          scope: Scope { absolute: false, path: vec![] },
-          name: "port",
+          enum_: EnumRef {
+            scope: Scope { absolute: false, path: vec![] },
+            name: "port",
+          },
           variant: "http",
         }
       ));
@@ -1397,15 +1443,19 @@ mod parse {
     fn with_type() {
       assert_eq!(parse_single("some_type::port::http"), Ok(
         EnumVariant {
-          scope: Scope { absolute: false, path: vec!["some_type"] },
-          name: "port",
+          enum_: EnumRef {
+            scope: Scope { absolute: false, path: vec!["some_type"] },
+            name: "port",
+          },
           variant: "http",
         }
       ));
       assert_eq!(parse_single("parent_type::child_type::port::http"), Ok(
         EnumVariant {
-          scope: Scope { absolute: false, path: vec!["parent_type", "child_type"] },
-          name: "port",
+          enum_: EnumRef {
+            scope: Scope { absolute: false, path: vec!["parent_type", "child_type"] },
+            name: "port",
+          },
           variant: "http",
         }
       ));
@@ -1415,15 +1465,19 @@ mod parse {
     fn with_abs_path() {
       assert_eq!(parse_single("::port::http"), Ok(
         EnumVariant {
-          scope: Scope { absolute: true, path: vec![] },
-          name: "port",
+          enum_: EnumRef {
+            scope: Scope { absolute: true, path: vec![] },
+            name: "port",
+          },
           variant: "http",
         }
       ));
       assert_eq!(parse_single("::parent_type::child_type::port::http"), Ok(
         EnumVariant {
-          scope: Scope { absolute: true, path: vec!["parent_type", "child_type"] },
-          name: "port",
+          enum_: EnumRef {
+            scope: Scope { absolute: true, path: vec!["parent_type", "child_type"] },
+            name: "port",
+          },
           variant: "http",
         }
       ));
@@ -1439,8 +1493,10 @@ mod parse {
           op: Add,
           left: Box::new(Access {
             expr: Box::new(EnumVariant {
-              scope: Scope { absolute: false, path: vec![] },
-              name: "port",
+              enum_: EnumRef {
+                scope: Scope { absolute: false, path: vec![] },
+                name: "port",
+              },
               variant: "http",
             }),
             attr: User("to_i"),

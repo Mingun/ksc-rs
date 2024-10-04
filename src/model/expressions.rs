@@ -11,7 +11,8 @@ use serde_yml::Number;
 use crate::error::ModelError;
 use crate::model::{EnumName, EnumVariantName, FieldName, TypeName as TName};
 use crate::parser::expressions::{
-  parse_name, parse_single, Attr, BinaryOp, ContextVar, Node, Scope, TypeName, TypeRef, UnaryOp,
+  parse_name, parse_single, Attr, BinaryOp, ContextVar, EnumRef, Node, Scope, TypeName, TypeRef,
+  UnaryOp,
 };
 use crate::parser::Scalar;
 
@@ -40,10 +41,8 @@ pub enum OwningNode {
   Attr(OwningAttr),
   /// Reference to an enum variant.
   EnumVariant {
-    /// A type that defines this enum.
-    scope: OwningScope,
-    /// An enum name.
-    name: EnumName,
+    /// A reference to an enum, optionally with the surrounding types.
+    enum_: OwningEnumRef,
     /// An enum variant.
     variant: EnumVariantName,
   },
@@ -156,9 +155,8 @@ impl OwningNode {
       //TODO: Need to check that attribute is really exists in the type
       Node::Attr(val) => Attr(val.try_into()?),
       //TODO: Names already contains only valid symbols, but need to check that they is really exists
-      Node::EnumVariant { scope, name, variant } => EnumVariant {
-        scope: scope.into(),
-        name:  EnumName::valid(name),
+      Node::EnumVariant { enum_, variant } => EnumVariant {
+        enum_: enum_.into(),
         variant: EnumVariantName::valid(variant),
       },
 
@@ -297,8 +295,10 @@ impl From<String> for OwningNode {
   }
 }
 
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
 /// Owning counterpart of a [`Scope`].
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct OwningScope {
   /// Path starts from a top-level type of the current KSY file.
   pub absolute: bool,
@@ -311,6 +311,33 @@ impl<'input> From<Scope<'input>> for OwningScope {
       absolute: reference.absolute,
       //TODO: Name already contains only valid symbols, but need to check that it is really exists
       path:     reference.path.into_iter().map(TName::valid).collect(),
+    }
+  }
+}
+
+/// Path to the enum name, used to describe `enum` in attributes and parameters.
+/// Owning counterpart of a [`EnumRef`].
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct OwningEnumRef {
+  /// A scope in which enum is defined
+  pub scope: OwningScope,
+  /// Name of enum inside type
+  pub name: EnumName,
+}
+impl<'input> From<EnumRef<'input>> for OwningEnumRef {
+  fn from(reference: EnumRef<'input>) -> Self {
+    Self {
+      scope: reference.scope.into(),
+      //TODO: Name already contains only valid symbols, but need to check that it is really exists
+      name:  EnumName::valid(reference.name),
+    }
+  }
+}
+impl<'input> From<EnumName> for OwningEnumRef {
+  fn from(name: EnumName) -> Self {
+    Self {
+      scope: OwningScope::default(),
+      name,
     }
   }
 }
@@ -349,6 +376,8 @@ impl<'input> From<TypeRef<'input>> for OwningTypeRef {
     }
   }
 }
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /// Owning counterpart of an [`Attr`]. Contains validated user-defined field of a type.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
