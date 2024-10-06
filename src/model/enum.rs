@@ -8,7 +8,7 @@ use indexmap::IndexMap;
 
 use crate::error::ModelError;
 use crate::error::ModelError::Validation;
-use crate::model::EnumValueName;
+use crate::model::EnumVariantName;
 use crate::parser as p;
 
 /// Enumeration definition. Contains a map of enumerated values in order of their
@@ -100,7 +100,7 @@ impl Deref for Enum {
 #[derive(Clone, Debug, PartialEq)]
 pub struct EnumVariant {
   /// Name of the enumeration variant
-  pub name: EnumValueName,
+  pub name: EnumVariantName,
 }
 impl EnumVariant {
   /// Creates definition of enumeration by validating a data structure from a [`parser`] module.
@@ -108,8 +108,8 @@ impl EnumVariant {
   /// [`parser`]: crate::parser
   pub fn validate(value: &p::EnumValue) -> Result<Self, ModelError> {
     let name = match value {
-      p::EnumValue::Name(name) => EnumValueName::validate(name)?,
-      p::EnumValue::Full(info) => EnumValueName::validate(&info.id)?,
+      p::EnumValue::Name(name) => EnumVariantName::validate(name)?,
+      p::EnumValue::Full(info) => EnumVariantName::validate(&info.id)?,
     };
     Ok(Self { name })
   }
@@ -129,7 +129,7 @@ mod tests {
   /// Creates a new validated variant for tests
   fn variant(name: &str) -> EnumVariant {
     EnumVariant {
-      name: EnumValueName::valid(name),
+      name: EnumVariantName::valid(name),
     }
   }
 

@@ -25,8 +25,8 @@ mod tags {
   pub enum Type {}
   /// Tag for name of enumeration
   pub enum Enum {}
-  /// Tag for name of enumeration
-  pub enum EnumValue {}
+  /// Tag for name of enumeration variant
+  pub enum EnumVariant {}
 }
 
 /// Type-safe wrapper on string to represent names in KSY model.
@@ -158,8 +158,8 @@ pub type TypeName = Name<tags::Type>;
 /// Name of enumeration
 pub type EnumName = Name<tags::Enum>;
 
-/// Name of enumeration value
-pub type EnumValueName = Name<tags::EnumValue>;
+/// Name of enumeration variant
+pub type EnumVariantName = Name<tags::EnumVariant>;
 
 
 /// Path to enum name, used to describe `type` in attributes and parameters.

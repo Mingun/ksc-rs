@@ -9,7 +9,7 @@ use bigdecimal::BigDecimal;
 use serde_yml::Number;
 
 use crate::error::ModelError;
-use crate::model::{EnumName, EnumValueName, FieldName, TypeName as TName};
+use crate::model::{EnumName, EnumVariantName, FieldName, TypeName as TName};
 use crate::parser::expressions::{
   parse_name, parse_single, Attr, BinaryOp, ContextVar, Node, Scope, TypeName, TypeRef, UnaryOp,
 };
@@ -38,14 +38,14 @@ pub enum OwningNode {
 
   /// Name of field of the type in which attribute expression is defined
   Attr(OwningAttr),
-  /// Reference to an enum value.
-  EnumValue {
+  /// Reference to an enum variant.
+  EnumVariant {
     /// A type that defines this enum.
     scope: OwningScope,
     /// An enum name.
     name: EnumName,
-    /// An enum value.
-    value: EnumValueName,
+    /// An enum variant.
+    variant: EnumVariantName,
   },
 
   /// Array constructor
@@ -156,10 +156,10 @@ impl OwningNode {
       //TODO: Need to check that attribute is really exists in the type
       Node::Attr(val) => Attr(val.try_into()?),
       //TODO: Names already contains only valid symbols, but need to check that they is really exists
-      Node::EnumValue { scope, name, value } => EnumValue {
+      Node::EnumVariant { scope, name, variant } => EnumVariant {
         scope: scope.into(),
         name:  EnumName::valid(name),
-        value: EnumValueName::valid(value),
+        variant: EnumVariantName::valid(variant),
       },
 
       Node::List(val) => List(Self::validate_all(val)?),

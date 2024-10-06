@@ -38,14 +38,14 @@ pub enum Node<'input> {
 
   /// Name of field of the type in which attribute expression is defined
   Attr(Attr<'input>),
-  /// Reference to an enum value.
-  EnumValue {
+  /// Reference to an enum variant.
+  EnumVariant {
     /// A type that defines this enum.
     scope: Scope<'input>,
     /// An enum name.
     name: &'input str,
-    /// An enum value.
-    value: &'input str,
+    /// An enum variant.
+    variant: &'input str,
   },
 
   /// Array constructor
@@ -659,18 +659,18 @@ peg::parser! {
         TypeRef { name, array: array.is_some() }
       };
     /// Ex.: `enum::value`, `::root::type::enum::value`
-    rule enum_name() -> Node<'input>
+    rule enum_variant() -> Node<'input>
       = absolute:"::"? _ n1:name() _ "::" _ n2:name() tail:(_ "::" _ n:name() {n})* {
         let mut path = vec![n1, n2];
         path.extend(tail);
         //TODO: use unwrap_unchecked when it's stabilized
-        let value = path.pop().unwrap();
-        let name  = path.pop().unwrap();
+        let variant = path.pop().unwrap();
+        let name    = path.pop().unwrap();
 
-        Node::EnumValue {
+        Node::EnumVariant {
           scope: Scope { absolute: absolute.is_some(), path },
           name,
-          value,
+          variant,
         }
       };
 
@@ -747,7 +747,7 @@ peg::parser! {
       / e:fstring()                            { Node::InterpolatedStr(e) }
       / v:(s:string() _ {s})+                  { Node::Str(String::from_iter(v.into_iter())) }
       / n:special_name() !name_part()          { n }
-      / e:enum_name()                          { e }
+      / v:enum_variant()                       { v }
       / a:attr()                               { Node::Attr(a) }
       / f:float()                              { Node::Float(f) }
       / i:integer()                            { Node::Int(i) }
@@ -1382,12 +1382,12 @@ mod parse {
     use pretty_assertions::assert_eq;
 
     #[test]
-    fn value() {
+    fn variant() {
       assert_eq!(parse_single("port::http"), Ok(
-        EnumValue {
+        EnumVariant {
           scope: Scope { absolute: false, path: vec![] },
           name: "port",
-          value: "http",
+          variant: "http",
         }
       ));
     }
@@ -1395,17 +1395,17 @@ mod parse {
     #[test]
     fn with_type() {
       assert_eq!(parse_single("some_type::port::http"), Ok(
-        EnumValue {
+        EnumVariant {
           scope: Scope { absolute: false, path: vec!["some_type"] },
           name: "port",
-          value: "http",
+          variant: "http",
         }
       ));
       assert_eq!(parse_single("parent_type::child_type::port::http"), Ok(
-        EnumValue {
+        EnumVariant {
           scope: Scope { absolute: false, path: vec!["parent_type", "child_type"] },
           name: "port",
-          value: "http",
+          variant: "http",
         }
       ));
     }
@@ -1413,17 +1413,17 @@ mod parse {
     #[test]
     fn with_abs_path() {
       assert_eq!(parse_single("::port::http"), Ok(
-        EnumValue {
+        EnumVariant {
           scope: Scope { absolute: true, path: vec![] },
           name: "port",
-          value: "http",
+          variant: "http",
         }
       ));
       assert_eq!(parse_single("::parent_type::child_type::port::http"), Ok(
-        EnumValue {
+        EnumVariant {
           scope: Scope { absolute: true, path: vec!["parent_type", "child_type"] },
           name: "port",
-          value: "http",
+          variant: "http",
         }
       ));
     }
@@ -1437,10 +1437,10 @@ mod parse {
         left: Box::new(Binary {
           op: Add,
           left: Box::new(Access {
-            expr: Box::new(EnumValue {
+            expr: Box::new(EnumVariant {
               scope: Scope { absolute: false, path: vec![] },
               name: "port",
-              value: "http",
+              variant: "http",
             }),
             attr: User("to_i"),
           }),

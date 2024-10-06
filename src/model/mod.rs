@@ -30,7 +30,7 @@ mod package;
 mod r#type;
 
 pub use name::{
-  EnumName, EnumPath, EnumValueName, FieldName, Name, OptionalName, ParamName, SeqName, TypeName,
+  EnumName, EnumPath, EnumVariantName, FieldName, Name, OptionalName, ParamName, SeqName, TypeName,
 };
 pub use package::{ImportLoader, Package};
 pub use r#enum::Enum;
