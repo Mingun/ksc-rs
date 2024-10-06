@@ -161,34 +161,7 @@ pub type EnumName = Name<tags::Enum>;
 /// Name of enumeration variant
 pub type EnumVariantName = Name<tags::EnumVariant>;
 
-
-/// Path to enum name, used to describe `type` in attributes and parameters.
-#[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct EnumPath {
-  /// Path to type with enum definition
-  pub path: Vec<TypeName>,
-  /// Name of enum inside type
-  pub name: EnumName,
-}
-impl EnumPath {
-  /// Checks that the names in path contains only valid characters and creates
-  /// a new path to enum.
-  ///
-  /// If `data` is empty, error is returned.
-  ///
-  /// Valid names in path matches following regexp: `$[a-zA-Z][a-zA-Z0-9_]*^`.
-  pub fn validate(data: &p::Path) -> Result<Self, ModelError> {
-    if let Some(name) = data.0.last() {
-      let len = data.0.len() - 1;
-      let mut path = Vec::with_capacity(len);
-      for name in data.0.iter().take(len) {
-        path.push(TypeName::validate(name)?);
-      }
-      return Ok(Self { path, name: EnumName::validate(&name)? });
-    }
-    Err(ModelError::Validation("enum name is empty".into()))
-  }
-}
+////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #[cfg(test)]
 enum Tag {}

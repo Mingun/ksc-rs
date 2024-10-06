@@ -11,8 +11,8 @@ use serde_yml::Number;
 use crate::error::ModelError;
 use crate::model::{EnumName, EnumVariantName, FieldName, TypeName as TName};
 use crate::parser::expressions::{
-  parse_name, parse_single, Attr, BinaryOp, ContextVar, EnumRef, Node, Scope, TypeName, TypeRef,
-  UnaryOp,
+  parse_enum_ref, parse_name, parse_single, Attr, BinaryOp, ContextVar, EnumRef, Node, Scope,
+  TypeName, TypeRef, UnaryOp,
 };
 use crate::parser::Scalar;
 
@@ -323,6 +323,15 @@ pub struct OwningEnumRef {
   pub scope: OwningScope,
   /// Name of enum inside type
   pub name: EnumName,
+}
+impl<'input> OwningEnumRef {
+  /// Parses and validates a reference to an enum
+  ///
+  /// # Parameters
+  /// - `enum_`: Path to an enum definition, for example, `::absolute::path::to::enum`
+  pub fn validate(enum_: &crate::parser::EnumRef) -> Result<Self, ModelError> {
+    Ok(parse_enum_ref(&enum_.0)?.into())
+  }
 }
 impl<'input> From<EnumRef<'input>> for OwningEnumRef {
   fn from(reference: EnumRef<'input>) -> Self {

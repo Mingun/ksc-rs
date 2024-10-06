@@ -14,9 +14,9 @@ use serde::{Deserialize, Serialize};
 use serde_yml::{Number, Value};
 
 pub use doc::{Doc, DocRef, XRef, XRefs};
-pub use names::{Name, Path, ProcessAlgo, UserName};
+pub use names::{Name, ProcessAlgo, UserName};
 pub use import::Import;
-pub use r#enum::{Enum, EnumValue, EnumVariant};
+pub use r#enum::{Enum, EnumRef, EnumValue, EnumVariant};
 pub use utils::{Expression, OneOrMany, Scalar, Variant};
 
 mod doc;
@@ -468,7 +468,7 @@ pub struct Attribute {
   /// ```
   ///
   /// [`types`]: TypeSpec::types
-  /// [path]: Path
+  /// [path]: Type::User
   /// [type]: TypeSpec
   /// [`meta/id`]: MetaSpec::id
   #[serde(rename = "type")]
@@ -522,7 +522,7 @@ pub struct Attribute {
   /// Name of existing enum field data type becomes given enum.
   #[serde(rename = "enum")]
   #[serde(skip_serializing_if = "Option::is_none")]
-  pub enum_: Option<Path>,
+  pub enum_: Option<EnumRef>,
 
   /// Encoding, used for that attribute, if it has `str` or `strz` type.
   ///
@@ -649,7 +649,7 @@ pub struct Param {
   /// (e.g. `foo::bar::my_enum`)
   #[serde(rename = "enum")]
   #[serde(skip_serializing_if = "Option::is_none")]
-  pub enum_: Option<Path>,
+  pub enum_: Option<EnumRef>,
 
   /// Additional arbitrary values.
   #[serde(flatten)]

@@ -60,34 +60,6 @@ impl<'de> Deserialize<'de> for Name {
   }
 }
 
-/// Path to enum name, used to describe `enum` in attributes and parameters.
-///
-/// Pattern: `^([a-z][a-z0-9_]*::)*[a-z][a-z0-9_]*$`.
-#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[serde(from = "&str", into = "String")]
-pub struct Path(pub Vec<Name>);
-impl<'a> From<&'a str> for Path {
-  fn from(path: &'a str) -> Self {
-    Self(path.split("::").map(|s| Name(s.to_owned())).collect())
-  }
-}
-impl From<Path> for String {
-  fn from(path: Path) -> Self {
-    let mut string = String::new();
-    let mut iter = path.0.into_iter();
-
-    if let Some(first) = iter.next() {
-      string.push_str(&first.0);
-      for s in iter {
-        string.push_str("::");
-        string.push_str(&s.0);
-      }
-    }
-
-    string
-  }
-}
-
 /// Name of user-defined attribute in:
 ///
 /// - [meta](crate::parser::MetaSpec)
@@ -149,20 +121,4 @@ mod name {
     let name: Name = serde_yml::from_str("false").unwrap();
     assert_eq!(name.0, "false");
   }
-}
-
-#[test]
-fn path() {
-  use pretty_assertions::assert_eq;
-
-  let single: Path = "one".into();
-  assert_eq!(single, Path(vec![Name("one".to_owned())]));
-  assert_eq!(String::from(single), "one");
-
-  let many: Path = "some::path".into();
-  assert_eq!(many, Path(vec![
-    Name("some".to_owned()),
-    Name("path".to_owned()),
-  ]));
-  assert_eq!(String::from(many), "some::path");
 }

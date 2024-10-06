@@ -19,7 +19,7 @@ use lazy_static::lazy_static;
 use regex::Regex;
 
 use crate::error::ModelError;
-use crate::model::expressions::OwningNode;
+use crate::model::expressions::{OwningEnumRef, OwningNode};
 use crate::parser as p;
 use crate::parser::expressions::{parse_process, parse_type_ref, AttrType};
 
@@ -30,7 +30,7 @@ mod package;
 mod r#type;
 
 pub use name::{
-  EnumName, EnumPath, EnumVariantName, FieldName, Name, OptionalName, ParamName, SeqName, TypeName,
+  EnumName, EnumVariantName, FieldName, Name, OptionalName, ParamName, SeqName, TypeName,
 };
 pub use package::{ImportLoader, Package};
 pub use r#enum::Enum;
@@ -99,7 +99,7 @@ mod helpers {
   /// Transitional structure, that contains all data from parser structure,
   /// used to determine type for model.
   pub struct TypeProps<'a> {
-    pub enum_:      Option<&'a p::Path>,
+    pub enum_:      Option<&'a p::EnumRef>,
     pub contents:   Option<&'a p::Contents>,
     pub encoding:   Inheritable<&'a String>,
     pub endian:     Option<&'a p::Variant<p::ByteOrder>>,
@@ -643,7 +643,7 @@ pub enum TypeRef {
     base: Enumerable,
     /// Path to enumeration definition. If specified, type should be represented
     /// as enumeration
-    enum_: Option<EnumPath>,
+    enum_: Option<OwningEnumRef>,
   },
 
   /// 4-byte floating point format that follows [IEEE 754] standard in specified byte order.
@@ -714,7 +714,8 @@ impl TypeRef {
     // Produces error of illegal use of enum
     let enum_err = || Err(Validation("`enum` can be used only with integral (`u*`, `s*` and `b*`) types".into()));
 
-    let enum_ = props.enum_.map(EnumPath::validate);
+    // We want to report error in enum only after reporting error about incorrect set of properties for attribute
+    let enum_ = props.enum_.map(OwningEnumRef::validate);
     match (type_ref, props.encoding.own_value(), props.contents, enum_) {
       (Some(Builtin(s1)),   None, None, e) => Ok(Enum { base: I8, enum_: e.transpose()? }),
       (Some(Builtin(u1)),   None, None, e) => Ok(Enum { base: U8, enum_: e.transpose()? }),

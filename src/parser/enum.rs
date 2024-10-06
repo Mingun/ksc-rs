@@ -9,6 +9,15 @@ use serde_yml::{Number, Value};
 
 use crate::parser::{Doc, Name, OneOrMany, Scalar, UserName};
 
+/// Path to enum name, used to describe `enum` in attributes and parameters.
+///
+/// Pattern: `^([a-z][a-z0-9_]*::)*[a-z][a-z0-9_]*$`.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[serde(transparent)]
+pub struct EnumRef(pub String);
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
 /// Detailed information about enum variant
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
