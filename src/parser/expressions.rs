@@ -833,6 +833,7 @@ mod parse {
 
   /// Wrapper, for use with https://github.com/fasterthanlime/pegviz
   fn parse_single(input: &str) -> Result<Node, ParseError<LineCol>> {
+    println!("Use https://github.com/fasterthanlime/pegviz to decode the following trace");
     println!("[PEG_INPUT_START]\n{}\n[PEG_TRACE_START]", input);
     let result = super::parse_single(input);
     println!("[PEG_TRACE_STOP]");
@@ -1821,6 +1822,7 @@ mod parse {
 
     /// Wrapper, for use with https://github.com/fasterthanlime/pegviz
     fn parse(input: &str) -> Result<AttrType, ParseError<LineCol>> {
+      println!("Use https://github.com/fasterthanlime/pegviz to decode the following trace");
       println!("[PEG_INPUT_START]\n{}\n[PEG_TRACE_START]", input);
       let result = parse_type_ref(input);
       println!("[PEG_TRACE_STOP]");
@@ -2086,6 +2088,7 @@ mod parse {
 
     /// Wrapper, for use with https://github.com/fasterthanlime/pegviz
     fn parse(input: &str) -> Result<ProcessAlgo, ParseError<LineCol>> {
+      println!("Use https://github.com/fasterthanlime/pegviz to decode the following trace");
       println!("[PEG_INPUT_START]\n{}\n[PEG_TRACE_START]", input);
       let result = parse_process(input);
       println!("[PEG_TRACE_STOP]");
